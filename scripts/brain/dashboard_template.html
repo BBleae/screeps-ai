@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Screeps 监控</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11, 11, 11, 0.10);
+  --s1: #2a78d6; --s2: #eb6834; --ref: #898781; --track: #cde2fb; --wash: rgba(42, 120, 214, 0.10);
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b; --info: #2a78d6;
+  --shadow: 0 6px 20px rgba(11, 11, 11, 0.10);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10);
+    --s1: #3987e5; --s2: #d95926; --track: #184f95; --wash: rgba(57, 135, 229, 0.16); --info: #3987e5;
+    --shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255, 255, 255, 0.10);
+  --s1: #3987e5; --s2: #d95926; --track: #184f95; --wash: rgba(57, 135, 229, 0.16); --info: #3987e5;
+  --shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--page); color: var(--ink);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+.wrap { max-width: 1440px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 48px; }
+header.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 14px; }
+h1 { font-size: 20px; font-weight: 600; margin: 0; }
+h2 { font-size: 16px; font-weight: 600; margin: 28px 0 10px; }
+h3 { font-size: 14px; font-weight: 600; margin: 18px 0 8px; }
+.sub { color: var(--ink2); font-size: 13px; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; margin-bottom: 16px; }
+.filter { display: inline-flex; align-items: center; gap: 8px; }
+.filter-label { color: var(--muted); font-size: 12px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--ink2); padding: 4px 12px; cursor: pointer; }
+.seg button:hover { background: var(--wash); }
+.seg button[aria-pressed="true"] { background: var(--wash); color: var(--ink); font-weight: 600; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 12px; margin-bottom: 12px; }
+.tile-label { color: var(--ink2); font-size: 13px; }
+.tile-value { font-size: 26px; font-weight: 600; line-height: 1.2; margin: 2px 0 8px; }
+.tile.hero .tile-value { font-size: 48px; line-height: 1.05; }
+.tile-sub { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.meter { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.meter-fill { height: 100%; background: var(--s1); border-radius: 3px; }
+.meter.warning .meter-fill { background: var(--warning); }
+.meter.critical .meter-fill { background: var(--critical); }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 12px; }
+.chart-title { font-weight: 600; }
+.chart-sub { color: var(--muted); font-size: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 6px 0 0; font-size: 12px; color: var(--ink2); }
+.legend-key { display: inline-block; width: 14px; height: 2px; border-radius: 1px; vertical-align: middle; margin-right: 6px; }
+.plot { position: relative; margin-top: 6px; outline: none; }
+.plot:focus-visible { box-shadow: 0 0 0 2px var(--s1); border-radius: 6px; }
+.plot svg { display: block; }
+.grid { stroke: var(--grid); stroke-width: 1; }
+.axis { stroke: var(--axis); stroke-width: 1; }
+.tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.end-label { fill: var(--ink2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.cross { stroke: var(--axis); stroke-width: 1; }
+.tip {
+  position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 10px; font-size: 12px; box-shadow: var(--shadow); white-space: nowrap; z-index: 2;
+}
+.tip-time { color: var(--muted); margin-bottom: 2px; }
+.tip-row { display: flex; align-items: center; gap: 6px; line-height: 1.6; }
+.tip-key { width: 12px; height: 2px; border-radius: 1px; flex: none; }
+.tip-row strong { font-variant-numeric: tabular-nums; }
+.tip-label { color: var(--ink2); }
+.empty { color: var(--muted); font-size: 13px; padding: 36px 8px; text-align: center; }
+.rooms { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr)); gap: 12px; }
+.room { cursor: pointer; transition: border-color 0.15s; }
+.room:hover { border-color: var(--axis); }
+.room:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
+.room.selected { border-color: var(--s1); box-shadow: 0 0 0 1px var(--s1); }
+.room-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.room-name { font-weight: 600; font-size: 16px; }
+.pill { font-size: 12px; color: var(--ink2); border: 1px solid var(--border); border-radius: 999px; padding: 0 8px; white-space: nowrap; }
+.room-head .spacer { flex: 1; }
+.room-sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 10px; margin: 12px 0 8px; }
+.kv div { min-width: 0; }
+.kv dt { color: var(--muted); font-size: 11px; }
+.kv dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spark { display: block; width: 100%; height: 34px; }
+.spark-label { color: var(--muted); font-size: 11px; display: flex; justify-content: space-between; }
+.room-foot { color: var(--ink2); font-size: 12px; margin-top: 6px; }
+.badges { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; }
+.badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink2); }
+.badge-icon {
+  display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%;
+  font-size: 10px; font-weight: 700; color: #ffffff; flex: none; line-height: 1;
+}
+.badge.good .badge-icon { background: var(--good); }
+.badge.warning .badge-icon { background: var(--warning); color: #0b0b0b; }
+.badge.serious .badge-icon { background: var(--serious); color: #0b0b0b; }
+.badge.critical .badge-icon { background: var(--critical); }
+.badge.info .badge-icon { background: var(--info); }
+.fresh .badge { font-size: 13px; color: var(--ink); }
+.detail { margin-top: 16px; }
+.detail-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.detail-head h2 { margin: 0; font-size: 18px; }
+.facts { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--ink2); font-size: 13px; margin: 8px 0 4px; }
+.facts b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.close { font: inherit; font-size: 12px; margin-left: auto; border: 1px solid var(--border); background: transparent; color: var(--ink2); border-radius: 8px; padding: 2px 10px; cursor: pointer; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 6px 10px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; }
+th.text, td.text { text-align: left; }
+tbody tr:hover { background: var(--wash); }
+td.bad { color: var(--critical); }
+.muted { color: var(--muted); }
+details.card summary { cursor: pointer; font-weight: 600; }
+details.card[open] summary { margin-bottom: 10px; }
+footer { color: var(--muted); font-size: 12px; margin-top: 28px; line-height: 1.8; }
+footer p { margin: 0 0 6px; }
+@media (max-width: 520px) {
+  .tile.hero .tile-value { font-size: 40px; }
+  .kv { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Screeps 监控</h1>
+      <div class="sub" id="sub"></div>
+    </div>
+    <div class="fresh" id="fresh"></div>
+  </header>
+  <nav class="filters" aria-label="筛选">
+    <div class="filter"><span class="filter-label">速率窗口</span><div class="seg" id="win"></div></div>
+    <div class="filter"><span class="filter-label">曲线范围</span><div class="seg" id="range"></div></div>
+  </nav>
+  <section class="tiles" id="tiles"></section>
+  <section class="charts">
+    <div class="card" id="chart-cp"></div>
+    <div class="card" id="chart-energy"></div>
+  </section>
+  <h2>房间</h2>
+  <section class="rooms" id="rooms"></section>
+  <section class="detail" id="detail"></section>
+  <h2>表格视图</h2>
+  <div class="card scroll" id="table"></div>
+  <footer id="footer"></footer>
+</div>
+<script type="application/json" id="dashboard-data">/*__DASHBOARD_DATA__*/null</script>
+<script>
+(function () {
+  'use strict';
+  const D = JSON.parse(document.getElementById('dashboard-data').textContent);
+  if (!D) { document.getElementById('sub').textContent = '还没有数据'; return; }
+  const RANGES = { '24h': 86400, '3d': 3 * 86400, '7d': 7 * 86400 };
+  const WINDOWS = D.windows || ['1h', '6h', '24h'];
+  const STATUS = { good: '✓', warning: '!', serious: '!', critical: '✕', info: 'i' };
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const ui = readHash();
+
+  // ---- 工具 ----
+  function readHash() {
+    const p = new URLSearchParams(location.hash.slice(1));
+    return {
+      win: WINDOWS.includes(p.get('win')) ? p.get('win') : '6h',
+      range: RANGES[p.get('range')] ? p.get('range') : '24h',
+      room: p.get('room') || '',
+    };
+  }
+  function writeHash() {
+    const p = new URLSearchParams();
+    p.set('win', ui.win);
+    p.set('range', ui.range);
+    if (ui.room) p.set('room', ui.room);
+    try { history.replaceState(null, '', '#' + p.toString()); } catch (e) { location.hash = p.toString(); }
+  }
+  function h(tag, props, ...kids) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(props || {})) {
+      if (value == null || value === false) continue;
+      if (key === 'class') node.className = value;
+      else if (key === 'style') node.style.cssText = value;
+      else if (key.startsWith('on')) node.addEventListener(key.slice(2), value);
+      else node.setAttribute(key, value === true ? '' : value);
+    }
+    for (const kid of kids.flat()) {
+      if (kid == null || kid === false) continue;
+      node.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+    }
+    return node;
+  }
+  function svg(tag, attrs) {
+    const node = document.createElementNS(SVGNS, tag);
+    for (const [key, value] of Object.entries(attrs || {})) node.setAttribute(key, value);
+    return node;
+  }
+  const ok = (v) => v != null && Number.isFinite(v);
+  function num(v, digits = 1) {
+    if (!ok(v)) return '–';
+    return v.toLocaleString('zh-CN', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  }
+  function compact(v) {
+    if (!ok(v)) return '–';
+    const a = Math.abs(v);
+    if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e8 ? 0 : a >= 1e7 ? 1 : 2) + 'M';
+    if (a >= 1e4) return (v / 1e3).toFixed(a >= 1e5 ? 0 : 1) + 'k';
+    return (Math.round(v * 10) / 10).toLocaleString('zh-CN');
+  }
+  function signed(v, digits = 1) {
+    if (!ok(v)) return '–';
+    return (v > 0 ? '+' : v < 0 ? '−' : '') + num(Math.abs(v), digits);
+  }
+  const pct = (v) => (ok(v) ? Math.round(v * 100) + '%' : '–');
+  function duration(sec) {
+    if (!ok(sec) || sec < 0) return '–';
+    if (sec < 90) return Math.round(sec) + ' 秒';
+    if (sec < 5400) return Math.round(sec / 60) + ' 分钟';
+    if (sec < 172800) return (sec / 3600).toFixed(1) + ' 小时';
+    return (sec / 86400).toFixed(1) + ' 天';
+  }
+  function clock(ts, withDate) {
+    const d = new Date(ts * 1000);
+    const hm = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    return withDate ? (d.getMonth() + 1) + '/' + d.getDate() + ' ' + hm : hm;
+  }
+  function badge(level, text) {
+    return h('span', { class: 'badge ' + level },
+      h('span', { class: 'badge-icon', 'aria-hidden': 'true' }, STATUS[level] || '•'), h('span', null, text));
+  }
+  function meter(frac, level, label) {
+    const f = ok(frac) ? Math.max(0, Math.min(1, frac)) : 0;
+    return h('div', { class: 'meter ' + (level || ''), role: 'img', 'aria-label': label || pct(frac) },
+      h('div', { class: 'meter-fill', style: 'width:' + (f * 100).toFixed(1) + '%' }));
+  }
+  const effLevel = (e) => (!ok(e) ? '' : e < 0.5 ? 'critical' : e < 0.8 ? 'warning' : '');
+  const statsOf = (obj) => (obj && obj.stats && obj.stats[ui.win]) || {};
+  const LEVEL_RANK = { critical: 0, serious: 1, warning: 2, info: 3 };
+  function etaSeconds(remaining, perTick, secPerTick) {
+    return ok(remaining) && ok(perTick) && perTick > 0 && ok(secPerTick) ? remaining / perTick * secPerTick : null;
+  }
+  function historyNote() {
+    const first = D.history.first ? clock(D.history.first, true) : '–';
+    return '历史不足：从 ' + first + ' 开始记录，曲线每 20 分钟一个点、两个点才连成线（约 40 分钟后出现），满 1 小时后每个点才是完整的 1 小时速率';
+  }
+
+  // ---- 曲线 ----
+  function niceTicks(lo, hi, count) {
+    if (!(hi > lo)) hi = lo + 1;
+    const raw = (hi - lo) / count;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= raw);
+    const start = Math.floor(lo / step) * step;
+    const ticks = [];
+    for (let v = start; v <= hi + step * 0.5; v += step) ticks.push(Math.round(v / step) * step);
+    if (ticks[ticks.length - 1] < hi) ticks.push(ticks[ticks.length - 1] + step);
+    return { ticks, step };
+  }
+  function tickText(v, step) {
+    if (Math.abs(v) >= 1e4) return compact(v);
+    return v.toLocaleString('zh-CN', { maximumFractionDigits: step < 1 ? 1 : 0 });
+  }
+  function lineChart(host, o) {
+    host.replaceChildren();
+    host.append(h('div', null, h('div', { class: 'chart-title' }, o.title), o.sub ? h('div', { class: 'chart-sub' }, o.sub) : null));
+    if (o.series.length > 1) {
+      host.append(h('div', { class: 'legend' }, o.series.map((se) =>
+        h('span', null, h('span', { class: 'legend-key', style: 'background:' + se.color }), se.label))));
+    }
+    const plot = h('div', { class: 'plot' });
+    host.append(plot);
+    const t = D.series.t;
+    const span = RANGES[ui.range];
+    const x1 = D.generatedAt;
+    const x0 = x1 - span;
+    const idx = [];
+    for (let i = 0; i < t.length; i++) {
+      if (t[i] >= x0 && o.series.some((se) => ok(se.values[i]))) idx.push(i);
+    }
+    if (idx.length < 2) { plot.append(h('div', { class: 'empty' }, historyNote())); return; }
+    const width = Math.max(240, plot.clientWidth || 400);
+    const height = o.height || 190;
+    const m = { l: 44, r: 58, t: 10, b: 24 };
+    const iw = width - m.l - m.r;
+    const ih = height - m.t - m.b;
+    let lo = o.min != null ? o.min : 0;
+    let hi = -Infinity;
+    for (const se of o.series) for (const i of idx) {
+      const v = se.values[i];
+      if (!ok(v)) continue;
+      if (v > hi) hi = v;
+      if (v < lo) lo = v;
+    }
+    const { ticks, step } = niceTicks(lo, hi, 4);
+    lo = ticks[0];
+    hi = ticks[ticks.length - 1];
+    const X = (ts) => m.l + (ts - x0) / (x1 - x0) * iw;
+    const Y = (v) => m.t + (hi - v) / (hi - lo || 1) * ih;
+    const root = svg('svg', { width, height, viewBox: '0 0 ' + width + ' ' + height, role: 'img', 'aria-label': o.title });
+    for (const v of ticks) {
+      root.append(svg('line', { x1: m.l, x2: width - m.r, y1: Y(v), y2: Y(v), class: v === 0 ? 'axis' : 'grid' }));
+      const label = svg('text', { x: m.l - 6, y: Y(v) + 4, 'text-anchor': 'end', class: 'tick' });
+      label.textContent = tickText(v, step);
+      root.append(label);
+    }
+    const hourSteps = [1, 2, 3, 6, 12, 24, 48].map((x) => x * 3600);
+    const xStep = hourSteps.find((s) => iw / (span / s) >= 70) || hourSteps[hourSteps.length - 1];
+    const shift = -new Date().getTimezoneOffset() * 60;
+    for (let ts = Math.ceil((x0 + shift) / xStep) * xStep - shift; ts <= x1; ts += xStep) {
+      const label = svg('text', { x: X(ts), y: height - 6, 'text-anchor': 'middle', class: 'tick' });
+      label.textContent = clock(ts, span > 86400 && ((ts + shift) % 86400 === 0 || xStep >= 86400));
+      root.append(label);
+    }
+    const ends = [];
+    o.series.forEach((se) => {
+      let d = '';
+      let pen = false;
+      let lastIndex = -1;
+      for (const i of idx) {
+        const v = se.values[i];
+        if (!ok(v)) { pen = false; continue; }
+        d += (pen ? 'L' : 'M') + X(t[i]).toFixed(1) + ' ' + Y(v).toFixed(1);
+        pen = true;
+        lastIndex = i;
+      }
+      root.append(svg('path', { d, fill: 'none', stroke: se.color, 'stroke-width': se.ref ? 1.5 : 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+      if (lastIndex >= 0) {
+        const v = se.values[lastIndex];
+        root.append(svg('circle', { cx: X(t[lastIndex]), cy: Y(v), r: 4, fill: se.color, stroke: 'var(--surface)', 'stroke-width': 2 }));
+        ends.push({ y: Y(v), x: X(t[lastIndex]), text: o.format(v), ref: se.ref });
+      }
+    });
+    // 终点直接标数：挤在一起时只留非参考线的标签，避免叠字
+    ends.sort((a, b) => a.y - b.y);
+    const shown = ends.filter((e, n) => !ends.some((other, k) => k !== n && Math.abs(other.y - e.y) < 13 && (e.ref && !other.ref || (e.ref === other.ref && k < n))));
+    for (const e of shown) {
+      const label = svg('text', { x: e.x + 8, y: e.y + 4, class: 'end-label' });
+      label.textContent = e.text;
+      root.append(label);
+    }
+    const cross = svg('line', { y1: m.t, y2: m.t + ih, class: 'cross', visibility: 'hidden' });
+    root.append(cross);
+    const dots = o.series.map((se) => {
+      const dot = svg('circle', { r: 4, fill: se.color, stroke: 'var(--surface)', 'stroke-width': 2, visibility: 'hidden' });
+      root.append(dot);
+      return dot;
+    });
+    const hit = svg('rect', { x: m.l, y: 0, width: iw + 8, height: m.t + ih + 8, fill: 'transparent' });
+    root.append(hit);
+    plot.append(root);
+    const tip = h('div', { class: 'tip', hidden: true });
+    plot.append(tip);
+    let current = -1;
+    function show(k) {
+      current = k;
+      const i = idx[k];
+      const x = X(t[i]);
+      cross.setAttribute('x1', x);
+      cross.setAttribute('x2', x);
+      cross.setAttribute('visibility', 'visible');
+      o.series.forEach((se, n) => {
+        const v = se.values[i];
+        if (!ok(v)) { dots[n].setAttribute('visibility', 'hidden'); return; }
+        dots[n].setAttribute('cx', x);
+        dots[n].setAttribute('cy', Y(v));
+        dots[n].setAttribute('visibility', 'visible');
+      });
+      tip.replaceChildren(h('div', { class: 'tip-time' }, clock(t[i], span > 86400)),
+        ...o.series.map((se) => h('div', { class: 'tip-row' },
+          h('span', { class: 'tip-key', style: 'background:' + se.color }),
+          h('strong', null, o.format(se.values[i])), h('span', { class: 'tip-label' }, se.label))));
+      tip.hidden = false;
+      const tw = tip.offsetWidth;
+      let left = x + 14;
+      if (left + tw > width) left = x - 14 - tw;
+      tip.style.left = Math.max(0, left) + 'px';
+      tip.style.top = m.t + 'px';
+    }
+    function hide() {
+      current = -1;
+      tip.hidden = true;
+      cross.setAttribute('visibility', 'hidden');
+      dots.forEach((dot) => dot.setAttribute('visibility', 'hidden'));
+    }
+    hit.addEventListener('pointermove', (ev) => {
+      const box = root.getBoundingClientRect();
+      const ts = x0 + (ev.clientX - box.left - m.l) / iw * (x1 - x0);
+      let best = 0;
+      for (let k = 1; k < idx.length; k++) if (Math.abs(t[idx[k]] - ts) < Math.abs(t[idx[best]] - ts)) best = k;
+      show(best);
+    });
+    hit.addEventListener('pointerleave', hide);
+    plot.tabIndex = 0;
+    plot.setAttribute('aria-label', o.title + '：左右方向键逐点查看');
+    plot.addEventListener('keydown', (ev) => {
+      if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+      ev.preventDefault();
+      const next = current < 0 ? idx.length - 1 : current + (ev.key === 'ArrowRight' ? 1 : -1);
+      show(Math.max(0, Math.min(idx.length - 1, next)));
+    });
+    plot.addEventListener('blur', hide);
+  }
+  function sparkline(values) {
+    const t = D.series.t;
+    const x0 = D.generatedAt - RANGES[ui.range];
+    const pts = [];
+    for (let i = 0; i < t.length; i++) if (t[i] >= x0 && ok(values[i])) pts.push([t[i], values[i]]);
+    if (pts.length < 2) return h('div', { class: 'spark-label' }, h('span', null, '曲线：历史不足'));
+    const W = 300, H = 34;
+    const hi = Math.max(...pts.map((p) => p[1])) || 1;
+    const lo = Math.min(0, ...pts.map((p) => p[1]));
+    const d = pts.map((p, n) => (n ? 'L' : 'M') + ((p[0] - x0) / RANGES[ui.range] * W).toFixed(1) + ' ' + (2 + (hi - p[1]) / (hi - lo || 1) * (H - 4)).toFixed(1)).join('');
+    const root = svg('svg', { class: 'spark', viewBox: '0 0 ' + W + ' ' + H, preserveAspectRatio: 'none', 'aria-hidden': 'true' });
+    root.append(svg('path', { d, fill: 'none', stroke: 'var(--s1)', 'stroke-width': 2, 'vector-effect': 'non-scaling-stroke', 'stroke-linejoin': 'round' }));
+    return h('div', null, root, h('div', { class: 'spark-label' }, h('span', null, 'CP/tick · ' + ui.range), h('span', null, '峰值 ' + num(hi, 1))));
+  }
+
+  // ---- 各块 ----
+  function renderHeader() {
+    const s6 = (D.account.stats['6h'] || {}).secPerTick || (D.account.stats['1h'] || {}).secPerTick;
+    document.getElementById('sub').textContent =
+      (D.me || '?') + ' · shard1 · tick ' + (D.tick || 0).toLocaleString('zh-CN') + (ok(s6) ? ' · ' + s6.toFixed(2) + ' 秒/tick' : '') +
+      ' · 快照于 ' + clock(D.generatedAt, true);
+    renderFresh();
+    for (const [id, values, key] of [['win', WINDOWS, 'win'], ['range', Object.keys(RANGES), 'range']]) {
+      const host = document.getElementById(id);
+      host.setAttribute('role', 'group');
+      host.replaceChildren(...values.map((value) => h('button', {
+        type: 'button', 'aria-pressed': String(ui[key] === value),
+        onclick: () => { ui[key] = value; writeHash(); renderAll(); },
+      }, value)));
+    }
+  }
+  function renderFresh() {
+    const age = Math.max(0, Date.now() / 1000 - D.generatedAt);
+    let level = 'good';
+    let text = '数据 ' + duration(age) + '前 · 指令已写入';
+    if (!D.brain.ok) { level = 'warning'; text = '数据 ' + duration(age) + '前 · ' + (D.brain.wrote || '本轮未写入指令'); }
+    if (age > 900) { level = 'critical'; text = '已经 ' + duration(age) + '没有更新：外部大脑可能停了'; }
+    const host = document.getElementById('fresh');
+    host.replaceChildren(badge(level, text));
+    host.title = D.brain.wrote || '';
+  }
+  function tile(label, value, sub, extra, hero) {
+    return h('div', { class: 'card tile' + (hero ? ' hero' : '') },
+      h('div', { class: 'tile-label' }, label), h('div', { class: 'tile-value' }, value), extra || null,
+      sub ? h('div', { class: 'tile-sub' }, sub) : null);
+  }
+  function renderTiles() {
+    const st = statsOf(D.account);
+    const g = D.gcl;
+    const gclEta = etaSeconds(g.remaining, st.cp, st.secPerTick);
+    const noRate = !ok(st.cp) && !ok(st.harvest) ? '历史不足，至少两轮大脑后才有速率' : null;
+    document.getElementById('tiles').replaceChildren(
+      tile('账号 CP/tick', num(st.cp, 1), noRate || '各房控制器合计 ' + num(st.roomsCp, 1) + ' · 过去 ' + ui.win, null, true),
+      tile('GCL', 'GCL ' + g.level, '距 GCL ' + (g.level + 1) + ' 还差 ' + compact(g.remaining) + ' 点 · 约 ' + duration(gclEta),
+        meter(g.progress, '', 'GCL 进度 ' + pct(g.progress))),
+      tile('能量采集 /tick', num(st.harvest, 1), '理论上限 ' + num(st.ceiling, 1) + ' · 采集率 ' + pct(st.eff),
+        meter(st.eff, effLevel(st.eff), '采集率 ' + pct(st.eff))),
+      tile('creep 维持成本 /tick', num(st.upkeep, 1),
+        '占采集 ' + pct(ok(st.harvest) && st.harvest > 0 ? st.upkeep / st.harvest : null) + ' · ' + D.account.creeps + ' 只 creep' +
+        (D.account.unpriced ? '（' + D.account.unpriced + ' 只在视野外未计价）' : '')),
+      tile('采集净额 /tick', num(st.net, 1), '采集 − 维持，未扣运输损耗与修理'),
+    );
+  }
+  function renderAccountCharts() {
+    const A = D.account.series;
+    lineChart(document.getElementById('chart-cp'), {
+      title: '账号 CP/tick', sub: '每个点是过去 1 小时 GCL 点数的增速',
+      series: [{ label: 'CP/tick', values: A.cp, color: 'var(--s1)' }], format: (v) => num(v, 1),
+    });
+    lineChart(document.getElementById('chart-energy'), {
+      title: '能量 /tick', sub: '全账号：理论上限、实际采集、creep 维持成本；每个点是过去 1 小时',
+      series: [
+        { label: '理论上限', values: A.ceiling, color: 'var(--ref)', ref: true },
+        { label: '实际采集', values: A.harvest, color: 'var(--s1)' },
+        { label: '维持成本', values: A.upkeep, color: 'var(--s2)' },
+      ], format: (v) => num(v, 1),
+    });
+  }
+  function kv(label, value) { return h('div', null, h('dt', null, label), h('dd', { title: value }, value)); }
+  function remoteCounts(room) {
+    const on = room.remotes.filter((r) => r.now.state === 'on').length;
+    const suspended = room.remotes.filter((r) => r.now.state === 'suspended').length;
+    return { on, suspended };
+  }
+  function selectRoom(name) {
+    ui.room = ui.room === name ? '' : name;
+    writeHash();
+    renderRooms();
+    renderDetail();
+    if (ui.room) document.getElementById('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function renderRooms() {
+    const host = document.getElementById('rooms');
+    host.replaceChildren(...D.rooms.map((room) => {
+      const st = statsOf(room);
+      const n = room.now;
+      const alerts = room.alerts.slice().sort((a, b) => LEVEL_RANK[a.level] - LEVEL_RANK[b.level]);
+      const counts = remoteCounts(room);
+      const eta = etaSeconds(ok(room.rclNeed) ? room.rclNeed - (n.prog || 0) : null, st.cp, st.secPerTick);
+      const card = h('div', {
+        class: 'card room' + (ui.room === room.name ? ' selected' : ''), role: 'button', tabindex: '0',
+        'aria-pressed': String(ui.room === room.name), 'aria-label': room.name + ' 详情',
+        onclick: () => selectRoom(room.name),
+        onkeydown: (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); selectRoom(room.name); } },
+      },
+        h('div', { class: 'room-head' },
+          h('span', { class: 'room-name' }, room.name), h('span', { class: 'pill' }, 'RCL ' + (n.rcl != null ? n.rcl : '?')),
+          h('span', { class: 'spacer' }),
+          alerts.length ? badge(alerts[0].level, alerts.length > 1 ? alerts.length + ' 条告警' : '1 条告警') : badge('good', '正常')),
+        room.rclNeed ? [
+          meter(room.progress, '', '升级进度 ' + pct(room.progress)),
+          h('div', { class: 'room-sub' }, pct(room.progress) + ' · ' + compact(n.prog) + ' / ' + compact(room.rclNeed) + ' · 升级约 ' + duration(eta)),
+        ] : h('div', { class: 'room-sub' }, n.rcl === 8 ? 'RCL 8（CP 只算进账号 GCL）' : '控制器读数缺失'),
+        h('dl', { class: 'kv' },
+          kv('CP/tick', num(st.cp, 1)),
+          kv('采集 / 上限', num(st.harvest, 0) + ' / ' + num(st.ceiling, 0)),
+          kv('采集率', pct(st.eff)),
+          kv('维持 /tick', num(st.upkeep, 1)),
+          kv('storage', compact(n.storage)),
+          kv('storage /tick', signed(st.storage, 1))),
+        sparkline(room.series.cp),
+        h('div', { class: 'room-foot' },
+          '外矿 ' + counts.on + ' 在用' + (counts.suspended ? ' · ' + counts.suspended + ' 停用' : '') + ' · ' + (n.creeps || 0) + ' 只 creep'),
+        alerts.length ? h('div', { class: 'badges' }, alerts.slice(0, 3).map((a) => badge(a.level, a.text)),
+          alerts.length > 3 ? h('span', { class: 'badge muted' }, '另 ' + (alerts.length - 3) + ' 条') : null) : null,
+      );
+      return card;
+    }));
+  }
+  function stateLabel(remote) {
+    const n = remote.now;
+    if (n.state === 'on') return badge('good', n.counted ? '在用' : '在用（记在别的母房）');
+    if (n.state === 'suspended') return badge('warning', '停用 ' + (n.why || ''));
+    return badge(n.creeps ? 'serious' : 'info', '未启用 ' + (n.why || ''));
+  }
+  function reserveText(v) {
+    if (!ok(v) || v === 0) return '无';
+    return v > 0 ? '我方 ' + v.toLocaleString('zh-CN') : '他人 ' + (-v).toLocaleString('zh-CN');
+  }
+  function cell(text, cls) { return h('td', cls ? { class: cls } : null, text); }
+  function renderDetail() {
+    const host = document.getElementById('detail');
+    host.replaceChildren();
+    const room = D.rooms.find((r) => r.name === ui.room);
+    if (!room) return;
+    const st = statsOf(room);
+    const n = room.now;
+    const roles = Object.entries(n.roles || {}).sort((a, b) => b[1] - a[1]).map(([role, count]) => role + ' ' + count).join('，');
+    const card = h('div', { class: 'card' });
+    host.append(card);
+    card.append(
+      h('div', { class: 'detail-head' },
+        h('h2', null, room.name), h('span', { class: 'pill' }, 'RCL ' + (n.rcl != null ? n.rcl : '?')),
+        h('span', { class: 'sub' }, '过去 ' + ui.win + ' · 跨 ' + (st.ticks || 0).toLocaleString('zh-CN') + ' tick'),
+        h('button', { type: 'button', class: 'close', onclick: () => selectRoom(room.name) }, '收起')),
+      h('div', { class: 'facts' },
+        h('span', null, 'spawn 能量 ', h('b', null, (n.energy || 0) + ' / ' + (n.cap || 0))),
+        h('span', null, 'spawn 到货 EMA ', h('b', null, num(n.income, 1)), ' · 花费 EMA ', h('b', null, num(n.spend, 1))),
+        h('span', null, 'storage ', h('b', null, compact(n.storage)), ' ', signed(st.storage, 1), '/tick'),
+        n.terminal != null ? h('span', null, 'terminal ', h('b', null, compact(n.terminal))) : null,
+        h('span', null, '塔 ', h('b', null, (n.towers || [0, 0]).join(' / '))),
+        h('span', null, '工地 ', h('b', null, n.sites || 0)),
+        h('span', null, 'spawn 忙 ', h('b', null, (n.spawns || [0, 0]).join(' / '))),
+        h('span', null, '地上能量 ', h('b', null, compact(n.ground))),
+        n.downgrade != null ? h('span', null, '降级倒计时 ', h('b', null, n.downgrade.toLocaleString('zh-CN'))) : null),
+      h('div', { class: 'facts' }, h('span', null, (n.creeps || 0) + ' 只 creep：' + (roles || '无') +
+        (n.unpriced ? '（' + n.unpriced + ' 只在视野外未计价）' : ''))),
+    );
+    // Element.append 会把 null 渲染成字面 "null"，可选块单独加
+    if (room.alerts.length) card.append(h('div', { class: 'badges' }, room.alerts.map((a) => badge(a.level, a.text))));
+    const charts =h('div', { class: 'charts', style: 'margin-top:14px' });
+    const cpBox = h('div', { class: 'card' });
+    const energyBox = h('div', { class: 'card' });
+    const storageBox = h('div', { class: 'card' });
+    charts.append(cpBox, energyBox, storageBox);
+    card.append(charts);
+    lineChart(cpBox, { title: 'CP/tick', sub: '控制器 progress 增速，每个点是过去 1 小时', series: [{ label: 'CP/tick', values: room.series.cp, color: 'var(--s1)' }], format: (v) => num(v, 1) });
+    lineChart(energyBox, {
+      title: '能量 /tick', sub: '本房 + 计入的外矿，每个点是过去 1 小时',
+      series: [
+        { label: '理论上限', values: room.series.ceiling, color: 'var(--ref)', ref: true },
+        { label: '实际采集', values: room.series.harvest, color: 'var(--s1)' },
+        { label: '维持成本', values: room.series.upkeep, color: 'var(--s2)' },
+      ], format: (v) => num(v, 1),
+    });
+    lineChart(storageBox, { title: 'storage 能量', sub: '每 20 分钟一个读数', series: [{ label: 'storage', values: room.series.storage, color: 'var(--s1)' }], format: compact });
+
+    card.append(h('h3', null, '能量账（过去 ' + ui.win + '）'));
+    const rows = [
+      ['本房源', st.cOwn, st.hOwn, st.effOwn, st.upOwn],
+      ['外矿', st.cRem, st.hRem, st.effRem, st.upRem],
+      ['合计', st.ceiling, st.harvest, st.eff, st.upkeep],
+    ];
+    card.append(h('div', { class: 'scroll' }, h('table', null,
+      h('thead', null, h('tr', null, ['', '理论上限', '实际采集', '采集率', '维持成本', '净额'].map((c, k) => h('th', k ? null : { class: 'text' }, c)))),
+      h('tbody', null, rows.map(([label, c, hv, e, up]) => {
+        const net = ok(hv) && ok(up) ? hv - up : null;
+        return h('tr', null, cell(label, 'text'), cell(num(c, 1)), cell(num(hv, 1)), cell(pct(e)), cell(num(up, 1)),
+          cell(signed(net, 1), ok(net) && net < 0 ? 'bad' : ''));
+      })))));
+
+    card.append(h('h3', null, '外矿（' + room.remotes.length + '）'));
+    if (!room.remotes.length) { card.append(h('div', { class: 'muted' }, '没有启用或有人在干活的外矿')); return; }
+    const head = ['外矿', '状态', '白名单', '源 / 容器', '源距离', '预定', '理论上限', '实际采集', '采集率', '维持成本', '净额', 'creep', '地上能量', '卸货房'];
+    card.append(h('div', { class: 'scroll' }, h('table', null,
+      h('thead', null, h('tr', null, head.map((c, k) => h('th', k < 3 ? { class: 'text' } : null, c)))),
+      h('tbody', null, room.remotes.map((remote) => {
+        const r = remote.now;
+        const rs = (remote.stats && remote.stats[ui.win]) || {};
+        return h('tr', null,
+          cell(remote.name, 'text'), h('td', { class: 'text' }, stateLabel(remote)), cell(r.whitelist ? '是' : '否', 'text'),
+          cell((r.sources ? r.sources.length : (r.dist || []).length) + ' / ' + (r.containers || 0)),
+          cell((r.dist || []).map((d) => (d == null ? '?' : d)).join(' / ') || '–'),
+          cell(reserveText(r.reserve)),
+          cell(r.counted ? num(rs.c, 1) : '–'), cell(r.counted ? num(rs.h, 1) : '–'), cell(r.counted ? pct(rs.eff) : '–'),
+          cell(num(rs.upkeep, 1)), cell(signed(rs.net, 1), ok(rs.net) && rs.net < 0 ? 'bad' : ''),
+          cell(r.creeps || 0), cell(r.seen ? compact(r.ground) : '未拉到'), cell(r.drop || '母房'));
+      })))));
+  }
+  function renderTable() {
+    const head = ['房间', 'RCL', '升级进度', 'CP/tick', '升级 ETA', '实际采集', '理论上限', '采集率', '维持成本', '净额', 'storage', 'storage /tick', '外矿在用', 'creep', '告警'];
+    document.getElementById('table').replaceChildren(h('table', null,
+      h('thead', null, h('tr', null, head.map((c, k) => h('th', k ? null : { class: 'text' }, c)))),
+      h('tbody', null, D.rooms.map((room) => {
+        const st = statsOf(room);
+        const n = room.now;
+        const eta = etaSeconds(ok(room.rclNeed) ? room.rclNeed - (n.prog || 0) : null, st.cp, st.secPerTick);
+        return h('tr', null,
+          cell(room.name, 'text'), cell(n.rcl != null ? n.rcl : '?'), cell(pct(room.progress)), cell(num(st.cp, 1)), cell(duration(eta)),
+          cell(num(st.harvest, 1)), cell(num(st.ceiling, 1)), cell(pct(st.eff)), cell(num(st.upkeep, 1)),
+          cell(signed(st.net, 1), ok(st.net) && st.net < 0 ? 'bad' : ''), cell(compact(n.storage)), cell(signed(st.storage, 1)),
+          cell(remoteCounts(room).on), cell(n.creeps || 0), cell(room.alerts.length));
+      }))));
+  }
+  function renderFooter() {
+    const first = D.history.first ? clock(D.history.first, true) : '–';
+    document.getElementById('footer').replaceChildren(
+      h('p', null, '口径：理论上限 = 每个源 max(容量, 3000)/300（外矿预定掉了、敌情停用都算损失）；实际采集 = 源 invaderHarvested 增量；' +
+        '维持成本 = 视野圈内我方 creep 身体成本 / 寿命（CLAIM 600，否则 1500），外矿 creep 记到它的外矿、援建 creep 记到出钱的母房；' +
+        'CP/tick = 控制器 progress 增量，账号总量用 GCL 点数；外矿净额没扣运输损耗、掉落腐烂和修理，是上界。'),
+      h('p', null, '数据来自外部大脑每轮已经读到的 Memory 与 room-objects 缓存，不额外调用 API。历史 ' + D.history.entries + ' 条，从 ' + first +
+        ' 起，保留 7 天。页面在下一轮大脑写完后自动重载。'),
+    );
+  }
+  function renderAll() {
+    renderHeader();
+    renderTiles();
+    renderAccountCharts();
+    renderRooms();
+    renderDetail();
+    renderTable();
+    renderFooter();
+  }
+
+  renderAll();
+  try {
+    const y = Number(sessionStorage.getItem('dashboard-scroll'));
+    if (y > 0) window.scrollTo(0, y);
+    sessionStorage.removeItem('dashboard-scroll');
+  } catch (e) { /* 无痕窗口等场景没有 sessionStorage */ }
+  let resizeTimer = 0;
+  let lastWidth = window.innerWidth;
+  window.addEventListener('resize', () => {
+    if (window.innerWidth === lastWidth) return;
+    lastWidth = window.innerWidth;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { renderAccountCharts(); renderDetail(); }, 150);
+  });
+  setInterval(renderFresh, 30000);
+  // 大脑每 5 分钟一轮：在预计下一轮写完后重载；已经过期就每分钟看一眼
+  const expected = (D.generatedAt + 330) * 1000 - Date.now();
+  setTimeout(() => {
+    try { sessionStorage.setItem('dashboard-scroll', String(window.scrollY)); } catch (e) { /* 同上 */ }
+    location.reload();
+  }, Math.min(6 * 60000, Math.max(60000, expected)));
+})();
+</script>
+</body>
+</html>

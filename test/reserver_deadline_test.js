@@ -1,0 +1,48 @@
+'use strict';
+const assert = require('assert'), fs = require('fs'), vm = require('vm');
+const config = require('../src/config');
+const Module = require('module');
+const resolve = Module._resolveFilename;
+Module._resolveFilename = function(name, ...args) { return resolve.call(this, name === 'config' ? require.resolve('../src/config') : name, ...args); };
+const utils = require('../src/utils');
+Module._resolveFilename = resolve;
+let occupants = [];
+const u = Object.assign({}, utils, { creepsHomeRole: () => occupants, isRetiring: () => false });
+const load = (file, modules) => {
+    const context = { module: { exports: {} }, require: name => modules[name] || {}, Game: { time: 1000 }, Memory: {} };
+    vm.runInNewContext(fs.readFileSync(require.resolve('../src/' + file), 'utf8'), context);
+    return context;
+};
+const queue = load('spawn_queue.js', { utils: u }).module.exports;
+const remote = load('remote.js', { utils: u, config }).module.exports;
+const spawn = load('spawn.js', { utils: u, config, spawn_queue: queue, remote });
+vm.runInNewContext('module.exports.scheduleHandoffs = typeof scheduleHandoffs === "function" ? scheduleHandoffs : (room, requests, items, spawns, settings, ctx) => queue.schedule(requests, ctx);', spawn);
+const home = { name: 'W33S3', energyCapacityAvailable: 1300 };
+const item = { role: 'reserver', slot: 'reserver:W32S1', memory: { home: home.name, remoteRoom: 'W32S1' },
+    body: ['claim', 'move', 'claim', 'move'], lead: 189, grace: 60, maintain: true };
+const development = { key: 'development', role: 'hauler', priority: 5, body: () => Array(26).fill('carry') };
+const ctx = { now: 1000, energy: 1300, capacity: 1300, income: 20, spawnsFree: 1, since: {} };
+const settings = { classes: config.spawnQueue.classes, grace: config.spawnQueue.grace };
+const allSpawns = [{}];
+occupants = [{ name: 'old', ticksToLive: 220, memory: { role: 'reserver', home: home.name, remoteRoom: 'W32S1' } }];
+// Original selection blocks 78 ticks, then refill + spawn + travel needs another169: arrival247 > TTL220.
+const original = queue.schedule([development], ctx);
+assert.strictEqual(original.actions[0].body.length * 3, 78);
+assert(78 + 60 + 12 + 97 > occupants[0].ticksToLive);
+const schedule = (requests = [development], spawns = allSpawns, override = {}) => spawn.module.exports.scheduleHandoffs(home, requests, [item], spawns, settings, Object.assign({}, ctx, override));
+assert.strictEqual(schedule().actions[0].request.role, 'reserver', 'protect the real next 78-tick non-preemptible slot before the replacement deadline');
+assert.strictEqual(item.lead, 189, 'do not inflate the permanent lead');
+occupants[0].ticksToLive = 400;
+assert.strictEqual(schedule().actions[0].request.role, 'hauler', 'no early replacement outside the actual blocking horizon');
+occupants[0].ticksToLive = 220;
+assert.strictEqual(schedule([development], [{}, {}], { spawnsFree: 2 }).actions[0].request.role, 'hauler', 'a still-free spawn makes the blocking horizon zero');
+assert.strictEqual(schedule([development], [{}, { spawning: { remainingTime: 5 } }]).actions[0].request.role, 'hauler', 'a busy sibling frees before deadline');
+const defense = { key: 'defense', role: 'defender', priority: 0, body: () => Array(26).fill('carry') };
+assert.strictEqual(schedule([defense]).actions[0].request.role, 'defender', 'never displace defense');
+const survival = Object.assign({}, defense, { key: 'survival', role: 'harvester', priority: 1 });
+assert.strictEqual(schedule([survival]).actions[0].request.role, 'harvester', 'never displace survival');
+const cheap = Object.assign({}, development, { body: () => Array(14).fill('carry') });
+assert.strictEqual(schedule([cheap], allSpawns, { energy: 700 }).actions[0].request.role, 'hauler', 'unaffordable forecast cannot indefinitely block development');
+occupants.push({ name: 'replacement', spawning: true, memory: occupants[0].memory });
+assert.strictEqual(schedule().actions[0].request.role, 'hauler', 'do not duplicate an existing replacement');
+console.log('reserver_deadline_test ok');

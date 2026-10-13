@@ -1,0 +1,169 @@
+diff --git a/scripts/private_server/effects.js b/scripts/private_server/effects.js
+index 07d7472..31d114b 100644
+--- a/scripts/private_server/effects.js
++++ b/scripts/private_server/effects.js
+@@ -21,6 +21,19 @@ function roomProbe(report, roomName) {
+ }
+ 
+ const EFFECTS = [
++    {
++        id: 'conquest.friendlyReservation', since: '2026-09-08',
++        change: '压制遇到己方预定结束指令，避免攻击己方预定和持续孵化 CLAIM',
++        check(report, ROOMS) {
++            const memory = report.rootMemories && report.rootMemories[ROOMS.remoteHome];
++            const directive = memory && memory.conquest;
++            const creep = memory && memory.creeps && memory.creeps['friendly-reservation-downgrader'];
++            return directive && directive.completed && directive.phase === 'done' &&
++                directive.completedReason === 'friendlyReservation' && (!creep || creep.retired)
++                ? { ok: true }
++                : { ok: false, why: '己方预定压制未结束或旧单位未退役：' + JSON.stringify({ directive, creep }) };
++        },
++    },
+     {
+         id: 'spawn.containerGapBuilder',
+         since: '2026-09-07',
+diff --git a/scripts/private_server/fixtures.js b/scripts/private_server/fixtures.js
+index 494449e..733e082 100644
+--- a/scripts/private_server/fixtures.js
++++ b/scripts/private_server/fixtures.js
+@@ -935,6 +935,14 @@ async function seedRemote(cli) {
+         .sort((left, right) => String(left._id).localeCompare(String(right._id)));
+     const remoteController = remoteData.objects.find((object) => object.type === 'controller');
+     const remoteAllocator = new PositionAllocator(remoteData.terrain, remoteData.objects);
++    // 旧压制指令遇到己方预定必须结束；否则 CLAIM 会拆己方预定并持续补员。
++    await cli.evaluateJson(`storage.db['rooms.objects'].update({_id:${literal(remoteController._id)}},{$set:{reservation:{user:${literal(context.userId)},endTime:${context.gameTime + 3000}}}}).then(function(){return true})`);
++    await addCreep(cli, context, {
++        name: 'friendly-reservation-downgrader', role: 'downgrader',
++        body: ['claim', 'move'], room: ROOMS.remote,
++        position: remoteAllocator.near(remoteController, { minRange: 1, maxRange: 1 }),
++        memory: { targetRoom: ROOMS.remote, suppress: true },
++    });
+     const scoutPosition = remoteAllocator.near(remoteController, { minRange: 2, maxRange: 8 });
+     await addCreep(cli, context, {
+         name: 'remote-scout',
+@@ -992,6 +1000,7 @@ async function seedRemote(cli) {
+             unreachableCount: 1, unreachableAt: Math.max(1, context.gameTime - 100), sources: [],   // 世界从 tick 1 起，标记 tick 至少是 1
+         } } } },
+         map: { [ROOMS.remote]: mapInfo },
++        conquest: { target: ROOMS.remote, sponsors: [context.room], suppress: true, downgraders: 1 },
+     });
+     context.expect = { remoteRoom: ROOMS.remote, remoteSourceIds: remoteSources.map((source) => source._id) };
+     return context;
+diff --git a/src/conquest.js b/src/conquest.js
+index 7580440..9011462 100644
+--- a/src/conquest.js
++++ b/src/conquest.js
+@@ -167,6 +167,20 @@ function runOne(d) {
+         return;
+     }
+     if (!ctrl.owner) {
++        // 己方已经把这里作为外矿预定：结束旧压制指令，避免拆自己的预定或无限补员。
++        const reservation = ctrl.reservation;
++        const friendly = d.suppress && reservation && sponsorRooms(d).some((name) => {
++            const home = Game.rooms[name];
++            return home && home.controller && home.controller.my && home.controller.owner &&
++                home.controller.owner.username === reservation.username;
++        });
++        if (friendly) {
++            d.phase = 'done';
++            d.completed = true;
++            d.completedAt = Game.time;
++            d.completedReason = 'friendlyReservation';
++            return;
++        }
+         // suppress：打掉后继续占着门口（预定/无主），不交给 claimer，也不把指令标 completed
+         d.phase = d.suppress ? 'deny' : 'claim';
+         return;
+diff --git a/src/roles/downgrader.js b/src/roles/downgrader.js
+index 58b89ea..b3966cc 100644
+--- a/src/roles/downgrader.js
++++ b/src/roles/downgrader.js
+@@ -20,7 +20,13 @@ function run(creep) {
+     if (!ctrl) return;
+     if (ctrl.my) { creep.memory.retired = true; retireMod.retireAtSpawn(creep); return; }
+     const res = ctrl.reservation;
+-    const enemyReserved = !!(res && (res.username || res.user) && !res.my);
++    // reservation 只有 username/ticksToEnd，没有 my；attackController 也允许攻击己方预定。
++    if (res && creep.owner && res.username === creep.owner.username) {
++        creep.memory.retired = true;
++        retireMod.retireAtSpawn(creep);
++        return;
++    }
++    const enemyReserved = !!(res && res.username);
+     const suppress = !!creep.memory.suppress;
+     // 无主：默认退役（占领交给 claimer）。suppress 时留下拆预定 / 堵在控制器旁防对方再占。
+     if (!ctrl.owner) {
+diff --git a/test/conquest_test.js b/test/conquest_test.js
+index e70a510..7fbc5f9 100644
+--- a/test/conquest_test.js
++++ b/test/conquest_test.js
+@@ -702,5 +702,43 @@ reset();
+         'suppress：没有战斗 creep 时仍追工人（得 ' + JSON.stringify(moveCalls[moveCalls.length - 1]) + '）');
+ }
+ 
++console.log('== suppress: 己方预定停止压制并回收旧单位 ==');
++reset();
++{
++    const home = myHome('W35S7', 1300);
++    home.controller.owner = { username: 'me' };
++    Game.rooms.W35S7 = home;
++    const target = enemyRoom('W38S7', { owner: null });
++    target.controller.reservation = { username: 'me', ticksToEnd: 3000 };
++    Game.rooms.W38S7 = target;
++    Memory.conquest = { target: 'W38S7', sponsors: ['W35S7'], suppress: true, guards: 1 };
++    conquest.run();
++    assert(Memory.conquest.completed && Memory.conquest.phase === 'done', '己方预定终止指令，避免持续补员');
++    assert(conquest.getDemands(home).length === 0, '己方预定不再孵压制单位或护卫');
++    Memory.conquest = { target: 'W38S7', sponsors: ['W35S7'] };
++    conquest.run();
++    assert(!Memory.conquest.completed && Memory.conquest.phase === 'claim', '普通占领仍能将己方预定房转为占有');
++    for (const suppress of [false, true]) {
++        const c = downCreep('W38S7', 'W38S7');
++        c.owner = { username: 'me' };
++        c.memory.suppress = suppress;
++        c.room.controller = target.controller;
++        downgrader.run(c);
++        assert(!c._attacked && c.memory.retired, '己方预定不攻击并退役 suppress=' + suppress);
++    }
++}
++reset();
++{
++    const home = myHome('W35S7', 1300);
++    home.controller.owner = { username: 'me' };
++    Game.rooms.W35S7 = home;
++    const target = enemyRoom('W38S7', { owner: null });
++    target.controller.reservation = { username: 'enemy', ticksToEnd: 3000 };
++    Game.rooms.W38S7 = target;
++    Memory.conquest = { target: 'W38S7', sponsors: ['W35S7'], suppress: true };
++    conquest.run();
++    assert(!Memory.conquest.completed && Memory.conquest.phase === 'deny', '敌方预定仍持续压制');
++}
++
+ console.log(failures ? `\nFAILED: ${failures} 断言未通过` : '\n全部通过');
+ process.exit(failures ? 1 : 0);
+diff --git a/test/private_server_run_validation_test.js b/test/private_server_run_validation_test.js
+index b14bc51..7ef182e 100644
+--- a/test/private_server_run_validation_test.js
++++ b/test/private_server_run_validation_test.js
+@@ -109,6 +109,7 @@ function testEffectsObserveTheAidChange() {
+             E11S11: { rooms: { E11S11: { remotes: { E12S11: { drop: { room: 'E11S11', hops: 1, distance: null, at: 100 } } },
+                 defenseLog: { spawned: 0, safeMode: { at: 120, by: 'brain:no-help', hostiles: [['ValidationBootstrap', '20A25T', 4500]] } } } } },
+             W50N50: { creeps: { ok: { role: 'hauler', home: 'W50N50' } },
++                conquest: { completed: true, phase: 'done', completedReason: 'friendlyReservation' },
+                 rooms: { W50N50: { layoutAt: 801, crippledLog: [{ name: 'remote-crippled-hauler', role: 'hauler', room: 'W50N50', lost: ['carry'], ttl: 1400, at: 60 }],
+                     remotes: { W50N49: { room: 'W50N49', lairs: 0, unreachableAt: 5, unreachableCount: 0, lastSeen: 700, roadSitesYielded: 1, containerSiteAt: 300, roadsHeldAt: 650, sources: [{ id: 's', containerId: 'c' }] } } } } },
+             W40N40: { _gcSeen: { _validation: { t: 700, n: -1 }, _validationRooms: { t: 700, n: -1 } },
+@@ -147,6 +148,13 @@ function testEffectsObserveTheAidChange() {
+     const results = effects.assertEffects(okReport, ROOMS, collect);
+     assert.equal(failures.length, 0, '援建 hauler + courier 且 storage 减少：生效断言通过 ' + JSON.stringify(failures));
+     assert(results.every((item) => item.ok));
++    const friendlyBad = JSON.parse(JSON.stringify(okReport));
++    friendlyBad.rootMemories.W50N50.conquest = { suppress: true, phase: 'deny' };
++    const friendlyEffect = effects.EFFECTS.find((item) => item.id === 'conquest.friendlyReservation');
++    assert(!friendlyEffect.check(friendlyBad, ROOMS).ok, '己方预定仍处于 deny 必须验证失败');
++    friendlyBad.rootMemories.W50N50.conquest = okReport.rootMemories.W50N50.conquest;
++    friendlyBad.rootMemories.W50N50.creeps['friendly-reservation-downgrader'] = { role: 'downgrader' };
++    assert(!friendlyEffect.check(friendlyBad, ROOMS).ok, '指令结束但旧单位未退役必须验证失败');
+     const noReuse = JSON.parse(JSON.stringify(okReport));
+     delete noReuse.rootMemories.W40N40.memReuse;
+     const noReuseFailures = [];
