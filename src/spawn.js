@@ -2431,6 +2431,22 @@ function runQueue(room) {
         lap('quiet');
         return;
     }
+    // 等能量：上一轮全量推导的队头买不起（mem.spawnWaiting）、能量仍不够它、上一轮也没孵任何东西——
+    // 重算多半得出同一个结论。线上 2026-10-14 W31S8 等一只 1300 的 reserver，每 tick 全量推导一遍。
+    // 按房错峰每 waitingDemandInterval tick 重算一次；能量一够、有敌人、恢复期、没有在岗工人都照常全跑
+    const waitInterval = Math.max(1, Math.floor(Number(queueSettings().waitingDemandInterval) || 1));
+    const waitingHead = mem.spawnWaiting;
+    const lastQueue = mem.spawnQueue || {};
+    if (idle.length && waitInterval > 1 && waitingHead && Number(waitingHead.at) <= Game.time &&
+        Game.time - Number(waitingHead.at) < waitInterval && room.energyAvailable < Number(waitingHead.cost) &&
+        !(lastQueue.spawned && lastQueue.spawned.length) &&
+        !utils.isRoomPhaseTick(room.name, waitInterval) && !state.recovering && state.readyWorkers > 0 &&
+        !(room.find(FIND_HOSTILE_CREEPS) || []).length) {
+        try { upgraderTarget(room, mem); } catch (error) { logErr('spawn.upgraderTarget ' + room.name, error); }
+        if (mem.demand) mem.demand.waitSkipped = (mem.demand.waitSkipped || 0) + 1;
+        lap('quiet');
+        return;
+    }
     mem.spawnQuiet = null;
     const survival = config.survival[room.controller.level] || {};
     const sourceHarvesters = coreHarvesterTarget(room, sources);
