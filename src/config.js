@@ -840,7 +840,7 @@ module.exports = {
     // Memory 卫生：控制台探针（monitor.py 的 _mon、remote_roi.py 的 _roi、临时 _dbg*）把结果留在
     // Memory 的下划线键里，读取方只删探针源、不删结果。线上实测 359,623 字节的 Memory 里约 102 KB（28%）
     // 是这种死数据，而引擎每 tick 都要把整个 Memory 解析+序列化一遍 —— 这是白付的 CPU。
-    memoryProbeTtl: 3000,   // 下划线键内容多久没变就回收（约 3.3 小时；探针写完几秒内就被读走）
+    memoryProbeTtl: 100,    // 下划线键内容多久没变就回收（约 7 分钟；探针写完几秒内就被读走。2026-10-14：_mon 260 KB 每 30 分钟重写一次、旧 TTL 3000 永远回收不到，序列化白烧 10 CPU/tick）
     // 房间可视化：纯诊断，不是能力。线上实测每房 0.74–1.22 CPU/tick（logs/optimizations.md 2026-09-06 那一轮），
     // 10 个房约 10 CPU/tick，占 140 限额的 7%，而线上诊断本来就走 monitor.py / probe.py / report。
     // 默认不画，控制台 showVisuals(300) 打开 300 tick（要看方案叠加时才付这份钱）。
