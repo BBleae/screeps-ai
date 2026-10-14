@@ -331,7 +331,7 @@ module.exports = {
         // 外矿分配（remote.remoteWhitelist）：数组优先于外部大脑白名单，[] = 不做外矿；没列的母房照旧听大脑/自治。
         // 2026-10-14「挪不加」：W32S4 的 W32S5 → W31S5（相邻）；W33S8 的 W34S8 → W34S7（相邻）；
         // W37S7 的 W37S6 → W37S5（相邻），W37S5 原四个 W38S6/W39S* 路程 ~95–104、全部 unreachable 冷却中，撤掉（W37S5 缺能量的根因：外矿零收入）。
-        // W35S7 暂无可用外矿：W36S7 有 invader core、W35S8/W36S8 是 Alepoldar 的。W38S7 不动（离三个缺能量房都 ≥3 房，挪不过去）
+        // W35S7 → W36S7（2 源，invader core ~74333973 到期；W35S8/W36S8 是 Alepoldar 的），W38S7 让出 W38S9 抵名额
         assign: {
             W31S5: ['W32S5'],
             W32S4: ['W33S4', 'W32S6', 'W33S5'],
@@ -339,13 +339,13 @@ module.exports = {
             W33S8: ['W32S8'],
             W37S5: ['W37S6'],
             W37S7: ['W39S9', 'W39S6'],
-            W35S7: [],
+            W35S7: ['W36S7'],   // 2026-10-14：invader core ~74333973 到期；之前 observe 判 invaderCore 停着，到期后 reserver 削 Invader 残余预定
             W33S7: ['W32S7', 'W33S6'],
             W31S8: ['W31S9', 'W29S9'],
             W31S6: ['W31S7', 'W29S7'],
             W33S3: ['W33S2', 'W32S3', 'W32S2', 'W32S1'],
             W31S4: ['W31S3', 'W31S2', 'W29S2'],
-            W38S7: ['W38S8', 'W39S7', 'W39S8', 'W38S9'],
+            W38S7: ['W38S8', 'W39S7', 'W39S8'],   // W38S9（1 源 1500）让出名额，抵 W35S7 新开的 W36S7
             W29S3: ['W29S2', 'W29S1', 'W31S1'],
         },
         minRcl: 4,

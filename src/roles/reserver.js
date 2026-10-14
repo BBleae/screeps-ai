@@ -56,7 +56,8 @@ function run(creep) {
     const remoteRoom = creep.memory.remoteRoom;
     if (!homeName || !remoteRoom) return;
     if (claimDuty(creep)) return;
-    if (remote.isSuspended(homeName, remoteRoom)) {
+    const clearing = !!(remote.canClearReservation && remote.canClearReservation(homeName, remoteRoom));
+    if (!clearing && remote.isSuspended(homeName, remoteRoom)) {
         retreat(creep);
         return;
     }
@@ -74,6 +75,14 @@ function run(creep) {
 
     const home = Game.rooms[homeName];
     if (home) remote.observe(home, creep.room);
+    if (remote.canClearReservation && remote.canClearReservation(homeName, remoteRoom)) {
+        const ctl = creep.room.controller;
+        if (ctl && ctl.reservation && ctl.reservation.username === 'Invader') {
+            const r = creep.attackController(ctl);
+            if (r === ERR_NOT_IN_RANGE) movement.go(creep, ctl, { range: 1, reusePath: 25 });
+            return;
+        }
+    }
     if (remote.isSuspended(homeName, remoteRoom)) {
         retreat(creep);
         return;
