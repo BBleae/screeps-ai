@@ -79,6 +79,10 @@ function run(room) {
     }
     if (!towers.length) return;
 
+    // 和平期的维修候选 / 伤员每房每 tick 只算一次（以前每座塔各扫一遍全房结构：一次 ~0.25 CPU，全账号 ~20 座塔）。
+    // 候选列表放 heap 缓存 REPAIR_SCAN_TTL tick（结构掉血很慢），每 tick 只按 id 取回、用缓存的维修目标复核
+    let injured;
+    let repairList;
     for (const t of towers) {
         if (t.store[RESOURCE_ENERGY] <= 0) continue;
         if (hostiles.length) {
@@ -88,30 +92,40 @@ function run(room) {
             t.attack(target);
             continue;
         }
-        // 和平期动作（治疗/维修）不得动用储备：储备是留给防御的，一次动作 10 能量，动作后仍要 ≥ 储备。以前"≥ 储备就修"会修到 490，
-        // broker 把 < 储备判成紧急压过 spawn/ext（线上 2026-09-06 W33S8：塔在 490–510 抖动，唯一的 hauler 满载喂塔、塔每 tick 烧 10，
-        // spawn 32/1300、控制器容器 0、地上堆 6.5k），维修消耗只能花储备线以上的部分
+        // 和平期动作（治疗/维修）不得动用储备（见 git 历史：W33S8 塔在 490–510 抖动的事故），维修只花储备线以上的部分
         const towerReserve = Number(config.towerRepairReserve) || 500;
         const actionCost = typeof TOWER_ENERGY_COST !== 'undefined' ? TOWER_ENERGY_COST : 10;
         if (t.store[RESOURCE_ENERGY] - actionCost < towerReserve) continue;
-        // 治疗
-        const injured = creepInjured(room);
+        if (injured === undefined) injured = creepInjured(room);
         if (injured) { t.heal(injured); continue; }
-        // 维修（按"离维修目标还剩几成"排序，rampart 以 RCL 目标封顶，见 utils.repairTargetHits）。
-        // 按绝对血量排会让道路永远压过容器：道路上限 5000、容器 250000，一条 2580/5000（52%）的路的绝对血量
-        // 永远低于一个 62000/250000（25%）的容器，于是塔一辈子只修路，容器一路烂到消失
-        // （线上 2026-09-07 W34S7：60 处破损里最低的四个全是 2580–2600 的道路，两个源容器同时从 77k 跌到 62k）。
-        // builder.js 的 damagedStructure 早就是按比例排的，这里对齐它。
-        // 射程内（≤ TOWER_FALLOFF_RANGE）优先：引擎里塔的维修量从射程 5 的 800 线性衰减到射程 20 的 200，
-        // 射程外恒为 200（20 血/能量，比 builder 的 100 血/能量还差 5 倍）。全局按比例排序会让角落里的塔一直
-        // 去修房间另一侧的路（线上 2026-09-09 W33S7：塔在 (6,40)/(7,41)，最低比例的几条路在 (41,33)/(45,31)/(48,29)），
-        // 身边的危急路反而没人修。射程内一个都没有时才退回全局。
+        // 维修：按"离维修目标还剩几成"排序（utils.compareRepairTargets），射程内（≤ TOWER_FALLOFF_RANGE）优先，一个都没有才退回全局
+        if (repairList === undefined) repairList = repairCandidates(room);
+        if (!repairList.length) continue;
         const reach = typeof TOWER_FALLOFF_RANGE === 'number' ? TOWER_FALLOFF_RANGE : 20;
-        const candidates = room.find(FIND_STRUCTURES, { filter: (s) => needsRepair(room, s) });
-        const inReach = candidates.filter((s) => Math.max(Math.abs(s.pos.x - t.pos.x), Math.abs(s.pos.y - t.pos.y)) <= reach);
-        const broken = (inReach.length ? inReach : candidates).sort((a, b) => compareRepairTargets(room, a, b))[0];
+        const broken = repairList.find((s) => Math.max(Math.abs(s.pos.x - t.pos.x), Math.abs(s.pos.y - t.pos.y)) <= reach) || repairList[0];
         if (broken) t.repair(broken);
     }
+}
+
+const REPAIR_SCAN_TTL = 10;
+const repairCache = {};
+/** 本房按优先级排好序的维修目标（仍需维修的）。全房扫描每 REPAIR_SCAN_TTL tick 一次，中间按 id 复核血量 */
+function repairCandidates(room) {
+    let entry = repairCache[room.name];
+    if (!entry || Game.time - entry.at >= REPAIR_SCAN_TTL || Game.time < entry.at) {
+        const found = room.find(FIND_STRUCTURES, { filter: (s) => needsRepair(room, s) })
+            .sort((a, b) => compareRepairTargets(room, a, b));
+        entry = repairCache[room.name] = {
+            at: Game.time,
+            items: found.map((s) => ({ id: s.id, goal: s.structureType === STRUCTURE_RAMPART ? repairTargetHits(room, s) : s.hitsMax * config.towerRepairBelow })),
+        };
+    }
+    const out = [];
+    for (const item of entry.items) {
+        const s = Game.getObjectById(item.id);
+        if (s && s.hits < item.goal) out.push(s);
+    }
+    return out;
 }
 
 function towerDamageAt(tower, target) {
@@ -146,4 +160,6 @@ function creepInjured(room) {
     return room.find(FIND_MY_CREEPS, { filter: (c) => c.hits < c.hitsMax }).sort((a, b) => a.hits / a.hitsMax - b.hits / b.hitsMax)[0] || null;
 }
 
-module.exports = { run, towersCanHold, towerDamageAt, safeModeDecision, coreHurt };
+function resetCache() { for (const k of Object.keys(repairCache)) delete repairCache[k]; }
+
+module.exports = { run, resetCache, towersCanHold, towerDamageAt, safeModeDecision, coreHurt };
