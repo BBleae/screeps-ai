@@ -442,7 +442,8 @@ module.exports = {
         // spawn 有空闲但上一次全量推导什么请求都没有（安静房）时，按房错峰每这么多 tick 才再全量推导一次（spawn.run）。
         // 线上 2026-10-03 spawn 单项均值 42.6/131 CPU，13 个房里 10 个是这个形态；孵化需求的出现靠 creep 到期，提前量都是百 tick 级，
         // 延后几个 tick 无损；恢复期/无在岗工人/房里有敌人不降频。1 = 关闭
-        quietDemandInterval: 5,
+        quietDemandInterval: 10,
+        waitingDemandInterval: 5,   // 队头等能量期间的全量推导间隔（spawn.runQueue）
         minShare: 0.5,
         // 自带分档身体（bodyFor）的需求（外矿/援建/开荒）缩身下限改按理想身体成本的份额：1600 容量下 650 的 1 CLAIM 档不被容量一半（800）卡住，
         // 但也不再孵 200–500 的外矿 hauler（线上 W33S6 一只 1 CARRY 的 hauler 占着 19 CARRY 的槽位 1285 tick，9.8/tick 的产出运回不到 1）
