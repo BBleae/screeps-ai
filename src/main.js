@@ -197,6 +197,9 @@ module.exports.loop = function () {
         cpuLap(cpuProf.mod, 'wheel');
 
         if (Game.time % 501 === 0) gcMemory();
+        // 探针残渣（尤其 monitor.py 的 _mon，~260 KB 的 JSON 字符串）每 tick 被引擎序列化一遍：线上实测 stringify 它一项 10 CPU/tick。
+        // 每 50 tick 查一次，内容 memoryProbeTtl tick 没变就删
+        else if (Game.time % 50 === 0) { try { gcProbeKeys(); } catch (e) { logErr('gcProbeKeys', e); } }
         // 清理死亡 creep 的内存（defender 阵亡记进母房 defenseLog，再看到敌情前不续派）
         for (const name in Memory.creeps) {
             if (Game.creeps[name]) continue;
