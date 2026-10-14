@@ -15216,7 +15216,16 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     brainMod.get = (room, key, fb) => (key === 'remotes' && room === 'W31S5') ? ['W31S3'] : fb;
     config.remote.assign = liveRemoteAssign;
     assert(JSON.stringify(rem.remoteWhitelist('W31S5')) === '["W32S5"]', 'assign 盖过大脑（得 ' + JSON.stringify(rem.remoteWhitelist('W31S5')) + '）');
-    assert(Array.isArray(rem.remoteWhitelist('W35S7')) && rem.remoteWhitelist('W35S7').length === 0, '[] = 不做外矿（不退回大脑/自治）');
+    config.remote.assign = Object.assign({}, liveRemoteAssign, { W31S5: [] });
+    assert(Array.isArray(rem.remoteWhitelist('W31S5')) && rem.remoteWhitelist('W31S5').length === 0, '[] = 不做外矿（不退回大脑/自治）');
+    config.remote.assign = liveRemoteAssign;
+    assert(liveRemoteAssign.W35S7.includes('W36S7') && !liveRemoteAssign.W38S7.includes('W38S9'), 'W36S7 归 W35S7，W38S9 从 W38S7 让出');
+    const savedRooms = Memory.rooms;
+    Memory.rooms = { W35S7: { remotes: { W36S7: { room: 'W36S7', enabled: true, clearReservation: true, suspendedUntil: Game.time + 4000, suspendReason: 'foreignReservation:Invader', sources: [] } } } };
+    assert(rem.canClearReservation('W35S7', 'W36S7') === true, 'Invader 残余预定（核心已无）：reserver 可进房削预定');
+    Memory.rooms.W35S7.remotes.W36S7.suspendReason = 'hostileCreep';
+    assert(rem.canClearReservation('W35S7', 'W36S7') === false, '有敌情时不去削');
+    Memory.rooms = savedRooms;
     assert(rem.remoteWhitelist('W99S99') === null, '没列的母房退回大脑（这里无指令 → null）');
     const owners = {};
     let dup = [];

@@ -66,6 +66,7 @@ function remoteRecord(roomName, raw) {
         lastSeen: raw.lastSeen || 0,
         suspendedUntil: raw.suspendedUntil || 0,
         suspendReason: raw.suspendReason || null,
+        clearReservation: raw.clearReservation === true,
         // 不可达退避：连续标记次数（有 creep 看到该房后清零）与最后一次标记的 tick（getDemands 的试探式恢复看它）
         unreachableCount: raw.unreachableCount || 0,
         unreachableAt: raw.unreachableAt || 0,
@@ -332,13 +333,16 @@ function activeParts(creep, type) {
 
 /** ignoreKeepers：SK 外矿里的 keeper 是常驻 NPC、由 skReaper 处理，不能把这条外矿判成有敌情（那样永远开不了工）；别的敌人照常算 */
 function threatReason(room, ignoreKeepers) {
-    const dangerous = room.find(FIND_HOSTILE_CREEPS).some((creep) => !(ignoreKeepers && isKeeper(creep)) && (
-        activeParts(creep, ATTACK_PART) > 0 ||
-        activeParts(creep, RANGED_ATTACK_PART) > 0 ||
-        activeParts(creep, HEAL_PART) > 0 ||
-        activeParts(creep, WORK_PART) > 0 ||
-        activeParts(creep, CLAIM_PART) > 0
-    ));
+    // 玩家 creep 只按战斗部件（ATTACK/RANGED/HEAL）算敌情，与 defense.isArmed 的外房 strict 规则一致：
+    // 邻居的矿工/预定者（WORK/CLAIM）不会打我们，过去把它们当 hostileCreep 会让外矿反复停 150 tick、把房让给对方（2026-10-14 W36S7 vs Alepoldar）。
+    // NPC（Invader）的 WORK/CLAIM 仍算：invader 的 dismantler/预定者是来拆/占的
+    const dangerous = room.find(FIND_HOSTILE_CREEPS).some((creep) => {
+        if (ignoreKeepers && isKeeper(creep)) return false;
+        if (activeParts(creep, ATTACK_PART) > 0 || activeParts(creep, RANGED_ATTACK_PART) > 0 || activeParts(creep, HEAL_PART) > 0) return true;
+        const owner = creep.owner && creep.owner.username;
+        const npc = owner === 'Invader' || owner === 'Source Keeper';
+        return npc && (activeParts(creep, WORK_PART) > 0 || activeParts(creep, CLAIM_PART) > 0);
+    });
     if (dangerous) return 'hostileCreep';
     const core = room.find(FIND_STRUCTURES).some((structure) => structure.structureType === INVADER_CORE);
     return core ? 'invaderCore' : null;
@@ -380,6 +384,19 @@ function remoteWhitelist(homeName) {
     const assign = config.remote && config.remote.assign;
     if (assign && Array.isArray(assign[homeName])) return assign[homeName];
     return brain.get(homeName, 'remotes', null);
+}
+
+/** config.remote.assign 明确把这个房分给了这个母房 */
+function assignedRoom(homeName, roomName) {
+    const assign = config.remote && config.remote.assign;
+    return !!(assign && Array.isArray(assign[homeName]) && assign[homeName].includes(roomName));
+}
+
+/** reserver 可以进房削 Invader 残余预定（核心已不在，见 observe 的 clearReservation）。房里有敌情时不去 */
+function canClearReservation(home, remoteRoom) {
+    const record = getRemote(home, remoteRoom);
+    return !!(record && record.clearReservation && record.enabled !== false &&
+        (record.suspendReason || '').indexOf('foreignReservation:') === 0);
 }
 
 function isAdjacent(homeName, roomName) {
@@ -676,9 +693,19 @@ function refreshVisible(home, record, room) {
         ticksToEnd: reservation && reservation.ticksToEnd || 0,
         seenAt: now,
     };
+    // 核心没了、只剩 Invader 的残余预定（最长 ~5000 tick）：外矿整体照停（被别人预定的房 harvest 返回 ERR_NOT_OWNER），
+    // 但标 clearReservation，reserver 进去 attackController 把它削掉（每 CLAIM 每 tick −1，叠加自然衰减），比干等快几倍，也先于邻居站上控制器
+    record.clearReservation = false;
     if (reservation && (!username || reservation.username !== username)) {
         record.suspendedUntil = Math.max(record.suspendedUntil, now + reservation.ticksToEnd + RESERVATION_BUFFER);
         record.suspendReason = 'foreignReservation:' + reservation.username;
+        if (reservation.username === 'Invader' && !room.find(FIND_STRUCTURES).some((s) => s.structureType === INVADER_CORE)) {
+            record.clearReservation = true;
+        }
+    } else if (String(record.suspendReason || '').indexOf('foreignReservation:') === 0) {
+        // 别人的预定没了（被我们削掉 / 提前到期）：立刻解除，别等当初按 ticksToEnd 算的到期——邻居就在旁边等着抢预定
+        record.suspendedUntil = 0;
+        record.suspendReason = null;
     }
 
     // keeper lair 是永不变的静态地物：过去每 tick 对每个可见外矿做一次全量 FIND_STRUCTURES 扫描只为数它。
@@ -1049,7 +1076,10 @@ function admitCandidates(home, remotes) {
             if (!info || !(info.sources >= minSources) || info.unreachable || info.owner) return false;
             const keeperRoom = info.lairs > 0;
             if (keeperRoom && !(skOk && skWhitelisted(home.name, entry.roomName))) return false;
-            if (info.reservation && info.reservation.username && info.reservation.username !== username) return false;
+            // 别人预定的房不收；例外：config.remote.assign 点名的房被 Invader 预定（核心到期后残余预定会被 reserver 削掉，
+            // 而大脑停了以后 Memory.map 不再刷新，旧情报里的 Invader 预定会让它永远进不了门）
+            if (info.reservation && info.reservation.username && info.reservation.username !== username &&
+                !(info.reservation.username === 'Invader' && assignedRoom(home.name, entry.roomName))) return false;
             // keeper 房里 scout 数的 armedHostiles/threat 就是 keeper 本身（scout 不分主人），只看 invader core（stronghold）
             const recentThreat = Game.time - (info.at || 0) <= HOSTILE_COOLDOWN &&
                 (keeperRoom ? info.invaderCore : (info.armedHostiles > 0 || info.invaderCore || info.threat));
@@ -1574,6 +1604,16 @@ function getDemands(home) {
     const ready = (record) => ((record.sources || []).some((source) => source.containerId) ? 0 : 1);
     const records = Object.values(remotes).sort((a, b) => (ready(a) - ready(b)) || (rankOf(a) - rankOf(b)) || a.room.localeCompare(b.room));
     for (const record of records) {
+        // 削 Invader 残余预定期间（clearReservation）：外矿整体停着，只出一只 reserver 去 attackController
+        if (record.enabled && record.clearReservation && record.suspendedUntil > Game.time && !record.sk &&
+            withinDistance(home.name, record.room) && !hasReserver(home.name, record.room)) {
+            const clearBody = reserverBody(capacity);
+            if (clearBody.length) {
+                demands.push(demand('reserver', 'reserver:' + record.room, clearBody, { home: home.name, remoteRoom: record.room },
+                    clearBody.length * 3 + controllerTravelDistance(home, record) + 20, priority++));
+            }
+            continue;
+        }
         if (!record.enabled || record.suspendedUntil > Game.time || !withinDistance(home.name, record.room)) continue;
         // 编制预算外（staffRemotes 每 tick 按收入算）：不补员，存量 creep 自然到期退役——房不再替养不起的外矿花钱
         if (record.staffed === false) continue;
@@ -1746,6 +1786,7 @@ function reserverHandoffs(home, demands, blockingTicks) {
 module.exports = {
     dropRoom,
     remoteWhitelist,
+    canClearReservation,
     noteTravel,
     isUnreachable,
     run,
