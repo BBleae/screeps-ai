@@ -114,7 +114,7 @@ function skAllowed(home) {
 
 /** 大脑外矿白名单里有这个房。SK 房只在大脑点名时才收：自治模式（没有白名单）永远不碰 keeper 房 */
 function skWhitelisted(homeName, roomName) {
-    const whitelist = brain.get(homeName, 'remotes', null);
+    const whitelist = remoteWhitelist(homeName);
     return Array.isArray(whitelist) && whitelist.includes(roomName);
 }
 
@@ -374,6 +374,14 @@ function directExits(homeName) {
     return exits;
 }
 
+/** 外矿白名单：游戏内 config.remote.assign[母房] 优先（数组即生效，[] = 这房不做外矿），否则用外部大脑的 rooms[母房].remotes。
+ *  2026-10-14 大脑已停：指令 ~10/21 过期 + 6h 宽限后会退回"只做相邻房"的自治，把二跳外矿全判 tooFar；把分配搬进 config 才能活过过期 */
+function remoteWhitelist(homeName) {
+    const assign = config.remote && config.remote.assign;
+    if (assign && Array.isArray(assign[homeName])) return assign[homeName];
+    return brain.get(homeName, 'remotes', null);
+}
+
 function isAdjacent(homeName, roomName) {
     return Object.values(directExits(homeName)).includes(roomName);
 }
@@ -382,7 +390,7 @@ function isAdjacent(homeName, roomName) {
 function withinRange(homeName, roomName) {
     if (isAdjacent(homeName, roomName)) return true;
     const maxRange = Math.max(1, Number(config.remote && config.remote.maxRange) || 1);
-    const whitelist = brain.get(homeName, 'remotes', null);
+    const whitelist = remoteWhitelist(homeName);
     return Array.isArray(whitelist) && whitelist.includes(roomName) && roomDistance(homeName, roomName) <= maxRange;
 }
 
@@ -1009,7 +1017,7 @@ function placeInfrastructure(room, record, remotes) {
 
 function candidatePool(home, neighbors) {
     // 外部大脑给了白名单：只在白名单里挑（批 0 仍限相邻房）；否则沿用自治规则——相邻房全部探明后再挑
-    const whitelist = brain.get(home.name, 'remotes', null);
+    const whitelist = remoteWhitelist(home.name);
     if (Array.isArray(whitelist)) return whitelist.filter((roomName) => withinRange(home.name, roomName));
     if (!Memory.map || !neighbors.every((roomName) => Memory.map[roomName])) return [];
     return neighbors;
@@ -1023,7 +1031,7 @@ function admitCandidates(home, remotes) {
     const pool = candidatePool(home, neighbors);
     if (!pool.length || !Memory.map) return;
     // 外部大脑给了白名单：数量上限由大脑决定（它已按 RCL 限制过）；自治模式沿用 config.remote.maxRooms
-    const whitelisted = Array.isArray(brain.get(home.name, 'remotes', null));
+    const whitelisted = Array.isArray(remoteWhitelist(home.name));
     const limit = whitelisted ? Math.max(maxRooms, pool.length) : maxRooms;
     const selected = Object.values(remotes).filter((record) => record.enabled).length;
     if (selected >= limit) return;
@@ -1110,7 +1118,7 @@ function run(home) {
         if (stale && stale.roadReplan) delete stale.roadReplan;
     }
     // 大脑给了白名单就以它为准：不在名单里的外矿停用（远程 creep 会回家退役），重新出现在名单里时再启用
-    const whitelist = brain.get(home.name, 'remotes', null);
+    const whitelist = remoteWhitelist(home.name);
     if (Array.isArray(whitelist)) {
         for (const roomName in mem.remotes) {
             const record = mem.remotes[roomName];
@@ -1737,6 +1745,7 @@ function reserverHandoffs(home, demands, blockingTicks) {
 
 module.exports = {
     dropRoom,
+    remoteWhitelist,
     noteTravel,
     isUnreachable,
     run,
