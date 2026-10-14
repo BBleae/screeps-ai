@@ -854,7 +854,8 @@ module.exports = {
         minSamples: 3,
         // 均值 ≤ limit × 0.75（limit 150 → 112.5）才产：≈ 紧急上限 limit − criticalReserve（115），产完 bucket≈0 时 creep 循环
         // 离紧急上限还差 ~25（循环之后的收尾 ~22 已算在整 tick 里），一只都不跳；bucket 每 tick 回 ≥ 37，~14 tick 出紧急、~55 tick 出降载
-        maxCpuShare: 0.75,
+        // 2026-10-14 暂停产 pixel：bucket 攒到 1 万以上、外矿和 CPU 稳定一天后再恢复为 0.75
+        maxCpuShare: 0,
     },
     // 矿物数量、库存门槛和身体由 scripts/brain/minerals.py 决定。
     // Memory 卫生：控制台探针（monitor.py 的 _mon、remote_roi.py 的 _roi、临时 _dbg*）把结果留在
