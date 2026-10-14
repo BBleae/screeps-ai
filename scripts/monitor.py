@@ -562,6 +562,11 @@ def snapshot():
             except json.JSONDecodeError:
                 mon = None
         if isinstance(mon, dict) and mon.get('schema') == 4 and mon.get('nonce') == nonce:
+            # 读完即删：_mon ~260 KB，留在 Memory 里引擎每 tick 序列化它要 ~10 CPU（2026-10-14 实测）
+            try:
+                console('delete Memory._mon')
+            except Exception:
+                pass
             return mon
     raise RuntimeError('探针无新鲜响应（bot 未运行、console 队列阻塞或表达式执行失败）')
 
