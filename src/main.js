@@ -252,6 +252,10 @@ module.exports.loop = function () {
         // tick 内 getUsed 只增不减、cpuCap 不变：一旦越过上限就不必再逐只去问（语义不变，省掉越线之后每只可跳单位的一次读数）。
         // tickLimit 硬停（cpuShed.hardStopNow）不走这个短路，照旧每只现读
         let overBudget = false;
+        // 尖峰角色分解（Memory.cpuSpikes[].roles）：常态每 SPK_PROBE 只读一次 getUsed（~215 只 ≈ 14 次），
+        // 用量越过 SPK_ARM 之后这一 tick 剩下的 creep 逐只计时（每只 1 次读数，链式），尖峰 tick 才付这笔钱
+        spkRoles = {}; spkArm = null;
+        let spkHot = false, spkMark = 0, spkRan = 0;
         for (let qi = 0; qi < creepQueue.length; qi++) {
             const creep = creepQueue[qi];
             if (creep.spawning) continue;
@@ -307,7 +311,17 @@ module.exports.loop = function () {
             // 角色级计时：creep 分发是最大的一块，但不知道花在哪个角色上。抽样 tick 才量（见 ROLE_SAMPLE_EVERY）。
             // 只量 role.run：阶段抽样 tick 的起点是 startCreep 之后那次读数，其余抽样 tick 在这里读一次（每只 2 次，与旧代码同价）
             if (sampleRoles && !sampleDisp) mark = Game.cpu.getUsed();
+            if (!spkHot && !shed.active && Game.cpu.bucket >= SPK_MIN_BUCKET && (spkRan++) % SPK_PROBE === 0) {
+                const u = Game.cpu.getUsed();
+                if (u > SPK_ARM) { spkHot = true; spkMark = u; spkArm = { at: Math.round(u * 10) / 10, qi, of: creepQueue.length }; }
+            }
             try { role.run(creep); } catch (e) { logErr('creep ' + creep.name, e); }
+            if (spkHot) {
+                const u = Game.cpu.getUsed(), rn = creep.memory.role;
+                const e = spkRoles[rn] || (spkRoles[rn] = [0, 0]);
+                e[0] += u - spkMark; e[1]++;
+                spkMark = u;
+            }
             if (sampleRoles) {
                 const now = Game.cpu.getUsed();
                 const roleName = creep.memory.role;
@@ -362,7 +376,9 @@ module.exports.loop = function () {
 
 // ---- CPU 尖峰记录（诊断）：整 tick 用量 > SPIKE_LINE 时把这一 tick 的模块/房级分解存进 Memory.cpuSpikes（环形 30 条）----
 const SPIKE_LINE = 150;
-let spkTick = {}, spkRoom = {};
+let spkTick = {}, spkRoom = {}, spkRoles = {}, spkArm = null;
+// creep 循环里每 SPK_PROBE 只探一次用量；越过 SPK_ARM 起逐只计时（尖峰线 150 往下留余量，抓到尖峰前的那段爬升）
+const SPK_PROBE = 16, SPK_ARM = 100, SPK_MIN_BUCKET = 5000; // 降载中 / bucket 吃紧不计时：那时每次读数都是从 creep 那里抢的
 const spkBoot = Game.time;
 function noteSpike(t0) {
     const used = Game.cpu.getUsed();
@@ -370,8 +386,17 @@ function noteSpike(t0) {
     const r1 = (o, min) => { const out = {}; for (const k in o) if (o[k] >= min) out[k] = Math.round(o[k] * 10) / 10; return out; };
     const arr = Memory.cpuSpikes || (Memory.cpuSpikes = []);
     arr.push({ t: Game.time, cpu: Math.round(used * 10) / 10, t0: Math.round(t0 * 10) / 10, age: Game.time - spkBoot,
-        b: Game.cpu.bucket, n: Object.keys(Game.creeps).length, m: r1(spkTick, 1), r: r1(spkRoom, 3) });
+        b: Game.cpu.bucket, n: Object.keys(Game.creeps).length, m: r1(spkTick, 1), r: r1(spkRoom, 3), arm: spkArm, roles: spkRoleDigest() });
     if (arr.length > 30) arr.splice(0, arr.length - 30);
+}
+
+// 只留 ≥0.5 CPU 的角色：{ role: [cpu, 只数] }，按 CPU 降序
+function spkRoleDigest() {
+    const out = {};
+    Object.keys(spkRoles).sort((a, b) => spkRoles[b][0] - spkRoles[a][0]).forEach(k => {
+        const e = spkRoles[k]; if (e[0] >= 0.5) out[k] = [Math.round(e[0] * 10) / 10, e[1]];
+    });
+    return out;
 }
 
 function runRoom(room) {
