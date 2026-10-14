@@ -1265,7 +1265,7 @@ room.energyAvailable = 1300; room.energyCapacityAvailable = 1300;
 layout.run(room);
 assert(room.find(C.FIND_MY_CONSTRUCTION_SITES).length >= 12, '规划确定后积极放工地（RCL4 一轮 ≥12 个，得 ' + room.find(C.FIND_MY_CONSTRUCTION_SITES).length + '）');
 spawnMgr.run(room);
-towerMod.run(room);
+(towerMod.resetCache(), towerMod.run)(room);
 linksMod.run(room);
 console.log('  rcl4 sites:', JSON.stringify(room.find(C.FIND_MY_CONSTRUCTION_SITES).reduce((a, s) => (a[s.structureType] = (a[s.structureType] || 0) + 1, a), {})));
 assert((Memory.errors || []).length === 0, 'RCL4 无运行时错误');
@@ -2516,14 +2516,14 @@ defenseRoom.controller.safeModeAvailable = 1;
 defenseRoom.controller.safeModeCalls = 0;
 defenseRoom.controller.activateSafeMode = () => (defenseRoom.controller.safeModeCalls++, C.OK);
 makeHostile(defenseRoom, 20, 20, ['move']);
-towerMod.run(defenseRoom);
+(towerMod.resetCache(), towerMod.run)(defenseRoom);
 assert(defenseRoom.controller.safeModeCalls === 0, 'MOVE-only hostile 不浪费 safe mode');
 makeHostile(defenseRoom, 21, 20, ['attack', 'move']);
-towerMod.run(defenseRoom);
+(towerMod.resetCache(), towerMod.run)(defenseRoom);
 assert(defenseRoom.controller.safeModeCalls === 0, '无塔出现危险 hostile、没有大脑决定且核心完好：不再自作主张开盾（safe mode 由外置大脑决定）');
 Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { W33S7: { remotes: [], safeMode: { action: 'activate', reason: 'no-help', atTick: Game.time } } } };
 require('../src/brain').run();
-towerMod.run(defenseRoom);
+(towerMod.resetCache(), towerMod.run)(defenseRoom);
 assert(defenseRoom.controller.safeModeCalls === 1, '大脑决定 activate 时开盾');
 Memory.brain = null;
 
@@ -4048,11 +4048,11 @@ const bigRampart = makeStructure(repairRoom, C.STRUCTURE_RAMPART, 23, 21, { hits
 makeStructure(repairRoom, C.STRUCTURE_RAMPART, 23, 19, { hits: 418001, hitsMax: 1000000 });
 const wornRoad = makeStructure(repairRoom, C.STRUCTURE_ROAD, 24, 20, { hits: 3400, hitsMax: 5000 });
 Memory.rooms.W33S7 = { sources: [], state: { at: Game.time, recovering: false, emergencyHarvest: false } };
-towerMod.run(repairRoom);
+(towerMod.resetCache(), towerMod.run)(repairRoom);
 assert(!repairTower.actions.some((a) => a.action === 'repair'), 'RCL3 tower 不把 41.8 万 hits 的 rampart 继续修向 60 万');
 // 没有收入样本也没有 storage ⇒ 动态目标 = config.ramparts.floorHits（5000），不是 RCL 表的 15000
 bigRampart.hits = require('../src/config').ramparts.floorHits - 1000;
-towerMod.run(repairRoom);
+(towerMod.resetCache(), towerMod.run)(repairRoom);
 assert(repairTower.actions.some((a) => a.action === 'repair' && a.id === bigRampart.id), 'rampart 低于动态目标时 tower 才维修');
 bigRampart.hits = 418101;
 
@@ -4060,10 +4060,10 @@ console.log('== 塔的维修不动用储备：能量 − 10 < towerRepairReserve
 bigRampart.hits = require('../src/config').ramparts.floorHits - 1000;
 repairTower.actions.length = 0;
 repairTower.store[RESOURCE_ENERGY] = 505;
-towerMod.run(repairRoom);
+(towerMod.resetCache(), towerMod.run)(repairRoom);
 assert(!repairTower.actions.some((a) => a.action === 'repair'), '塔 505：修一次就跌破储备 500，不修（得 ' + JSON.stringify(repairTower.actions) + '）');
 repairTower.store[RESOURCE_ENERGY] = 510;
-towerMod.run(repairRoom);
+(towerMod.resetCache(), towerMod.run)(repairRoom);
 assert(repairTower.actions.some((a) => a.action === 'repair' && a.id === bigRampart.id), '塔 510：修一次后仍 ≥ 500，照修');
 bigRampart.hits = 418101;
 repairTower.actions.length = 0;
@@ -4177,14 +4177,14 @@ console.log('== 塔按"离维修目标还剩几成"挑维修对象：25% 的容�
     const trContainer = makeStructure(trRoom, C.STRUCTURE_CONTAINER, 26, 22, { my: false, energy: 0, capacity: 2000, hits: 62000, hitsMax: 250000 });
     Memory.rooms.W33S7 = { sources: [], plan: { anchor: { x: 23, y: 21 }, containers: { ctrl: { x: 26, y: 22 } }, roads: { all: '25.22' }, links: {} },
         state: { at: Game.time, recovering: false, emergencyHarvest: false } };
-    towerMod.run(trRoom);
+    (towerMod.resetCache(), towerMod.run)(trRoom);
     assert(trTower.repairCalls.length === 1 && trTower.repairCalls[0] === trContainer,
         '塔先修比例更差的容器（25%），不是绝对血量更低的道路（52%）（得 ' + (trTower.repairCalls[0] && trTower.repairCalls[0].structureType) + '）');
     // 道路掉到比例更差时反过来
     trRoad.hits = 500;          // 10%
     trTower.repairCalls.length = 0;
     world.time++;
-    towerMod.run(trRoom);
+    (towerMod.resetCache(), towerMod.run)(trRoom);
     assert(trTower.repairCalls[0] === trRoad, '道路掉到 10% 时先修路（得 ' + (trTower.repairCalls[0] && trTower.repairCalls[0].structureType) + '）');
 }
 
@@ -6032,33 +6032,33 @@ function safeModeRoom(time, towerEnergy) {
 }
 const sm1 = safeModeRoom(3540, 1000);
 makeHostile(sm1.room, 25, 21, ['attack', 'move']);
-towerMod.run(sm1.room);
+(towerMod.resetCache(), towerMod.run)(sm1.room);
 assert(sm1.room.controller.safeModeCalls === 0 && sm1.tower.actions.includes('attack'), '塔满能量、单个 Invader：塔开火，不开盾');
 const sm2 = safeModeRoom(3541, 0);
 makeHostile(sm2.room, 25, 21, ['attack', 'move']);
-towerMod.run(sm2.room);
+(towerMod.resetCache(), towerMod.run)(sm2.room);
 assert(sm2.room.controller.safeModeCalls === 0, '塔没能量、没有大脑决定、核心完好：不开盾（由大脑决定）');
 sm2.spawn.hits = 2000;
-towerMod.run(sm2.room);
+(towerMod.resetCache(), towerMod.run)(sm2.room);
 assert(sm2.room.controller.safeModeCalls === 1, '塔没能量且 spawn 掉到 40%：兜底开盾');
 const sm3 = safeModeRoom(3542, 1000);
 for (let i = 0; i < 4; i++) makeHostile(sm3.room, 30 + i, 30, ['heal', 'heal', 'heal', 'heal', 'heal', 'heal', 'heal', 'heal', 'heal', 'heal', 'attack', 'move'], { hits: 1200 });
-towerMod.run(sm3.room);
+(towerMod.resetCache(), towerMod.run)(sm3.room);
 assert(sm3.room.controller.safeModeCalls === 0, '敌方治疗压过塔但没有大脑决定、核心完好：不开（塔压不住的判断在大脑 safemode.py 里）');
 Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { [sm3.room.name]: { remotes: [], safeMode: { action: 'activate', reason: 'no-help', atTick: Game.time } } } };
 require('../src/brain').run();
-towerMod.run(sm3.room);
+(towerMod.resetCache(), towerMod.run)(sm3.room);
 assert(sm3.room.controller.safeModeCalls === 1, '大脑判定塔压不住（activate）时开盾');
 Memory.brain = null;
 const sm4 = safeModeRoom(3543, 1000);
 makeHostile(sm4.room, 25, 21, ['attack', 'move']);
 sm4.spawn.hits = 2000;
-towerMod.run(sm4.room);
+(towerMod.resetCache(), towerMod.run)(sm4.room);
 assert(sm4.room.controller.safeModeCalls === 1, 'spawn 已掉血到一半以下且有武装敌人时开盾');
 const sm5 = safeModeRoom(3544, 1000);
 makeHostile(sm5.room, 25, 21, ['move', 'carry']);
 sm5.spawn.hits = 2000;
-towerMod.run(sm5.room);
+(towerMod.resetCache(), towerMod.run)(sm5.room);
 assert(sm5.room.controller.safeModeCalls === 0, '没有武装敌人时即便建筑受损也不开盾');
 
 console.log('== findCached：同 tick 不同 filter 不能共用缓存 ==');
@@ -11159,11 +11159,11 @@ resetWorld(10000);
     smRoom._hostiles = [smInvader];
     Memory.brain = null;
     // 1) 没有大脑指令、核心建筑完好：不开（旧规则：无塔 + 武装敌人就开）
-    towerMod.run(smRoom);
+    (towerMod.resetCache(), towerMod.run)(smRoom);
     assert(smCtrl.safeModeCalls === 0 && smCtrl.safeMode === 0, '无指令且核心完好：不开 safe mode（旧规则会为一只 NPC 开盾）');
     // 2) 兜底：spawn 掉到 50% 以下才开，记 fallback
     smSpawn.hits = 2400;
-    towerMod.run(smRoom);
+    (towerMod.resetCache(), towerMod.run)(smRoom);
     assert(smCtrl.safeModeCalls === 1 && Memory.rooms.W31S8.defenseLog && Memory.rooms.W31S8.defenseLog.safeMode && Memory.rooms.W31S8.defenseLog.safeMode.by === 'fallback:core-hurt',
         '无指令但 spawn 掉到 48%：兜底开盾并记 fallback（得 ' + JSON.stringify(Memory.rooms.W31S8.defenseLog && Memory.rooms.W31S8.defenseLog.safeMode) + '）');
     assert(Memory.rooms.W31S8.defenseLog.safeMode.hostiles[0][0] === 'Invader' && Memory.rooms.W31S8.defenseLog.safeMode.hostiles[0][1] === '5A1M', '记录敌人主人与身体摘要（得 ' + JSON.stringify(Memory.rooms.W31S8.defenseLog.safeMode.hostiles) + '）');
@@ -11171,24 +11171,24 @@ resetWorld(10000);
     smReset();
     Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { W31S8: { remotes: [], safeMode: { action: 'activate', reason: 'no-help', dps: 150, atTick: Game.time } } } };
     world.time += 1; brainMod.run();
-    towerMod.run(smRoom);
+    (towerMod.resetCache(), towerMod.run)(smRoom);
     assert(smCtrl.safeModeCalls === 1 && Memory.rooms.W31S8.defenseLog.safeMode.by === 'brain:no-help', '大脑 activate：核心完好也立刻开盾并记 brain:no-help（得 ' + JSON.stringify(Memory.rooms.W31S8.defenseLog.safeMode) + '）');
     // 4) 大脑说 hold：spawn 40% 不开（fallback 线 50% 不适用），掉到 25% 才作为最后手段开
     smReset();
     Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { W31S8: { remotes: [], safeMode: { action: 'hold', reason: 'help-in-time', atTick: Game.time } } } };
     world.time += 1; brainMod.run();
     smSpawn.hits = 2000;
-    towerMod.run(smRoom);
+    (towerMod.resetCache(), towerMod.run)(smRoom);
     assert(smCtrl.safeModeCalls === 0, '大脑 hold 且 spawn 40%：不开（得 ' + smCtrl.safeModeCalls + '）');
     smSpawn.hits = 1200;
-    towerMod.run(smRoom);
+    (towerMod.resetCache(), towerMod.run)(smRoom);
     assert(smCtrl.safeModeCalls === 1 && Memory.rooms.W31S8.defenseLog.safeMode.by === 'lastResort:core-hurt', '大脑 hold 但 spawn 24%：最后手段开盾并记 lastResort（得 ' + JSON.stringify(Memory.rooms.W31S8.defenseLog.safeMode) + '）');
     // 5) 决定过期（atTick 早于 decisionTtl）：当没有指令，回到兜底规则
     smReset();
     Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { W31S8: { remotes: [], safeMode: { action: 'activate', reason: 'no-help', atTick: Game.time - require('../src/config').safeMode.decisionTtl - 1 } } } };
     world.time += 1; brainMod.run();
     assert(towerMod.safeModeDecision(smRoom) === null, '过期的决定视为没有');
-    towerMod.run(smRoom);
+    (towerMod.resetCache(), towerMod.run)(smRoom);
     assert(smCtrl.safeModeCalls === 0, '过期的 activate 不开（核心完好）（得 ' + smCtrl.safeModeCalls + '）');
     // 6) safe mode 中的己方房不出 defender（弱敌人：不在 safe mode 时 defense 会出兵作为对照）
     smReset();
@@ -11213,7 +11213,7 @@ resetWorld(10000);
     const smBusyActivate = smCtrl.activateSafeMode;
     smCtrl.activateSafeMode = () => { smCtrl.safeModeCalls++; return C.ERR_BUSY; };
     world.time += 1;
-    towerMod.run(smRoom);
+    (towerMod.resetCache(), towerMod.run)(smRoom);
     assert(smCtrl.safeModeCalls === 1 && !smCtrl.safeMode && !(Memory.rooms.W31S8.defenseLog && Memory.rooms.W31S8.defenseLog.safeMode) &&
         Memory.rooms.W31S8.defenseLog && Memory.rooms.W31S8.defenseLog.safeModeError && Memory.rooms.W31S8.defenseLog.safeModeError.code === C.ERR_BUSY &&
         Memory.rooms.W31S8.defenseLog.safeModeError.by === 'brain:help-too-late',
@@ -11834,7 +11834,7 @@ console.log('== 塔优先修射程内（800 血/10 能量 vs 射程外恒 200）
         plan: { wheel: true, anchor: { x: 23, y: 21 }, containers: {}, links: {}, roads: { all: '11.40;41.33' } },
         state: { at: world.time, recovering: false, emergencyHarvest: false } };
     world.time++;
-    towerMod.run(gRoom);
+    (towerMod.resetCache(), towerMod.run)(gRoom);
     assert(gTower.repairCalls.length === 1 && gTower.repairCalls[0] === nearRoad,
         '塔修射程内的路（100/5000），不去够射程外比例更低的（80/5000）（得 ' +
         (gTower.repairCalls[0] && (gTower.repairCalls[0].pos.x + ',' + gTower.repairCalls[0].pos.y)) + '）');
@@ -11842,7 +11842,7 @@ console.log('== 塔优先修射程内（800 血/10 能量 vs 射程外恒 200）
     nearRoad.hits = 5000;
     gTower.repairCalls.length = 0;
     world.time++;
-    towerMod.run(gRoom);
+    (towerMod.resetCache(), towerMod.run)(gRoom);
     assert(gTower.repairCalls.length === 1 && gTower.repairCalls[0] === farRoad,
         '射程内没有可修目标时塔仍会修射程外的（得 ' + gTower.repairCalls.length + ' 次）');
 }
