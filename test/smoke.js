@@ -11651,7 +11651,7 @@ console.log('== RCL5 controller link receives sub-rich storage surplus ==');
  const container = makeStructure(room, C.STRUCTURE_CONTAINER, 10, 11, {energy: 500, capacity: 2000, my: false});
  Memory.rooms.W33S7.plan.containers.src0 = {x: 10, y: 11};
  storage.store.energy = 7600; h.pos = new RoomPosition(10, 12, room.name);
- world.time++; taskBroker.beginTick(); ROLES.hauler.run(h);
+ world.time++; taskBroker.forceReplan(); taskBroker.beginTick(); ROLES.hauler.run(h);
  assert(container.store.energy === 400 && storage.store.energy === 7600, 'source container collection still precedes storage fallback');
  room.controller.level = 7;
  const storeLink = makeStructure(room, C.STRUCTURE_LINK, 25, 19, {energy: 0, capacity: 800});
@@ -15085,6 +15085,7 @@ console.log('== 终端网络的接收端：storage 不富余时 hauler 把 termi
     assert(!tdTasks.some((t) => t.target === tdTerminal), 'storage 介于取回线与补能线之间 ⇒ 既不补也不取（不来回搬）');
     tdStorage.store[C.RESOURCE_ENERGY] = tdCfg.industry.terminalDrainStorageBelow - 10000;
     world.time++;
+    taskBroker.forceReplan();
     taskBroker.beginTick();
     tdTasks = taskBroker.roomTasks(tdRoom);
     const tdLow = tdTasks.find((t) => t.kind === 'collect' && t.target === tdTerminal);

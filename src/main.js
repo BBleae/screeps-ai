@@ -174,6 +174,8 @@ function reuseParsedMemory() {
 }
 
 module.exports.loop = function () {
+    const spkT0 = Game.cpu.getUsed();
+    spkTick = {}; spkRoom = {};
     reuseParsedMemory();
     // Memory 结构兜底（respawn/手动清空后 Memory 为空对象，缺一崩全 tick）
     Memory.creeps = Memory.creeps || {};
@@ -224,6 +226,7 @@ module.exports.loop = function () {
             if (drawVisuals) { try { visuals.render(room); } catch (e) { logErr('visuals ' + room.name, e); } }
             const roomEnd = Game.cpu.getUsed();
             cpuProf.room[room.name] = (cpuProf.room[room.name] || 0) + (roomEnd - roomStart);
+            spkRoom[room.name] = roomEnd - roomStart;
             cpuMark = roomEnd;
         }
 
@@ -353,8 +356,23 @@ module.exports.loop = function () {
         if (shed && shed.stopped) { try { cpuShed.noteHardStopEnd(shed); } catch (e) { logErr('cpuShed.noteHardStopEnd', e); } }
         // cpu 字段过去在 sampleStats 里取，漏掉了 flush + endTick；改为整个 tick 收尾时回填
         if (pendingStat) { pendingStat.cpu = Math.round(Game.cpu.getUsed() * 10) / 10; pendingStat = null; }
+        try { noteSpike(spkT0); } catch (e) { /* 诊断失败不影响主循环 */ }
     }
 };
+
+// ---- CPU 尖峰记录（诊断）：整 tick 用量 > SPIKE_LINE 时把这一 tick 的模块/房级分解存进 Memory.cpuSpikes（环形 30 条）----
+const SPIKE_LINE = 150;
+let spkTick = {}, spkRoom = {};
+const spkBoot = Game.time;
+function noteSpike(t0) {
+    const used = Game.cpu.getUsed();
+    if (used <= SPIKE_LINE) return;
+    const r1 = (o, min) => { const out = {}; for (const k in o) if (o[k] >= min) out[k] = Math.round(o[k] * 10) / 10; return out; };
+    const arr = Memory.cpuSpikes || (Memory.cpuSpikes = []);
+    arr.push({ t: Game.time, cpu: Math.round(used * 10) / 10, t0: Math.round(t0 * 10) / 10, age: Game.time - spkBoot,
+        b: Game.cpu.bucket, n: Object.keys(Game.creeps).length, m: r1(spkTick, 1), r: r1(spkRoom, 3) });
+    if (arr.length > 30) arr.splice(0, arr.length - 30);
+}
 
 function runRoom(room) {
     if (!Memory.rooms[room.name]) Memory.rooms[room.name] = {};
@@ -505,6 +523,7 @@ function cpuStart() { cpuMark = Game.cpu.getUsed(); }
 function cpuLap(bucket, label) {
     const now = Game.cpu.getUsed();
     bucket[label] = (bucket[label] || 0) + (now - cpuMark);
+    if (bucket === cpuProf.mod) spkTick[label] = (spkTick[label] || 0) + (now - cpuMark);
     cpuMark = now;
 }
 /** 窗口内每 tick 的均值，默认只留 ≥ 0.05 CPU 的项（更小的落在计时噪声里），两位小数 */

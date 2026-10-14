@@ -934,46 +934,59 @@ function isBlocked(task) {
     return until != null && until > Game.time;
 }
 
+function roomPhase(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+    return Math.abs(h) % REPLAN_INTERVAL;
+}
+
+/** 单测用：下一次 beginTick 让所有房重建任务池（错峰前同一 tick 全房重建，测试依赖这一点） */
+function forceReplan() { runtime.roomPlannedAt = {}; runtime.refreshedAt = -1; }
+
 function beginTick() {
     ensureTick();
-    if (runtime.plannedAt >= 0 && Game.time >= runtime.plannedAt && Game.time - runtime.plannedAt < REPLAN_INTERVAL) {
-        for (const [roomName, tasks] of Object.entries(runtime.tasks)) {
-            if (runtime.refreshedAt !== Game.time) runtime.tasks[roomName] = refreshTasks(tasks);
-            if (!runtime.metrics[roomName]) {
-                runtime.metrics[roomName] = {
-                    backlog: tasks.reduce((sum, task) => sum + task.backlog, 0),
-                    assigned: 0,
-                    idle: 0,
-                    deferred: 0,
-                    skippedCpu: 0,
-                    acted: 0,
-                };
-            }
-        }
-        runtime.refreshedAt = Game.time;
-        return;
-    }
-    runtime.plannedAt = Game.time;
+    // 任务池按房错峰重建（2026-10-14）：过去所有房在同一 tick 一起 roomTasks()，那一 tick broker.begin 30–76 CPU，
+    // 是整 tick 尖峰（>150）最常见的一项；按房名 hash 分到 REPLAN_INTERVAL 个相位，均值不变、单 tick 峰值约降到 1/3。
+    // 每房仍然最多 REPLAN_INTERVAL tick 重建一次，中间 tick 照旧 refreshTasks。
+    const planned = runtime.roomPlannedAt || (runtime.roomPlannedAt = {});
+    if (runtime.refreshedAt === Game.time) return;
     runtime.refreshedAt = Game.time;
-    runtime.tasks = {};
-    // 清理已死亡 creep 的上一 tick 状态，避免 global 缓存无限增长。
-    // stuckTicks 也必须一起清：名字按 role 复用后，前任死掉留下的卡住计数会被同名新生 creep 继承，
-    // 第一次执行就可能跨过 STUCK_TICKS 门槛把任务 block 掉 BLOCK_TICKS。
-    runtime.lastState = runtime.lastState || {};
-    runtime.stuckTicks = runtime.stuckTicks || {};
-    for (const name of Object.keys(runtime.lastState)) {
-        if (!Game.creeps || !Game.creeps[name]) delete runtime.lastState[name];
+    runtime.plannedAt = Game.time;
+    if (Game.time % REPLAN_INTERVAL === 0) {
+        // 清理已死亡 creep 的上一 tick 状态，避免 global 缓存无限增长。
+        // stuckTicks 也必须一起清：名字按 role 复用后，前任死掉留下的卡住计数会被同名新生 creep 继承。
+        runtime.lastState = runtime.lastState || {};
+        runtime.stuckTicks = runtime.stuckTicks || {};
+        for (const name of Object.keys(runtime.lastState)) {
+            if (!Game.creeps || !Game.creeps[name]) delete runtime.lastState[name];
+        }
+        for (const name of Object.keys(runtime.stuckTicks)) {
+            if (!Game.creeps || !Game.creeps[name]) delete runtime.stuckTicks[name];
+        }
     }
-    for (const name of Object.keys(runtime.stuckTicks)) {
-        if (!Game.creeps || !Game.creeps[name]) delete runtime.stuckTicks[name];
-    }
+    const owned = {};
     for (const room of Object.values(Game.rooms || {})) {
         if (!room.controller || !room.controller.my) continue;
-        runtime.tasks[room.name] = roomTasks(room);
-        const metric = runtime.metrics[room.name] || { assigned: 0, idle: 0, deferred: 0, skippedCpu: 0, acted: 0 };
-        metric.backlog = runtime.tasks[room.name].reduce((sum, task) => sum + task.backlog, 0);
-        runtime.metrics[room.name] = metric;
+        owned[room.name] = true;
+        const last = planned[room.name];
+        const due = !(last >= 0) || !runtime.tasks[room.name] || Game.time - last >= REPLAN_INTERVAL ||
+            Game.time < last || (Game.time + roomPhase(room.name)) % REPLAN_INTERVAL === 0;
+        if (due) {
+            planned[room.name] = Game.time;
+            runtime.tasks[room.name] = roomTasks(room);
+            const metric = runtime.metrics[room.name] || { assigned: 0, idle: 0, deferred: 0, skippedCpu: 0, acted: 0 };
+            metric.backlog = runtime.tasks[room.name].reduce((sum, task) => sum + task.backlog, 0);
+            runtime.metrics[room.name] = metric;
+        } else {
+            const tasks = runtime.tasks[room.name];
+            runtime.tasks[room.name] = refreshTasks(tasks);
+            if (!runtime.metrics[room.name]) {
+                runtime.metrics[room.name] = { backlog: tasks.reduce((sum, task) => sum + task.backlog, 0),
+                    assigned: 0, idle: 0, deferred: 0, skippedCpu: 0, acted: 0 };
+            }
+        }
     }
+    for (const name of Object.keys(runtime.tasks)) if (!owned[name]) { delete runtime.tasks[name]; delete planned[name]; }
 }
 
 function refreshTasks(tasks) {
@@ -1265,6 +1278,7 @@ function flush() {
 }
 
 module.exports = {
+    forceReplan,
     controllerFeedLink,
     controllerFeedMode,
     controllerFeedStorage,
