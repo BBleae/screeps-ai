@@ -731,6 +731,9 @@ function resetWorld(time) {
 
 // ---- 测试 ----
 const config = require('../src/config');
+// 线上外矿分配（config.remote.assign）会盖过测试里的大脑白名单：先存档清空，末尾单测覆盖语义
+const liveRemoteAssign = config.remote.assign;
+config.remote.assign = {};
 const utils = require('../src/utils');
 const movement = require('../src/movement');
 const layout = require('../src/layout');
@@ -15203,6 +15206,23 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     delete Memory.market;
     delete Memory.rooms.W33S7;
     delete Memory.rooms.W31S6;
+}
+
+{
+    console.log('== 外矿分配：config.remote.assign 优先于大脑白名单 ==');
+    const rem = require('../src/remote');
+    const brainMod = require('../src/brain');
+    const savedGet = brainMod.get;
+    brainMod.get = (room, key, fb) => (key === 'remotes' && room === 'W31S5') ? ['W31S3'] : fb;
+    config.remote.assign = liveRemoteAssign;
+    assert(JSON.stringify(rem.remoteWhitelist('W31S5')) === '["W32S5"]', 'assign 盖过大脑（得 ' + JSON.stringify(rem.remoteWhitelist('W31S5')) + '）');
+    assert(Array.isArray(rem.remoteWhitelist('W35S7')) && rem.remoteWhitelist('W35S7').length === 0, '[] = 不做外矿（不退回大脑/自治）');
+    assert(rem.remoteWhitelist('W99S99') === null, '没列的母房退回大脑（这里无指令 → null）');
+    const owners = {};
+    let dup = [];
+    for (const h in liveRemoteAssign) for (const r of liveRemoteAssign[h]) { if (owners[r] && !(r === 'W29S2')) dup.push(r); owners[r] = h; }
+    assert(dup.length === 0, '同一外矿只归一个母房（W29S2 沿用大脑的双母房）（重复: ' + dup.join(',') + '）');
+    brainMod.get = savedGet;
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
