@@ -109,11 +109,16 @@ function schedule(requests, ctx) {
     let blockCore = false;       // 一条核心请求在等：后面的非 strategic 请求被挡，strategic 的穿过去
     let blockBelow = Infinity;   // jumpable 请求在等：只挡优先级数值更大的（更低的类）
 
+    function isEconomyRole(role) {
+        return role === 'harvester' || role === 'hauler' || role === 'remoteHarvester' || role === 'remoteHauler';
+    }
     for (const entry of entries) {
         if (free <= 0) break;
         const request = entry.request;
+        // 10-16 战略猫：凡是 harvester/hauler（含 upgrade:harvester、外矿）都算经济 creep——blockCore / jumpable 的队头都不能把它挡在 upgrader 后面
+        const economy = isEconomyRole(request.role);
         // 非 vital 的核心请求在等能量（blockCore）时不挡 vital：生存底线不能排在别人的等待后面
-        if (blockAll || (blockCore && !request.strategic && !request.vital) || request.priority > blockBelow) {
+        if (blockAll || (blockCore && !request.strategic && !request.vital && !economy) || (request.priority > blockBelow && !economy)) {
             blocked.push(request.key);
             continue;
         }

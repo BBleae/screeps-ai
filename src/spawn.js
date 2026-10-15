@@ -1472,6 +1472,15 @@ function upgraderBody(room, mem, budget) {
     const settings = config.upgrading || {};
     const cap = room.energyCapacityAvailable;
     let allowance = Math.min(cap, Math.max(200, Number(budget) || cap));
+    // 10-16 战略猫：storage < poorBelow（默认 1 万）时 upgrader 能量上限 ≈ 容量一半，宁可小身体早点开工，别攒 200+ tick 孵 2150
+    const energyKey = typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy';
+    const storageE = Number((room.storage && room.storage.my !== false && room.storage.store && room.storage.store[energyKey]) || 0)
+        + Number((room.terminal && room.terminal.my !== false && room.terminal.store && room.terminal.store[energyKey]) || 0);
+    const poorBelow = Number(settings.poorBelow) || 10000;
+    if (storageE < poorBelow) {
+        const share = settings.poorBudgetShare != null ? Number(settings.poorBudgetShare) : 0.5;
+        allowance = Math.min(allowance, Math.max(200, Math.floor(cap * share)));
+    }
     if (upgraderLowMode(room, mem)) {
         // 低档预算下限：W4 的 550 吃不完 ctrl link 的 10/tick，src link 与 ctrl link 会一起堵在满仓，免费供给白白浪费（线上 2026-09-05 W33S7 升级 16 → 4/tick）
         allowance = Math.min(allowance, Math.max(200, Number(settings.lowBudget) || 550, utils.upgraderBudgetForWork(linkFedWork(room, mem))));
@@ -2091,7 +2100,8 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
             priority: settings.classes[cls],
             grace: settings.grace[cls] || settings.grace.development,
             opportunistic: cls === 'opportunistic',
-            jumpable: cls === 'opportunistic' || (richUpgrade && n >= baseUpgraders),
+            // 10-16：upgrader 永远 jumpable，买不起时只挡更低类，绝不 blockCore 冻住矿工/hauler
+            jumpable: true,
             memory: { home: room.name, role: 'upgrader' },
             body: (budget) => {
                 const body = upgraderBody(room, mem, Math.min(cap, Math.max(200, budget)));
@@ -2218,9 +2228,11 @@ function harvesterUpgradeRequests(room, state, mem, sources, settings) {
             key: 'upgrade:harvester:' + candidate.creep.name,
             role: 'harvester',
             tag: 'upgrade',
-            priority: settings.classes.remote,
+            // 10-16 战略猫：换代矿工也是经济 creep，priority/vital 压过任何 upgrader，不能挂在 remote 档被 jumpable upgrader 挡住
+            priority: settings.classes.survival,
             grace: 0,
             ordered: true,
+            vital: true,
             strategic: true,
             opportunistic: true,
             blocking: false,

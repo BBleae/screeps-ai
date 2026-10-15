@@ -704,6 +704,9 @@ module.exports = {
         // storage < lowBelow 进入低档，≥ lowExitAbove 才退出（滞回防换代抖动）；低档只孵 lowBudget 的小身体、不加员；
         // 升级者从 storage 取能只取到 reserve 以上（缓冲要留给 spawn 爆发补员和建造）；
         // 满身体在 RCL8 以下不再封顶 15 WORK（15/tick 只是 RCL8 的引擎上限）：RCL6 得 W21C2M1，RCL7 得 W47C2M1（Kalgen 的 eswithdrawUpgrader）
+        // 10-16：storage+terminal < poorBelow 时 upgrader 身体能量上限 = 容量 × poorBudgetShare（穷房别孵 2150）
+        poorBelow: 10000,
+        poorBudgetShare: 0.5,
         lowBelow: 5000,
         lowExitAbove: 10000,
         lowBudget: 550,
