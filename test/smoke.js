@@ -15408,6 +15408,54 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         mk.runOwnOrders(ocfg, Game.market);
         assert(created.length === n, 'credits < 2M 不挂单');
     }
+    // 2026-10-15 巡检：X 均价 ~440 时单笔 5 万上限只够 113 个 < minDeal 500，自挂买单以前永远挂不出
+    {
+        Memory.market = {};
+        const ocfg = mk.settings();
+        const created = [];
+        Game.market = { credits: 7000000, orders: {}, getHistory: (r) => [{ avgPrice: r === 'X' ? 441 : (r === 'energy' ? 30 : 50), volume: 1 }],
+            createOrder: (o) => { created.push(o); return OK; }, cancelOrder: () => OK };
+        Game.rooms = { W32S4: mkRoom('W32S4', { energy: 3000, Z: 3000 }, { energy: 30000 }) };
+        mk.runOwnOrders(ocfg, Game.market);
+        assert(created[0] && created[0].resourceType === 'X' && created[0].type === 'buy' && created[0].totalAmount === 113 && created[0].price * created[0].totalAmount <= 50000,
+            'X 自挂买单按单笔 5 万截到 113 个照挂（得 ' + JSON.stringify(created[0]) + '）');
+        Memory.market = {}; created.length = 0;
+        Game.market.getHistory = (r) => [{ avgPrice: r === 'X' ? 600 : 50, volume: 1 }];
+        mk.runOwnOrders(ocfg, Game.market);
+        assert(!created.find((o) => o.resourceType === 'X'), 'X 均价 600 ⇒ 5 万只够 83 < minBuyAmount 100，不挂');
+    }
+    // 2026-10-15 巡检：K 矿强开（大脑停用、冻结指令 enabled:false）
+    {
+        const mm = ROLES.mineralMiner;
+        const plan = { version: 1, enabled: false, count: 0, reason: 'energy', mineralType: 'K' };
+        const f = mm.forced({ name: 'W33S8' }, plan);
+        assert(f.enabled === true && f.count === 1 && f.mineralType === 'K' && plan.enabled === false, 'force 房强开 count 1，不改原指令');
+        assert(mm.forced({ name: 'W37S5' }, plan) === plan, '不在 force 名单（W37S5）不动');
+        assert(config.minerals.force.W31S6 && config.minerals.force.W37S7 && !config.minerals.force.W37S5, 'K 只开 W31S6/W33S8/W37S7');
+    }
+    // 2026-10-15 巡检：W33S7 storage 的 L 由空闲 hauler 搬进 terminal（到 8000）
+    {
+        const hl = ROLES.hauler;
+        const stx = (o, free) => Object.assign({ getUsedCapacity: () => 0, getFreeCapacity: () => free }, o);
+        const term = { my: true, pos: { x: 10, y: 10, roomName: 'W33S7' }, store: stx({ U: 2000 }, 290000) };
+        const stor = { my: true, pos: { x: 12, y: 10, roomName: 'W33S7' }, store: stx({ L: 21854 }, 900000) };
+        const r = { name: 'W33S7', terminal: term, storage: stor };
+        const withdrawn = [];
+        const c = { pos: { x: 13, y: 10, roomName: 'W33S7' }, store: stx({}, 800), withdraw: (t, res, n) => { withdrawn.push([t === stor, res, n]); return OK; } };
+        let plan = {};
+        assert(hl.unstashPull(c, r, { urgent: false }, plan) === true && withdrawn[0] && withdrawn[0][0] && withdrawn[0][1] === 'L' && withdrawn[0][2] === 800 && plan.withdraw,
+            '空闲 hauler 从 storage 取 L（得 ' + JSON.stringify(withdrawn) + '）');
+        plan = {};
+        assert(hl.unstashPull(c, r, { urgent: true }, plan) === false, '房里急用时不搬');
+        term.store = stx({ L: 8000 }, 280000);
+        assert(hl.unstashPull(c, r, { urgent: false }, {}) === false, 'terminal 已有 8000 就停');
+        term.store = stx({ L: 100 }, 10000);
+        assert(hl.unstashPull(c, r, { urgent: false }, {}) === false, 'terminal 余量 ≤ terminalFree 不搬');
+        const far = { pos: { x: 30, y: 30, roomName: 'W33S7' }, store: stx({}, 800), withdraw: () => OK };
+        term.store = stx({}, 290000); plan = {};
+        assert(hl.unstashPull(far, r, { urgent: false }, plan) === true && plan.move === stor, '不在 storage 旁先走过去');
+        assert(config.terminalNetwork.terminalFeeReserve.W33S7 === 1000, 'W33S7 terminal 留 1000 能量付 L 调剂的传送费');
+    }
     // labs 闸
     const labRoom = mkRoom('W32S4', {}, { energy: 25000 });
     assert(ind.labsAllowed(labRoom) === true && ind.labsAllowed(mkRoom('W33S7', {}, { energy: 90000 })) === false, 'labs 只在 labRooms、storage ≥ 2 万时开');

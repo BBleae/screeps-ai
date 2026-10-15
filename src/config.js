@@ -143,6 +143,9 @@ module.exports = {
         storageCargoRelease: 100,
         // W34S7 terminal 被 30 万 ZH2O 塞满（晴猫 16:22）：空闲 hauler 搬进 storage，terminal 留 10 万给卖单
         stash: { W34S7: { resource: 'ZH2O', keep: 100000, storageFree: 50000 } },
+        // 反向囤货（2026-10-15 战略猫）：W33S7 storage 的 L 由空闲 hauler 搬进 terminal 到 target，供 terminal 调剂给 lab 房；
+        // target 8000 < market.keepBy.L 1 万，市场不会把它卖掉
+        unstash: { W33S7: { resource: 'L', target: 8000, terminalFree: 20000 } },
         // 溢出：源容器 ≥ spillShare 满、或源旁地上 ≥ spillDrop（每 tick 衰减 ceil(量/1000)），取货权重提到 spillWeight，
         // 同时 storage 的富余回流退回兜底（线上 2026-09-12 W33S3：22 格外的源容器 57% 采样满仓、脚下 3.4k–8.7k 在烂，
         // hauler 被 storage → ctrl link 的回流任务（权重 8）整场吸走，187 tick 没去过一次）
@@ -810,7 +813,7 @@ module.exports = {
         // 传送费储备（2026-10-15）：这些房的 terminal 常备这么多能量给市场/调剂付传送费。
         // 先由本房 hauler 从 storage 补（storage 高于 feeReserveStorageFloor 时，不看 storageRich）；storage 也没有就排在救急房之后
         // 用同样的发送方规则从别房送；这份储备不算发送方的富余、也不被 hauler 取回 storage
-        terminalFeeReserve: { W34S7: 3000, W32S4: 3000, W33S3: 3000 },   // 15:01 战略猫：自挂单后对方付传送费，储备降到 3k
+        terminalFeeReserve: { W34S7: 3000, W32S4: 3000, W33S3: 3000, W33S7: 1000 },   // W33S7：L 调剂给 lab 房的传送费（2000 L ≈ 200 能量）   // 15:01 战略猫：自挂单后对方付传送费，储备降到 3k
         feeReserveStorageFloor: 2000,
         maxSend: 50000,
         // terminal 里留给市场传送费的底（src/market.js 的 deal 从 terminal 扣能量）：5000 矿物发到 10 房外约 1500 能量
@@ -866,6 +869,7 @@ module.exports = {
             enabled: true,
             expireTicks: 3000,
             fee: 0.05,
+            minBuyAmount: 100,      // 自挂买单的最小量：X 均价 ~440 时单笔 5 万上限只够 113 个，低于 minDeal 500 永远挂不出
             // 卖单挂单费单独一道日额度（ZH2O 2000 × ~2500 × 5% ≈ 25 万，若并进 dailyBuyCredits 20 万会把买单全挤掉或卖单永远挂不出）；
             // 买单的挂单费计入 dailyBuyCredits
             dailySellFeeCredits: 300000,
@@ -927,6 +931,8 @@ module.exports = {
         maxCpuShare: 0,
     },
     // 矿物数量、库存门槛和身体由 scripts/brain/minerals.py 决定。
+    // 2026-10-15 战略猫：K 矿只开 W31S6、W33S8、W37S7（大脑已停用，冻结指令里是 enabled:false）。见 roles/mineralMiner.forced
+    minerals: { force: { W31S6: true, W33S8: true, W37S7: true } },
     // Memory 卫生：控制台探针（monitor.py 的 _mon、remote_roi.py 的 _roi、临时 _dbg*）把结果留在
     // Memory 的下划线键里，读取方只删探针源、不删结果。线上实测 359,623 字节的 Memory 里约 102 KB（28%）
     // 是这种死数据，而引擎每 tick 都要把整个 Memory 解析+序列化一遍 —— 这是白付的 CPU。
