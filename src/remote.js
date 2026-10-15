@@ -1379,6 +1379,29 @@ function reserveGain(home, record, sources) {
 }
 
 /** bodyFor(budget)：预算不足满配时按预算缩身的身体（spawn 队列在宽限用完后调用）；不给则只能等满配 */
+/** 母房 storage+terminal 见底（< remote.lowStorageHaulBelow）时外矿 hauler 的理想身体按「现在买得起的」定：
+ *  max(energyAvailable, lowStorageHaulMin) 封顶容量。线上 2026-10-14 W31S8 storage 0、收入 8/tick，2550 的 hauler 等了 1300+ tick，
+ *  旧 hauler 陆续老死、外矿零运输 → 收入更低的死循环。小身体先把能量运回来，storage 回来后换代时自然回到满容量身体 */
+function haulBudget(home, capacity) {
+    const settings = config.remote || {};
+    const below = Number(settings.lowStorageHaulBelow);
+    if (!(below > 0) || !home || !home.storage) return capacity;   // 没 storage 的新房走原逻辑
+    const energy = (st) => (st && st.store && Number(st.store[RESOURCE_ENERGY] || 0)) || 0;
+    if (energy(home.storage) + energy(home.terminal) >= below) return capacity;
+    const floor = Math.max(0, Number(settings.lowStorageHaulMin) || 0);
+    return Math.min(capacity, Math.max(Number(home.energyAvailable) || 0, floor));
+}
+
+function capHaulBody(home, capacity, item, bodyAt) {
+    const budget = haulBudget(home, capacity);
+    if (budget >= capacity) return;
+    const body = bodyAt(budget) || [];
+    if (body.length && carryParts(body.map((p) => (p && p.type) || p)) > 0) {
+        item.body = body;
+        item.lowStorageCap = budget;
+    }
+}
+
 function demand(role, slot, body, memory, lead, priority, bodyFor) {
     return { role, slot, body, memory: Object.assign({ role, slotKey: slot }, memory), lead, priority, bodyFor };
 }
@@ -1726,13 +1749,18 @@ function getDemands(home) {
                     haulSlot: slotIndex,
                     state: 'collect',
                 }, lead, priority++, (budget) => remoteHaulerBody(budget, source.roadComplete, slotIndex === 0, bodyCarry));
+                capHaulBody(home, capacity, haulDemand, (b) => remoteHaulerBody(b, source.roadComplete, slotIndex === 0, bodyCarry));
                 haulDemand.maintain = true;   // 有容器才会出 hauler 需求
                 // 这具身体每 tick 能运回多少（CARRY×50 / 往返），封顶源产出：spawn 用它判断缩身 hauler 值不值得换代
                 haulDemand.throughput = (body) => Math.min(rate, carryParts(body.map((part) => (part && part.type) || part)) * 50 / roundTripTicks(source, distance, dropName));
                 demands.push(haulDemand);
             }
             const residual = lost ? null : residualHaulerDemand(home, record, source, slots, distance, capacity, priority, dropName);
-            if (residual) { demands.push(residual); priority++; }
+            if (residual) {
+                const gap = residual.residual && residual.residual.gap;
+                capHaulBody(home, capacity, residual, (b) => remoteHaulerBody(b, source.roadComplete, false, gap));
+                demands.push(residual); priority++;
+            }
         }
     }
     return demands;
@@ -1802,6 +1830,7 @@ module.exports = {
     reserverBody,
     remoteMinerBody,
     remoteHaulerBody,
+    haulBudget,
     haulerSlots,
     requiredCarryFor,
     deliveryStops,

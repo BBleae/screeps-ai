@@ -328,6 +328,9 @@ module.exports = {
     },
     // 远程采矿：RCL4+ 开启，由 scout 探明后自动纳入（要求无主、无 Keeper 巢穴、双源；keeper 房只走 config.sk 那条闸）
     remote: {
+        // 母房 storage+terminal 低于它时外矿 hauler 按 max(energyAvailable, lowStorageHaulMin) 定身体（remote.haulBudget，2026-10-15）
+        lowStorageHaulBelow: 5000,
+        lowStorageHaulMin: 800,
         // 外矿分配（remote.remoteWhitelist）：数组优先于外部大脑白名单，[] = 不做外矿；没列的母房照旧听大脑/自治。
         // 2026-10-14「挪不加」：W32S4 的 W32S5 → W31S5（相邻）；W33S8 的 W34S8 → W34S7（相邻）；
         // W37S7 的 W37S6 → W37S5（相邻），W37S5 原四个 W38S6/W39S* 路程 ~95–104、全部 unreachable 冷却中，撤掉（W37S5 缺能量的根因：外矿零收入）。
@@ -339,7 +342,7 @@ module.exports = {
             W33S8: ['W32S8'],
             W37S5: ['W37S6'],
             W37S7: ['W39S9', 'W39S6'],
-            W35S7: ['W36S7'],   // 2026-10-14：invader core ~74333973 到期；之前 observe 判 invaderCore 停着，到期后 reserver 削 Invader 残余预定
+            W35S7: [],   // 2026-10-15：W36S7 被 Alepoldar 预定，战略猫决定不争
             W33S7: ['W32S7', 'W33S6'],
             W31S8: ['W31S9', 'W29S9'],
             W31S6: ['W31S7', 'W29S7'],
@@ -776,6 +779,13 @@ module.exports = {
         receiveBelow: 20000, // 接收方要低于它
         keep: 60000,         // 发出后发送方自己仍要高于这个数
         minSend: 5000,       // 太小的单不值得（传送本身要烧能量）
+        // 救急（terminal.planStarving，2026-10-15 战略猫）：名单里的房 storage+terminal < starvingBelow 时按顺序先救，
+        // 发送方只要 ≥ starveSendAbove（且 storageRich）、发完留 starveKeep，一笔最多 starveMaxSend
+        priorityReceivers: ['W31S8', 'W35S7', 'W34S7', 'W31S5', 'W37S5'],
+        starvingBelow: 10000,
+        starveSendAbove: 40000,
+        starveKeep: 30000,
+        starveMaxSend: 10000,
         maxSend: 50000,
         // terminal 里留给市场传送费的底（src/market.js 的 deal 从 terminal 扣能量）：5000 矿物发到 10 房外约 1500 能量
         feeReserve: 2000,

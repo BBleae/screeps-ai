@@ -1292,6 +1292,9 @@ try {
         main.loop();
         return { calls: global.__pixelCalls, skipped: ((Memory.pixelGate && Memory.pixelGate.skip) || 0) - before };
     };
+    // 线上暂停产 pixel（maxCpuShare 0）：闸门语义按 0.75 测，块末还原
+    const livePixelShare = config.pixel.maxCpuShare;
+    config.pixel.maxCpuShare = 0.75;
     const noSamples = pixelTick([]);
     assert(noSamples.calls === 0 && noSamples.skipped === 1 && Memory.pixelGate.n === 0,
         '没有 CPU 样本（刚 respawn）时不产 pixel、记一次放弃（得 ' + JSON.stringify(noSamples) + '、' + JSON.stringify(Memory.pixelGate) + '）');
@@ -1305,6 +1308,7 @@ try {
         '近期用量均值高于 limit × maxCpuShare：不产 pixel、记放弃次数/tick/均值（得 ' + JSON.stringify(tight) + '、' + JSON.stringify(Memory.pixelGate) + '）');
     // 均值只看最近 samples 条：老的低样本不把均值拉下来
     assert(main.pixelGate().n === config.pixel.samples && main.pixelGate().mean === 135.8, '均值取最近 ' + config.pixel.samples + ' 条（得 ' + JSON.stringify(main.pixelGate()) + '）');
+    config.pixel.maxCpuShare = livePixelShare;
 } catch (e) {
     fails++;
     console.log('  ✗ 空 Memory loop throw: ' + e.stack.split('\n').slice(0, 3).join(' | '));
@@ -14949,6 +14953,26 @@ console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：
     assert(200000 + 60000 - plan.amount >= cfg.keep, '发出后发送方仍高于 keep');
     assert(term.planTransfer([mid, poor], cfg) === null, '发送方不够富（低于 sendAbove）⇒ 不发');
     assert(term.planTransfer([rich, mid], cfg) === null, '接收方不够饿（高于 receiveBelow）⇒ 不发');
+    {
+        const scfg = Object.assign({}, cfg, { priorityReceivers: ['W31S8', 'W35S7'], starvingBelow: 10000, starveSendAbove: 40000, starveKeep: 30000, starveMaxSend: 10000 });
+        const donor = mkTRoom('W32S4', 49000, 30000);
+        const starving = mkTRoom('W35S7', 0, 2000);
+        const first = mkTRoom('W31S8', 0, 0);
+        const sp = term.planTransfer([donor, starving, first], scfg);
+        assert(sp && sp.starving && sp.from.name === 'W32S4' && sp.to.name === 'W31S8', '救急：名单顺序先救 W31S8（得 ' + (sp && sp.from.name + '→' + sp.to.name) + '）');
+        assert(sp.amount <= 10000 && 79000 - sp.amount - sp.cost >= 30000, '救急一笔 ≤ starveMaxSend、发送方留 starveKeep');
+        const fed = mkTRoom('W31S8', 12000, 0);
+        const sp2 = term.planTransfer([donor, starving, fed], scfg);
+        assert(sp2 && sp2.to.name === 'W35S7', '≥ starvingBelow 的不救，轮到下一个（得 ' + (sp2 && sp2.to.name) + '）');
+        assert(term.planTransfer([mkTRoom('W32S4', 30000, 5000), first], scfg) === null, '发送方低于 starveSendAbove ⇒ 不发');
+        const remMod = require('remote');
+        const home = { energyAvailable: 1200, storage: { store: { energy: 100 } }, terminal: { store: { energy: 0 } } };
+        assert(remMod.haulBudget(home, 5600) === 1200, 'storage 见底：hauler 预算 = energyAvailable（得 ' + remMod.haulBudget(home, 5600) + '）');
+        home.energyAvailable = 300;
+        assert(remMod.haulBudget(home, 5600) === 800, '预算下限 lowStorageHaulMin 800');
+        home.storage.store.energy = 20000;
+        assert(remMod.haulBudget(home, 5600) === 5600, 'storage 正常：满容量');
+    }
     assert(term.planTransfer([mkTRoom('W33S8', 200000, 60000, { cooldown: 5 }), poor], cfg) === null, 'terminal 冷却中不发');
     assert(term.planTransfer([rich, mkTRoom('W31S5', 3000, 300000, { cap: 300000 })], cfg) === null, '接收方 terminal 没有空位 ⇒ 不发');
     assert(term.planTransfer([mkTRoom('W35S7', 260000, 0), poor], cfg) === null, '发送方 terminal 是空的 ⇒ 不发（传送只能从 terminal 出）');
@@ -15219,7 +15243,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     config.remote.assign = Object.assign({}, liveRemoteAssign, { W31S5: [] });
     assert(Array.isArray(rem.remoteWhitelist('W31S5')) && rem.remoteWhitelist('W31S5').length === 0, '[] = 不做外矿（不退回大脑/自治）');
     config.remote.assign = liveRemoteAssign;
-    assert(liveRemoteAssign.W35S7.includes('W36S7') && !liveRemoteAssign.W38S7.includes('W38S9'), 'W36S7 归 W35S7，W38S9 从 W38S7 让出');
+    assert(liveRemoteAssign.W35S7.length === 0 && !liveRemoteAssign.W38S7.includes('W38S9'), 'W35S7 不争 W36S7（[]），W38S9 从 W38S7 让出');
     const savedRooms = Memory.rooms;
     Memory.rooms = { W35S7: { remotes: { W36S7: { room: 'W36S7', enabled: true, clearReservation: true, suspendedUntil: Game.time + 4000, suspendReason: 'foreignReservation:Invader', sources: [] } } } };
     assert(rem.canClearReservation('W35S7', 'W36S7') === true, 'Invader 残余预定（核心已无）：reserver 可进房削预定');
