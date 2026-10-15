@@ -187,49 +187,100 @@ function energyHave(room) {
     return Number(room.terminal.store[ENERGY] || 0) + Number((room.storage && room.storage.store[ENERGY]) || 0);
 }
 
-/** 买能量给饥饿房：到手单价（含传送费烧掉的能量）≤ maxEffective。一轮最多一笔 */
+/** spawn 卡死：队头是经济 creep（矿工/hauler）且已等 ≥ emergencyWaitTicks */
+function spawnStuckEconomy(room, waitTicks) {
+    const mem = Memory.rooms && Memory.rooms[room.name];
+    const w = mem && mem.spawnWaiting;
+    if (!w || !(w.cost > 0) || !w.since) return false;
+    if (Game.time - Number(w.since) < waitTicks) return false;
+    const role = String(w.role || '');
+    return role === 'harvester' || role === 'hauler' || role === 'remoteHarvester' || role === 'remoteHauler';
+}
+
+/** 买能量：普通路径要求到手价 ≤ maxEffective（be.enabled）；救急路径只给 spawn 卡死房、按均价±priceBand、日量 emergencyDailyEnergy。一轮最多一笔 */
 function tryBuyEnergy(cfg, market, countScan) {
     const be = cfg.buyEnergy;
-    if (!be || !be.enabled) return null;
+    if (!be) return null;
+    const emergencyOn = !!be.spawnStuckEmergency;
+    if (!be.enabled && !emergencyOn) return null;
     if (!(Number(market.credits) >= cfg.creditFloor)) return null;
     const led = ledger();
     const left = cfg.dailyBuyCredits - led.buyCredits;
     if (!(left > 0)) return null;
-    const order = (config.terminalNetwork && config.terminalNetwork.priorityReceivers) || [];
-    const rooms = order.map((n) => Game.rooms[n]).filter((r) => r && r.terminal && r.terminal.my !== false && !(r.terminal.cooldown > 0) &&
-        !terminalNet.usedThisTick(r.name) && energyHave(r) < Number(be.belowEnergy || 10000) && Number(r.terminal.store[ENERGY] || 0) > 0);
-    if (!rooms.length) return null;
+    const waitTicks = Number(be.emergencyWaitTicks) || 200;
+    const dailyEmerg = Number(be.emergencyDailyEnergy) || 10000;
+    const emergBought = Number(led.boughtEnergyEmergency) || 0;
+    const emergLeft = Math.max(0, dailyEmerg - emergBought);
+
+    const candidates = [];
+    if (be.enabled) {
+        const order = (config.terminalNetwork && config.terminalNetwork.priorityReceivers) || [];
+        for (const n of order) {
+            const r = Game.rooms[n];
+            if (!r || !r.terminal || r.terminal.my === false || r.terminal.cooldown > 0) continue;
+            if (terminalNet.usedThisTick(r.name)) continue;
+            if (!(energyHave(r) < Number(be.belowEnergy || 10000))) continue;
+            if (!(Number(r.terminal.store[ENERGY] || 0) > 0)) continue;
+            candidates.push({ room: r, mode: 'normal' });
+        }
+    }
+    if (emergencyOn && emergLeft >= (cfg.minDeal || 100)) {
+        const names = Object.keys(Game.rooms || {});
+        for (const n of names) {
+            const r = Game.rooms[n];
+            if (!r || !r.controller || !r.controller.my) continue;
+            if (!r.terminal || r.terminal.my === false || r.terminal.cooldown > 0) continue;
+            if (terminalNet.usedThisTick(r.name)) continue;
+            if (!(Number(r.terminal.store[ENERGY] || 0) > 0)) continue;
+            if (!spawnStuckEconomy(r, waitTicks)) continue;
+            if (candidates.some((c) => c.room.name === r.name)) continue;
+            candidates.push({ room: r, mode: 'emergency' });
+        }
+    }
+    if (!candidates.length) return null;
+
     countScan();
     let orders = [];
     try { orders = market.getAllOrders({ type: typeof ORDER_SELL !== 'undefined' ? ORDER_SELL : 'sell', resourceType: ENERGY }) || []; }
     catch (error) { utils.logErr('market.getAllOrders', error); return null; }
     const costOf = (n, from, to) => (typeof market.calcTransactionCost === 'function' ? market.calcTransactionCost(n, from, to) : Math.ceil(n * 0.1));
+    const avg = emergencyOn ? recentAvgPrice(ENERGY, cfg) : null;
+    const emergCeil = avg != null && cfg.priceBand != null ? avg * (1 + cfg.priceBand) : null;
+
     let best = null;
-    for (const room of rooms) {
+    for (const cand of candidates) {
+        const room = cand.room;
         const pay = Number(room.terminal.store[ENERGY] || 0);
+        const maxAmt = cand.mode === 'emergency'
+            ? Math.min(Number(be.maxAmount || 20000), emergLeft)
+            : Number(be.maxAmount || 20000);
         for (const o of orders) {
             if (!o || o.resourceType !== ENERGY || !(o.amount > 0) || !(o.price > 0) || !o.roomName) continue;
-            let amount = Math.min(o.amount, Number(be.maxAmount || 20000), Math.floor(Math.min(cfg.maxOrderCredits, left) / o.price));
+            if (cand.mode === 'emergency') {
+                if (emergCeil == null || o.price > emergCeil) continue;
+            }
+            let amount = Math.min(o.amount, maxAmt, Math.floor(Math.min(cfg.maxOrderCredits, left) / o.price));
             while (amount >= cfg.minDeal && costOf(amount, o.roomName, room.name) > pay) amount = Math.floor(amount / 2);
             if (amount < cfg.minDeal) continue;
             const cost = costOf(amount, o.roomName, room.name);
             const net = amount - cost;
             if (net <= 0) continue;
             const eff = o.price * amount / net;
-            if (eff > be.maxEffective) continue;
-            if (!best || eff < best.eff) best = { room, o, amount, cost, eff };
+            if (cand.mode === 'normal' && eff > be.maxEffective) continue;
+            if (!best || eff < best.eff) best = { room, o, amount, cost, eff, mode: cand.mode };
         }
-        if (best) break;   // 按名单顺序：先救前面的房
+        if (best && best.mode === 'normal') break;
     }
     if (!best) return null;
     const ret = market.deal(best.o.id, best.amount, best.room.name);
     terminalNet.markUsed(best.room.name);
     const rec = { at: Game.time, room: best.room.name, resource: ENERGY, amount: best.amount, cost: best.cost, price: best.o.price,
-        effective: Math.round(best.eff * 100) / 100, buy: true, result: ret };
+        effective: Math.round(best.eff * 100) / 100, buy: true, emergency: best.mode === 'emergency', result: ret };
     Memory.market.lastBuy = rec;
     if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
         led.bought[ENERGY] = (led.bought[ENERGY] || 0) + best.amount;
         led.buyCredits = Math.round(led.buyCredits + best.amount * best.o.price);
+        if (best.mode === 'emergency') led.boughtEnergyEmergency = (Number(led.boughtEnergyEmergency) || 0) + best.amount;
         led.deals++;
     }
     return rec;

@@ -822,8 +822,8 @@ module.exports = {
         starveMinSend: 2000,          // 10-16：starvingUntil 房救急期间单笔下限（平时 minSend 5000）
         senderTerminalExtra: 10000,   // 10-16：发送房 terminal 常备 储备 + 1 万 可发能量（task_broker.senderFillWant）
         senderStorageFloor: 30000,    // 补 terminal 时 storage 不低于 3 万   // 10-16 战略猫：W31S8 排第一、每轮都送，直到 storage+terminal ≥ 2 万（只按 storage 算的话 terminal 送来的能量被直接取用，会无限送）
-        starveSendAbove: 40000,
-        starveKeep: 30000,
+        starveSendAbove: 30000,  // 10-16：spawn 卡死救急，发完留 starveKeep
+        starveKeep: 20000,  // 10-16：救急发完至少留 2 万
         starveMaxSend: 10000,
         // 传送费储备（2026-10-15）：这些房的 terminal 常备这么多能量给市场/调剂付传送费。
         // 先由本房 hauler 从 storage 补（storage 高于 feeReserveStorageFloor 时，不看 storageRich）；storage 也没有就排在救急房之后
@@ -878,7 +878,16 @@ module.exports = {
         // 买能量（战略猫 15:49）：只给 terminalNetwork.priorityReceivers 里 storage+terminal < belowEnergy 的房；
         // 到手单价 = 价格×买量 / (买量 − 传送费能量) ≤ maxEffective；计入 dailyBuyCredits。传送费从接收房 terminal 的能量里扣
         // 直接 deal 买能量只在紧急时（storage+terminal < belowEnergy 3000）；平时走自挂买单（ownOrders.energy）
-        buyEnergy: { enabled: false, maxEffective: 15, belowEnergy: 3000, maxAmount: 20000 },
+        // 10-16：普通补能仍要求到手价 ≤15（enabled 默认关）；spawnStuckEmergency 给卡死房开例外：按均价±priceBand 买，每天最多 emergencyDailyEnergy，计入 dailyBuyCredits
+        buyEnergy: {
+            enabled: false,
+            maxEffective: 15,
+            belowEnergy: 3000,
+            maxAmount: 20000,
+            spawnStuckEmergency: true,
+            emergencyDailyEnergy: 10000,
+            emergencyWaitTicks: 200,
+        },
         dealBuyMinerals: false,       // Z/X 不再直接 deal（自挂买单代替）
         // 自挂单（战略猫 16:01）：对方成交时付传送能量。价格 = 近 historyDays 天均价（卖/买都夹在 ±priceBand 内），
         // 每单 expireTicks 到期撤单按最新均价重挂；每房每资源一张；5% 挂单费计入 dailyBuyCredits；买单挂单时按全额预占日额度、撤单退回未成交部分

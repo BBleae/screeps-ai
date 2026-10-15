@@ -2010,12 +2010,12 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
             base: model.base, measured: model.measured, burst: model.burst, spend: model.spend };
     }
     for (let n = planned.hauler; n < targets.hauler; n++) {
-        const cls = n < survivalTargets.hauler ? 'survival' : 'development';
+        // 10-16 战略猫：前 2 只 hauler 永远生存档+vital，排在任何 upgrader 前面；不够就按现有能量缩身
+        const cls = (n < 2 || n < survivalTargets.hauler) ? 'survival' : 'development';
         requests.push({
             key: 'core:hauler:' + n,
             role: 'hauler',
-            // 第 2 只 hauler 是"唯一一只死掉到替补孵出"那段空窗的保险（hauling.linkFloorMinStore 的依据）：发展档里排在 builder/升级者之前
-            priority: cls === 'survival' ? settings.classes.survival : n < 2 ? settings.classes.development - 0.25 : settings.classes.development,
+            priority: cls === 'survival' ? settings.classes.survival : settings.classes.development,
             grace: settings.grace[cls],
             vital: cls === 'survival',
             memory: { home: room.name, role: 'hauler' },
@@ -2080,15 +2080,18 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
             break;
         }
         upWork += upPerBody;
-        const cls = n < survivalTargets.upgrader ? 'survival' : n < baseUpgraders ? 'development' : richUpgrade ? 'development' : 'opportunistic';
-        // 底线 upgrader 的优先级按生存档排，但宽限用发展档：源没人挖才值得 30 tick 就缩身，升级晚几十 tick 没有损失
+        // 10-16 战略猫：upgrader 永不进 survival。否则底线 upgrader 与第 2 只 hauler（development-0.25）抢队时会挡在前面，
+        // 买不起的大 upgrader 用 blockCore 冻住整个经济补位（W31S5：core:upgrader 等 424 tick，hauler 死光）。
+        const economyThin = planned.hauler < 2 || planned.harvester < survivalTargets.harvester;
+        const cls = economyThin ? 'opportunistic'
+            : (n < baseUpgraders || richUpgrade ? 'development' : 'opportunistic');
         requests.push({
             key: 'core:upgrader:' + n,
             role: 'upgrader',
             priority: settings.classes[cls],
-            grace: cls === 'survival' ? settings.grace.development : (settings.grace[cls] || 0),
+            grace: settings.grace[cls] || settings.grace.development,
             opportunistic: cls === 'opportunistic',
-            jumpable: richUpgrade && n >= baseUpgraders,
+            jumpable: cls === 'opportunistic' || (richUpgrade && n >= baseUpgraders),
             memory: { home: room.name, role: 'upgrader' },
             body: (budget) => {
                 const body = upgraderBody(room, mem, Math.min(cap, Math.max(200, budget)));
