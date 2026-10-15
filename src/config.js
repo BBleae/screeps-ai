@@ -471,7 +471,9 @@ module.exports = {
         // 线上 2026-10-03 spawn 单项均值 42.6/131 CPU，13 个房里 10 个是这个形态；孵化需求的出现靠 creep 到期，提前量都是百 tick 级，
         // 延后几个 tick 无损；恢复期/无在岗工人/房里有敌人不降频。1 = 关闭
         quietDemandInterval: 10,
-        waitingDemandInterval: 5,   // 队头等能量期间的全量推导间隔（spawn.runQueue）
+        waitingDemandInterval: 5,
+        starvedStorage: 2000,       // storage 能量低于它算缺能量房：等能量的全量推导间隔拉长到 min(队头 ETA, starvedWaitInterval)
+        starvedWaitInterval: 25,   // 队头等能量期间的全量推导间隔（spawn.runQueue）
         minShare: 0.5,
         // 自带分档身体（bodyFor）的需求（外矿/援建/开荒）缩身下限改按理想身体成本的份额：1600 容量下 650 的 1 CLAIM 档不被容量一半（800）卡住，
         // 但也不再孵 200–500 的外矿 hauler（线上 W33S6 一只 1 CARRY 的 hauler 占着 19 CARRY 的槽位 1285 tick，9.8/tick 的产出运回不到 1）
@@ -857,6 +859,8 @@ module.exports = {
         creditFloor: 2000000,         // 低于它只卖不买
         maxOrderCredits: 50000,       // 单笔上限（买卖都按它截量）
         dailyBuyCredits: 500000,      // 每日买入总额（10-15 战略猫：20 万 → 50 万）
+        // 分资源份额（10-16）：Z 最多 40%（成交快、曾一个人吃光日额度）；O、X 各预留 20%，Z/U 不得挤占
+        buyShare: { cap: { Z: 0.4 }, reserve: { O: 0.2, X: 0.2 } },
         buy: { resources: ['Z', 'O', 'X', 'U'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'] },   // 只买 labs 链缺的 Z/X，补到 3000
         // 买能量（战略猫 15:49）：只给 terminalNetwork.priorityReceivers 里 storage+terminal < belowEnergy 的房；
         // 到手单价 = 价格×买量 / (买量 − 传送费能量) ≤ maxEffective；计入 dailyBuyCredits。传送费从接收房 terminal 的能量里扣

@@ -60,6 +60,24 @@ function ledger() {
     return mem.ledger;
 }
 
+// 每种资源占当日买入额度的份额（cfg.buyShare：{ cap: {Z:0.4}, reserve: {O:0.2, X:0.2} }，2026-10-16）：
+// cap = 该资源当日最多花 dailyBuyCredits × cap；reserve = 给该资源预留的份额，别的资源不得挤占它还没花掉的那部分
+function buyShareOk(cfg, led, res, commit) {
+    const sh = cfg.buyShare;
+    if (!sh) return true;
+    const by = led.buyBy || (led.buyBy = {});
+    const total = cfg.dailyBuyCredits;
+    const cap = sh.cap && sh.cap[res];
+    if (cap != null && (by[res] || 0) + commit > total * cap) return false;
+    let held = 0;
+    for (const r in (sh.reserve || {})) if (r !== res) held += Math.max(0, total * sh.reserve[r] - (by[r] || 0));
+    return led.buyCredits + commit + held <= total;
+}
+function noteBuyBy(led, res, credits) {
+    const by = led.buyBy || (led.buyBy = {});
+    by[res] = Math.max(0, Math.round((by[res] || 0) + credits));
+}
+
 function keepFor(resource, cfg) {
     const k = cfg.keepBy && cfg.keepBy[resource];
     return k != null ? Number(k) : cfg.keep;
@@ -248,6 +266,7 @@ function tryBuy(cfg, market, countScan) {
             const costOf = (n) => (typeof market.calcTransactionCost === 'function' ? market.calcTransactionCost(n, room.name, best.roomName) : Math.ceil(n * 0.1));
             while (amount >= cfg.minDeal && costOf(amount) > energy) amount = Math.floor(amount / 2);
             if (amount < cfg.minDeal) continue;
+            if (!buyShareOk(cfg, led, res, amount * best.price)) continue;
             const ret = market.deal(best.id, amount, room.name);
             terminalNet.markUsed(room.name);
             const rec = { at: Game.time, room: room.name, resource: res, amount, price: best.price, ceil: Math.round(ceil * 1000) / 1000, buy: true, result: ret };
@@ -256,6 +275,7 @@ function tryBuy(cfg, market, countScan) {
             if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
                 led.bought[res] = (led.bought[res] || 0) + amount;
                 led.buyCredits = Math.round(led.buyCredits + amount * best.price);
+                noteBuyBy(led, res, amount * best.price);
                 led.deals++;
             }
             return rec;
@@ -302,7 +322,10 @@ function syncOrders(cfg, market) {
         const expired = Game.time >= o.expires;
         if (!x || left <= 0 || expired) {
             if (x && left > 0 && typeof market.cancelOrder === 'function') market.cancelOrder(o.id);
-            if (o.type === 'buy' && left > 0) led.buyCredits = Math.max(0, Math.round(led.buyCredits - left * o.price));
+            if (o.type === 'buy' && left > 0) {
+                led.buyCredits = Math.max(0, Math.round(led.buyCredits - left * o.price));
+                if (o.day === led.day) noteBuyBy(led, o.resource, -left * o.price);
+            }
             delete book[key];
         }
     }
@@ -320,16 +343,17 @@ function postOrder(cfg, market, type, resource, room, price, amount) {
     if (type === 'buy') {
         const commit = price * amount + fee;
         if (credits - commit < cfg.creditFloor || led.buyCredits + commit > cfg.dailyBuyCredits || price * amount > cfg.maxOrderCredits) return null;
+        if (resource !== ENERGY && !buyShareOk(cfg, led, resource, commit)) return null;
     } else if ((led.sellFees || 0) + fee > (Number(own.dailySellFeeCredits) || 0)) return null;
     const ret = market.createOrder({ type, resourceType: resource, price: Math.round(price * 1000) / 1000, totalAmount: amount, roomName: room });
     const rec = { at: Game.time, type, resource, room, price, amount, result: ret };
     Memory.market.lastOrder = rec;
     if (ret !== (typeof OK !== 'undefined' ? OK : 0)) return rec;
-    if (type === 'buy') led.buyCredits = Math.round(led.buyCredits + fee + price * amount);
+    if (type === 'buy') { led.buyCredits = Math.round(led.buyCredits + fee + price * amount); noteBuyBy(led, resource, fee + price * amount); }
     else led.sellFees = Math.round((led.sellFees || 0) + fee);
     led.fees = Math.round((led.fees || 0) + fee);
     led.orders = (led.orders || 0) + 1;
-    book[key] = { type, resource, room, price, amount, posted: Game.time, expires: Game.time + own.expireTicks, id: null, left: amount };
+    book[key] = { type, resource, room, price, amount, posted: Game.time, expires: Game.time + own.expireTicks, id: null, left: amount, day: led.day };
     return rec;
 }
 
