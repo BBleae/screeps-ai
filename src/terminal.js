@@ -131,7 +131,9 @@ function planStarving(rooms, cfg, rich) {
                 if (amount <= 0) break;
                 cost = transactionCost(amount, from.name, to.name);
             }
-            if (amount < cfg.minSend) continue;
+            // 10-16 战略猫：starvingUntil 里的房救急期间单笔下限降到 starveMinSend（2000）；回到门槛以上就不走这条，自动恢复 minSend
+            const minSend = until > below ? Math.min(cfg.minSend, Number(cfg.starveMinSend) || cfg.minSend) : cfg.minSend;
+            if (amount < minSend) continue;
             return { from, to, amount, cost, starving: true };
         }
     }
