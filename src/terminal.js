@@ -119,7 +119,8 @@ function planStarving(rooms, cfg, rich) {
         order.indexOf(room.name) < 0);
     for (const name of order) {
         const to = byName[name];
-        if (!to || roomEnergy(to) >= below || freeOf(to.terminal.store) <= 0) continue;
+        const until = Math.max(below, Number(cfg.starvingUntil && cfg.starvingUntil[name]) || 0);
+        if (!to || roomEnergy(to) >= until || freeOf(to.terminal.store) <= 0) continue;
         for (const from of senders) {
             const spare = roomEnergy(from) - keep - feeReserveOf(from);
             const budget = energyOf(from.terminal.store) - Math.max(feeReserve, feeReserveOf(from));
