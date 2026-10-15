@@ -188,8 +188,11 @@ function schedule(requests, ctx) {
         }
         if (request.blocking !== false) {
             if (request.vital) blockAll = true;
-            else if (request.jumpable) blockBelow = Math.min(blockBelow, request.priority);
-            else if (request.strategic) blockAll = true;
+            // 10-16 战略猫：队头非经济 creep 等了 ≥200 tick，让后面更便宜的经济 creep 插队（不再 blockCore）
+            else if (request.jumpable || (ctx.now - entry.since >= 200 &&
+                (request.role === 'upgrader' || request.role === 'builder' || request.role === 'labTech' || request.role === 'scout'))) {
+                blockBelow = Math.min(blockBelow, request.priority);
+            } else if (request.strategic) blockAll = true;
             else blockCore = true;
         }
     }
