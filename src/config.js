@@ -810,7 +810,10 @@ module.exports = {
         // 发送方只要 ≥ starveSendAbove（且 storageRich）、发完留 starveKeep，一笔最多 starveMaxSend
         priorityReceivers: ['W31S8', 'W35S7', 'W34S7', 'W31S5', 'W37S5'],
         starvingBelow: 10000,
-        starvingUntil: { W31S8: 20000 },   // 10-16 战略猫：W31S8 排第一、每轮都送，直到 storage+terminal ≥ 2 万（只按 storage 算的话 terminal 送来的能量被直接取用，会无限送）
+        starvingUntil: { W31S8: 20000 },
+        starveMinSend: 2000,          // 10-16：starvingUntil 房救急期间单笔下限（平时 minSend 5000）
+        senderTerminalExtra: 10000,   // 10-16：发送房 terminal 常备 储备 + 1 万 可发能量（task_broker.senderFillWant）
+        senderStorageFloor: 30000,    // 补 terminal 时 storage 不低于 3 万   // 10-16 战略猫：W31S8 排第一、每轮都送，直到 storage+terminal ≥ 2 万（只按 storage 算的话 terminal 送来的能量被直接取用，会无限送）
         starveSendAbove: 40000,
         starveKeep: 30000,
         starveMaxSend: 10000,

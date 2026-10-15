@@ -292,7 +292,21 @@ function terminalFillWant(room, terminal, storageRich) {
             if (give > 0) return Math.max(give, terminalFillWantBase(room, terminal, storageRich));
         }
     }
-    return terminalFillWantBase(room, terminal, storageRich);
+    return Math.max(terminalFillWantBase(room, terminal, storageRich), senderFillWant(room, terminal, storageRich));
+}
+
+/** 能量发送房（10-16 战略猫）：满足救急发送方规则（storageRich、storage+terminal ≥ starveSendAbove）的房，
+ *  terminal 补到 储备 + senderTerminalExtra（1 万），storage 不低于 senderStorageFloor（3 万 = terminalDrainStorageBelow，不会搬进又搬出） */
+function senderFillWant(room, terminal, storageRich) {
+    const net = config.terminalNetwork || {};
+    const extra = Number(net.senderTerminalExtra) || 0;
+    if (!storageRich || !(extra > 0) || !terminal || terminal.my === false || !terminal.store) return 0;
+    const st = room.storage && room.storage.my !== false && room.storage.store ? room.storage : null;
+    if (!st) return 0;
+    const se = energyOf(st.store), te = energyOf(terminal.store);
+    if (se + te < (Number(net.starveSendAbove) || Number(net.sendAbove) || 0)) return 0;
+    const reserve = Math.max(Number(net.feeReserve) || 0, feeReserveOf(room.name));
+    return Math.max(0, Math.min(reserve + extra - te, se - (Number(net.senderStorageFloor) || 30000)));
 }
 
 function terminalFillWantBase(room, terminal, storageRich) {
