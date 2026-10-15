@@ -36,7 +36,35 @@ function settings() {
         energyPrice: 0.02,
         minBucket: 5000,
         maxScans: 3,
+        priceBand: null,          // 设了就取代 priceFloorShare：卖 ≥ 均价×(1−band)、买 ≤ 均价×(1+band)
+        keepBy: {},               // 按资源的保留量（覆盖 keep）；Infinity = 永不卖
+        dailySellUnits: {},       // 按资源每日最多卖多少
+        creditFloor: 0,           // credits 低于它只卖不买
+        maxOrderCredits: Infinity,
+        dailyBuyCredits: 0,
+        buy: null,                // { resources: ['Z','X'], target: 3000, rooms: [...] }
+        buyEnergy: null,
     }, config.market || {});
+}
+
+/** 当日账本（按 UTC 日切）：sold/bought 按资源计单位，soldCredits/buyCredits 计 credit；前一天留在 ledgerPrev */
+function ledger() {
+    const mem = Memory.market || (Memory.market = {});
+    const day = Math.floor(Date.now() / 86400000);
+    if (!mem.ledger || mem.ledger.day !== day) {
+        if (mem.ledger) mem.ledgerPrev = mem.ledger;
+        mem.ledger = { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 };
+    }
+    return mem.ledger;
+}
+
+function keepFor(resource, cfg) {
+    const k = cfg.keepBy && cfg.keepBy[resource];
+    return k != null ? Number(k) : cfg.keep;
+}
+
+function sellFloor(avg, cfg) {
+    return cfg.priceBand != null ? avg * (1 - cfg.priceBand) : avg * cfg.priceFloorShare;
 }
 
 function marketApi() {
@@ -75,8 +103,13 @@ function sellable(room, cfg, hold) {
         if (key === ENERGY || key === POWER) continue;
         if (hold && hold.has(key)) continue;
         const amount = store[key];
-        if (typeof amount !== 'number' || amount <= cfg.keep) continue;
-        out.push({ resource: key, amount: amount - cfg.keep });
+        const keep = keepFor(key, cfg);
+        if (typeof amount !== 'number' || !(amount > keep)) continue;
+        let can = amount - keep;
+        const cap = cfg.dailySellUnits && cfg.dailySellUnits[key];
+        if (cap != null) can = Math.min(can, Number(cap) - Number((ledger().sold || {})[key] || 0));
+        if (can <= 0) continue;
+        out.push({ resource: key, amount: can });
     }
     return out.sort((a, b) => b.amount - a.amount);
 }
@@ -89,7 +122,7 @@ function pickBuyOrder(orders, room, entry, cfg, floorPrice) {
     for (const order of orders || []) {
         if (!order || order.type !== BUY() || order.resourceType !== entry.resource) continue;
         if (!(order.amount > 0) || !(order.price > 0) || !order.roomName) continue;
-        const amount = Math.min(entry.amount, order.amount, cfg.maxDeal);
+        const amount = Math.min(entry.amount, order.amount, cfg.maxDeal, Math.floor(cfg.maxOrderCredits / order.price));
         if (amount < cfg.minDeal) continue;
         const cost = market && typeof market.calcTransactionCost === 'function'
             ? market.calcTransactionCost(amount, room.name, order.roomName)
@@ -104,7 +137,8 @@ function pickBuyOrder(orders, room, entry, cfg, floorPrice) {
 }
 
 /** 能卖货的房：己方 terminal、不在冷却、本 tick 没被终端网络用过、storage 富余（storageRich 滞回开） */
-function sellerRooms() {
+function sellerRooms(cfg) {
+    cfg = cfg || settings();
     const out = [];
     for (const name of Object.keys(Game.rooms)) {
         const room = Game.rooms[name];
@@ -112,7 +146,7 @@ function sellerRooms() {
         const terminal = room.terminal;
         if (!terminal || terminal.my === false || !terminal.store || terminal.cooldown > 0) continue;
         if (terminalNet.usedThisTick(room.name)) continue;
-        if (!utils.storageRichState(room, Memory.rooms && Memory.rooms[room.name], config.upgrading || {})) {
+        if (!cfg.anyRoom && !utils.storageRichState(room, Memory.rooms && Memory.rooms[room.name], config.upgrading || {})) {
             // storage 不富余的房也卖 deposit 产出（silicon/mist：不卖就只是堆着，factory 以后再说）；run() 里只卖这几种
             if (depositGoods(terminal.store).length) { room._depositOnly = true; out.push(room); }
             continue;
@@ -127,17 +161,121 @@ function depositGoods(store) {
     return types.filter((t) => Number(store && store[t] || 0) > 0);
 }
 
+/** 买 labs 链缺的基础矿（cfg.buy.resources，默认只 Z/X）：credits ≥ creditFloor、当日买入 < dailyBuyCredits、
+ *  单价 ≤ 均价×(1+priceBand)、单笔 ≤ maxOrderCredits；补到 target 为止。一轮最多一笔 */
+function energyHave(room) {
+    return Number(room.terminal.store[ENERGY] || 0) + Number((room.storage && room.storage.store[ENERGY]) || 0);
+}
+
+/** 买能量给饥饿房：到手单价（含传送费烧掉的能量）≤ maxEffective。一轮最多一笔 */
+function tryBuyEnergy(cfg, market, countScan) {
+    const be = cfg.buyEnergy;
+    if (!be || !be.enabled) return null;
+    if (!(Number(market.credits) >= cfg.creditFloor)) return null;
+    const led = ledger();
+    const left = cfg.dailyBuyCredits - led.buyCredits;
+    if (!(left > 0)) return null;
+    const order = (config.terminalNetwork && config.terminalNetwork.priorityReceivers) || [];
+    const rooms = order.map((n) => Game.rooms[n]).filter((r) => r && r.terminal && r.terminal.my !== false && !(r.terminal.cooldown > 0) &&
+        !terminalNet.usedThisTick(r.name) && energyHave(r) < Number(be.belowEnergy || 10000) && Number(r.terminal.store[ENERGY] || 0) > 0);
+    if (!rooms.length) return null;
+    countScan();
+    let orders = [];
+    try { orders = market.getAllOrders({ type: typeof ORDER_SELL !== 'undefined' ? ORDER_SELL : 'sell', resourceType: ENERGY }) || []; }
+    catch (error) { utils.logErr('market.getAllOrders', error); return null; }
+    const costOf = (n, from, to) => (typeof market.calcTransactionCost === 'function' ? market.calcTransactionCost(n, from, to) : Math.ceil(n * 0.1));
+    let best = null;
+    for (const room of rooms) {
+        const pay = Number(room.terminal.store[ENERGY] || 0);
+        for (const o of orders) {
+            if (!o || o.resourceType !== ENERGY || !(o.amount > 0) || !(o.price > 0) || !o.roomName) continue;
+            let amount = Math.min(o.amount, Number(be.maxAmount || 20000), Math.floor(Math.min(cfg.maxOrderCredits, left) / o.price));
+            while (amount >= cfg.minDeal && costOf(amount, o.roomName, room.name) > pay) amount = Math.floor(amount / 2);
+            if (amount < cfg.minDeal) continue;
+            const cost = costOf(amount, o.roomName, room.name);
+            const net = amount - cost;
+            if (net <= 0) continue;
+            const eff = o.price * amount / net;
+            if (eff > be.maxEffective) continue;
+            if (!best || eff < best.eff) best = { room, o, amount, cost, eff };
+        }
+        if (best) break;   // 按名单顺序：先救前面的房
+    }
+    if (!best) return null;
+    const ret = market.deal(best.o.id, best.amount, best.room.name);
+    terminalNet.markUsed(best.room.name);
+    const rec = { at: Game.time, room: best.room.name, resource: ENERGY, amount: best.amount, cost: best.cost, price: best.o.price,
+        effective: Math.round(best.eff * 100) / 100, buy: true, result: ret };
+    Memory.market.lastBuy = rec;
+    if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
+        led.bought[ENERGY] = (led.bought[ENERGY] || 0) + best.amount;
+        led.buyCredits = Math.round(led.buyCredits + best.amount * best.o.price);
+        led.deals++;
+    }
+    return rec;
+}
+
+function tryBuy(cfg, market, countScan) {
+    const e = tryBuyEnergy(cfg, market, countScan);
+    if (e) return e;
+    const b = cfg.buy;
+    if (!b || !Array.isArray(b.resources) || !b.resources.length || cfg.priceBand == null) return null;
+    if (!(Number(market.credits) >= cfg.creditFloor)) return null;
+    const led = ledger();
+    const left = cfg.dailyBuyCredits - led.buyCredits;
+    if (!(left > 0)) return null;
+    const rooms = (b.rooms || []).map((n) => Game.rooms[n]).filter((r) => r && r.terminal && r.terminal.my !== false && !(r.terminal.cooldown > 0) && !terminalNet.usedThisTick(r.name));
+    for (const room of rooms) {
+        for (const res of b.resources) {
+            const have = Number(room.terminal.store[res] || 0) + Number((room.storage && room.storage.store[res]) || 0);
+            const want = Number(b.target || 3000) - have;
+            if (want < cfg.minDeal) continue;
+            const avg = recentAvgPrice(res, cfg);
+            if (avg == null) continue;
+            const ceil = avg * (1 + cfg.priceBand);
+            countScan();
+            let orders = [];
+            try { orders = market.getAllOrders({ type: typeof ORDER_SELL !== 'undefined' ? ORDER_SELL : 'sell', resourceType: res }) || []; }
+            catch (error) { utils.logErr('market.getAllOrders', error); }
+            const energy = Number(room.terminal.store[ENERGY] || 0);
+            const best = orders.filter((o) => o && o.resourceType === res && o.amount > 0 && o.price > 0 && o.price <= ceil && o.roomName)
+                .sort((a, z) => a.price - z.price)[0];
+            if (!best) continue;
+            let amount = Math.min(want, best.amount, cfg.maxDeal, Math.floor(Math.min(cfg.maxOrderCredits, left) / best.price));
+            const costOf = (n) => (typeof market.calcTransactionCost === 'function' ? market.calcTransactionCost(n, room.name, best.roomName) : Math.ceil(n * 0.1));
+            while (amount >= cfg.minDeal && costOf(amount) > energy) amount = Math.floor(amount / 2);
+            if (amount < cfg.minDeal) continue;
+            const ret = market.deal(best.id, amount, room.name);
+            terminalNet.markUsed(room.name);
+            const rec = { at: Game.time, room: room.name, resource: res, amount, price: best.price, ceil: Math.round(ceil * 1000) / 1000, buy: true, result: ret };
+            const mem = Memory.market;
+            mem.lastBuy = rec;
+            if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
+                led.bought[res] = (led.bought[res] || 0) + amount;
+                led.buyCredits = Math.round(led.buyCredits + amount * best.price);
+                led.deals++;
+            }
+            return rec;
+        }
+    }
+    return null;
+}
+
 function run(shed) {
     const cfg = settings();
     if (!cfg.enabled || !(cfg.interval > 0) || Game.time % cfg.interval !== 0) return null;
     if (!terminalNet.cpuAllows(cfg, shed)) return null;
+    // 与 deposit 同一道 CPU 闸（近 10 条均值 ≤ 145、bucket ≥ 3000）
+    try { const dep = require('deposit'); if (!dep.cpuOk(dep.settings())) return null; } catch (error) { /* 闸本身出错不挡市场 */ }
     const market = marketApi();
     if (!market || typeof market.deal !== 'function' || typeof market.getAllOrders !== 'function') return null;
     const ordersBy = {};   // 一轮之内同一资源只查一次
     let scans = 0;
     let hold = null;
     try { hold = terminalNet.mineralHolds(); } catch (error) { utils.logErr('market.mineralHolds', error); hold = null; }
-    for (const room of sellerRooms()) {
+    const bought = tryBuy(cfg, market, () => scans++);
+    if (bought) return bought;
+    for (const room of sellerRooms(cfg)) {
         for (const entry of sellable(room, cfg, hold)) {
             if (room._depositOnly && depositGoods({ [entry.resource]: 1 }).length === 0) continue;
             const avg = recentAvgPrice(entry.resource, cfg);
@@ -148,7 +286,7 @@ function run(shed) {
                 try { ordersBy[entry.resource] = market.getAllOrders({ type: BUY(), resourceType: entry.resource }) || []; }
                 catch (error) { utils.logErr('market.getAllOrders', error); ordersBy[entry.resource] = []; }
             }
-            const pick = pickBuyOrder(ordersBy[entry.resource], room, entry, cfg, avg * cfg.priceFloorShare);
+            const pick = pickBuyOrder(ordersBy[entry.resource], room, entry, cfg, sellFloor(avg, cfg));
             if (!pick) continue;
             const ret = market.deal(pick.order.id, pick.amount, room.name);
             terminalNet.markUsed(room.name);
@@ -159,6 +297,10 @@ function run(shed) {
             if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
                 mem.deals = (Number(mem.deals) || 0) + 1;
                 mem.sold = (Number(mem.sold) || 0) + pick.amount;
+                const led = ledger();
+                led.sold[entry.resource] = (led.sold[entry.resource] || 0) + pick.amount;
+                led.soldCredits = Math.round(led.soldCredits + pick.amount * pick.order.price);
+                led.deals++;
             }
             return record;   // 一轮只做一笔
         }
@@ -166,4 +308,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { run, settings, sellable, pickBuyOrder, recentAvgPrice, sellerRooms };
+module.exports = { run, settings, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor };

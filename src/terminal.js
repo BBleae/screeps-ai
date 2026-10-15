@@ -187,6 +187,9 @@ function mineralShort(rooms, cfg) {
     for (const room of rooms) {
         const labs = labsOf(room);
         if (labs.length < minLabs) continue;
+        // 配了 labRooms 时只往这些房调基础矿（反应只在那里跑）
+        const labRooms = config.industry && config.industry.labRooms;
+        if (Array.isArray(labRooms) && labRooms.indexOf(room.name) < 0) continue;
         for (const mineral of cfg.minerals || []) {
             const have = mineralHave(room, labs, mineral);
             if (have < want) (out[mineral] || (out[mineral] = [])).push({ room, have });

@@ -7,6 +7,7 @@ const movement = require('movement');
 const retire = require('retire');
 const taskBroker = require('task_broker');
 const utils = require('utils');
+const boost = require('boost');
 const { findCached, creepsHomeRole } = utils;
 
 const runtimeGlobal = typeof global !== 'undefined' ? global : {};
@@ -371,6 +372,17 @@ function run(creep) {
     if (!room) { movement.go(creep, new RoomPosition(25, 25, creep.memory.home)); return; }
     const plan = (Memory.rooms[room.name] || {}).plan || {};
     const mem = Memory.rooms[room.name] || (Memory.rooms[room.name] = {});
+    // lab 房的 upgrader 先去 boost lab 吃 XGH2O（config.industry.boostUpgraders）：只试一次，做不到 / 做完就 boostDone，之后不再每 tick 查
+    if (!creep.memory.boostDone) {
+        const ind = config.industry || {};
+        if (!creep.memory.boosts && ind.boostUpgraders && Array.isArray(ind.labRooms) && ind.labRooms.indexOf(room.name) >= 0) creep.memory.boosts = ['XGH2O'];
+        if (creep.memory.boosts) {
+            let busy = false;
+            try { busy = boost.run(creep); } catch (e) { busy = false; }
+            if (busy) return;
+        }
+        creep.memory.boostDone = true;
+    }
     if (stuckWatchdog(creep, room, mem)) return;
     const state = mem.state || {};
     const ctrl = room.controller;

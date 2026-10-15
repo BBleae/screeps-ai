@@ -759,7 +759,13 @@ module.exports = {
         // 想做出来的 boost 化合物，按优先级排；industry 从目标自顶向下拆，找「现在就做得起的那一步」（反应链，Overmind 的 Abathur）。
         // 没有这份清单时 labs 只会「库存里哪两种能反应就做哪种」，产物没有用途。顺序：攻城（拆/治疗）→ 升级 → 移动；
         // 每种攒到 boostGoal 就换下一个——一只 50 部件的 creep 一次最多吃 1500（LAB_BOOST_MINERAL 30 × 50），3000 够两只
-        boostTargets: ['XZH2O', 'XLHO2', 'XGH2O', 'XKHO2', 'XUH2O', 'XZHO2'],
+        // 2026-10-15 战略猫：升级 boost 优先（排行榜 = GCL），攻城其次
+        boostTargets: ['XGH2O', 'XZH2O', 'XLHO2', 'XKHO2', 'XUH2O', 'XZHO2'],
+        // labs 单独的低门槛（反应本身不耗能）：只在 labRooms 里跑、storage 能量 ≥ labStorageReserve、CPU 闸开着（deposit.cpuOk）
+        labRooms: ['W32S4', 'W33S3'],
+        labStorageReserve: 20000,
+        // lab 房的 upgrader：boost lab 里 XGH2O 够这只的 WORK×30 时先去强化（boost.js），等不到 boostMaxWait 就放弃
+        boostUpgraders: true,
         boostGoal: 3000,
         // 目标化合物库存攒够这么多就往 boost lab 装一份（移植 overmind-absorb 019c5b1）；用掉一半再补。
         // 1000 = 一只 50 部件 creep 一次最多吃的 1500 的三分之二，够两三只普通身体
@@ -825,6 +831,24 @@ module.exports = {
         // bucket 低于它不做（cpu_shed 降载中也不做）：一轮最多 maxScans 次 getAllOrders，每次 CPU 3 档
         minBucket: 5000,
         maxScans: 3,
+        // ---- 2026-10-15 P0 护栏（industry_audit.md，战略猫拍板）----
+        priceBand: 0.15,              // 只在近 historyDays 天均价 ±15% 内成交（取代 priceFloorShare）
+        anyRoom: true,                // 任何有 terminal 的房都卖富余（不再要求 storageRich；传送费仍须 terminal 付得起）
+        keepBy: {
+            // labs 链（XGH2O）要用的基础矿与中间产物：lab 房留足、中间产物与目标永不卖
+            H: 20000, O: 10000, K: 10000, U: 10000, L: 10000, Z: Infinity, X: Infinity,
+            ZK: Infinity, UL: Infinity, G: Infinity, GH: Infinity, OH: Infinity, GH2O: Infinity, XGH2O: Infinity,
+            ZH2O: 50000,              // 攻城 boost 备用 5 万（战略猫 15:49），其余慢慢卖
+            silicon: 0, mist: 0,      // deposit 产出直接卖（不做 wire）
+        },
+        dailySellUnits: { ZH2O: 2000 },
+        creditFloor: 2000000,         // 低于它只卖不买
+        maxOrderCredits: 50000,       // 单笔上限（买卖都按它截量）
+        dailyBuyCredits: 200000,      // 每日买入总额
+        buy: { resources: ['Z', 'X'], target: 3000, rooms: ['W32S4', 'W33S3'] },   // 只买 labs 链缺的 Z/X，补到 3000
+        // 买能量（战略猫 15:49）：只给 terminalNetwork.priorityReceivers 里 storage+terminal < belowEnergy 的房；
+        // 到手单价 = 价格×买量 / (买量 − 传送费能量) ≤ maxEffective；计入 dailyBuyCredits。传送费从接收房 terminal 的能量里扣
+        buyEnergy: { enabled: true, maxEffective: 15, belowEnergy: 10000, maxAmount: 20000 },
     },
     // CPU 预留（bucket 健康时 creep 循环的上限 = limit − cpuReserve，超了只跳 broker 分数 < 20 的单位，与过去一致）
     cpuReserve: 15,

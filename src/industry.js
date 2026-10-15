@@ -99,6 +99,16 @@ function canSpend(room) {
     return storageOk && terminalOk;
 }
 
+/** labs 的闸（2026-10-15）：配置了 labRooms 时只在这些房跑、storage 能量 ≥ labStorageReserve、CPU 闸开着；
+ *  没配 labRooms 时沿用旧的 canSpend（storage ≥ storageReserve 且 terminal ≥ terminalReserve） */
+function labsAllowed(room) {
+    const cfg = industryConfig();
+    if (!Array.isArray(cfg.labRooms)) return canSpend(room);
+    if (cfg.labRooms.indexOf(room.name) < 0) return false;
+    if (storageEnergy(room) < Number(cfg.labStorageReserve || 0)) return false;
+    try { const dep = require('deposit'); return dep.cpuOk(dep.settings()); } catch (e) { return true; }
+}
+
 function canProcessPower(room) {
     return canSpend(room) && storageEnergy(room) >= reserve('powerStorageReserve');
 }
@@ -610,7 +620,8 @@ function run(room) {
         const state = sample(room, mem);
         const spendAllowed = state.spendingUnlocked;
         runObserver(room, mem, state);
-        runLabs(room, mem, state, spendAllowed);
+        state.labsAllowed = labsAllowed(room);
+        runLabs(room, mem, state, state.labsAllowed);
         runFactory(room, mem, state, spendAllowed);
         runPowerSpawn(room, state, canProcessPower(room));
         mem[DEFAULTS.statusKey] = state;
@@ -625,4 +636,4 @@ function run(room) {
     }
 }
 
-module.exports = { run, deriveReaction, canSpend, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS };
+module.exports = { run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS };
