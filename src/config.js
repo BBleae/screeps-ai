@@ -803,6 +803,11 @@ module.exports = {
         starveSendAbove: 40000,
         starveKeep: 30000,
         starveMaxSend: 10000,
+        // 传送费储备（2026-10-15）：这些房的 terminal 常备这么多能量给市场/调剂付传送费。
+        // 先由本房 hauler 从 storage 补（storage 高于 feeReserveStorageFloor 时，不看 storageRich）；storage 也没有就排在救急房之后
+        // 用同样的发送方规则从别房送；这份储备不算发送方的富余、也不被 hauler 取回 storage
+        terminalFeeReserve: { W34S7: 3000, W32S4: 3000, W33S3: 3000 },   // 15:01 战略猫：自挂单后对方付传送费，储备降到 3k
+        feeReserveStorageFloor: 2000,
         maxSend: 50000,
         // terminal 里留给市场传送费的底（src/market.js 的 deal 从 terminal 扣能量）：5000 矿物发到 10 房外约 1500 能量
         feeReserve: 2000,
@@ -848,7 +853,22 @@ module.exports = {
         buy: { resources: ['Z', 'X'], target: 3000, rooms: ['W32S4', 'W33S3'] },   // 只买 labs 链缺的 Z/X，补到 3000
         // 买能量（战略猫 15:49）：只给 terminalNetwork.priorityReceivers 里 storage+terminal < belowEnergy 的房；
         // 到手单价 = 价格×买量 / (买量 − 传送费能量) ≤ maxEffective；计入 dailyBuyCredits。传送费从接收房 terminal 的能量里扣
-        buyEnergy: { enabled: true, maxEffective: 15, belowEnergy: 10000, maxAmount: 20000 },
+        // 直接 deal 买能量只在紧急时（storage+terminal < belowEnergy 3000）；平时走自挂买单（ownOrders.energy）
+        buyEnergy: { enabled: true, maxEffective: 15, belowEnergy: 3000, maxAmount: 20000 },
+        dealBuyMinerals: false,       // Z/X 不再直接 deal（自挂买单代替）
+        // 自挂单（战略猫 16:01）：对方成交时付传送能量。价格 = 近 historyDays 天均价（卖/买都夹在 ±priceBand 内），
+        // 每单 expireTicks 到期撤单按最新均价重挂；每房每资源一张；5% 挂单费计入 dailyBuyCredits；买单挂单时按全额预占日额度、撤单退回未成交部分
+        ownOrders: {
+            enabled: true,
+            expireTicks: 3000,
+            fee: 0.05,
+            // 卖单挂单费单独一道日额度（ZH2O 2000 × ~2500 × 5% ≈ 25 万，若并进 dailyBuyCredits 20 万会把买单全挤掉或卖单永远挂不出）；
+            // 买单的挂单费计入 dailyBuyCredits
+            dailySellFeeCredits: 300000,
+            sell: [{ resource: 'ZH2O', room: 'W34S7' }],           // 量 = min(富余, 当日剩余 dailySellUnits)
+            buyMinerals: true,                                       // 用 buy.resources/buy.rooms/buy.target
+            energy: { rooms: 'priorityReceivers', below: 10000, price: 10, maxPrice: 15, amount: 4500 },
+        },
     },
     // CPU 预留（bucket 健康时 creep 循环的上限 = limit − cpuReserve，超了只跳 broker 分数 < 20 的单位，与过去一致）
     cpuReserve: 15,

@@ -275,7 +275,27 @@ function criticalWithin(room, pos, range) {
 
 /** terminal 还该从 storage 补多少能量（0 = 不补）：storage 富余（滞回开）且高于 industry.terminalFillStorageAbove 时，
  *  补到 industry.terminalTarget，且补完 storage 不低于门槛（只动门槛以上那部分） */
+function feeReserveOf(roomName) {
+    const map = (config.terminalNetwork || {}).terminalFeeReserve;
+    return Math.max(0, Number(map && map[roomName]) || 0);
+}
+
 function terminalFillWant(room, terminal, storageRich) {
+    const fee = feeReserveOf(room.name);
+    if (fee > 0 && terminal && terminal.my !== false && terminal.store) {
+        // 传送费储备：不看 storageRich，storage 里高于 feeReserveStorageFloor 的部分都可以补进来
+        const st = room.storage && room.storage.my !== false && room.storage.store ? room.storage : null;
+        const floor = Math.max(0, Number((config.terminalNetwork || {}).feeReserveStorageFloor) || 0);
+        const short = fee - energyOf(terminal.store);
+        if (st && short > 0) {
+            const give = Math.min(short, energyOf(st.store) - floor);
+            if (give > 0) return Math.max(give, terminalFillWantBase(room, terminal, storageRich));
+        }
+    }
+    return terminalFillWantBase(room, terminal, storageRich);
+}
+
+function terminalFillWantBase(room, terminal, storageRich) {
     const cfg = config.industry || {};
     const target = Math.max(0, Number(cfg.terminalTarget) || 0);
     if (!storageRich || !(target > 0) || !terminal || terminal.my === false || !terminal.store) return 0;
@@ -289,6 +309,13 @@ function terminalFillWant(room, terminal, storageRich) {
  *  富余但 storage 低于 industry.terminalDrainStorageBelow 时取到只剩 terminalNetwork.feeReserve；其余时候不取——
  *  补能只在 storage ≥ terminalFillStorageAbove 时动门槛以上的部分，两条线之间隔着一段，不会搬进来又搬出去 */
 function terminalDrainKeep(room, storageRich) {
+    const fee = feeReserveOf(room.name);
+    const keep = terminalDrainKeepBase(room, storageRich);
+    if (fee > 0 && keep != null) return Math.max(keep, fee);   // 传送费储备不取回
+    return keep;
+}
+
+function terminalDrainKeepBase(room, storageRich) {
     if (!storageRich) return 0;
     const below = Math.max(0, Number((config.industry || {}).terminalDrainStorageBelow) || 0);
     const storage = room.storage && room.storage.my !== false && room.storage.store ? room.storage : null;

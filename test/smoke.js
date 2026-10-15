@@ -14973,6 +14973,14 @@ console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：
         const sp2 = term.planTransfer([donor, starving, fed], scfg);
         assert(sp2 && sp2.to.name === 'W35S7', '≥ starvingBelow 的不救，轮到下一个（得 ' + (sp2 && sp2.to.name) + '）');
         assert(term.planTransfer([mkTRoom('W32S4', 30000, 5000), first], scfg) === null, '发送方低于 starveSendAbove ⇒ 不发');
+        const fcfg = Object.assign({}, scfg, { terminalFeeReserve: { W34S7: 8000, W38S7: 8000 }, feeReserveStorageFloor: 2000 });
+        const feeRoom = mkTRoom('W34S7', 0, 0);
+        const okRoom = mkTRoom('W31S8', 20000, 0);
+        const fp = term.planTransfer([mkTRoom('W32S4', 49000, 30000), feeRoom, okRoom], fcfg);
+        assert(fp && fp.feeReserve && fp.to.name === 'W34S7' && fp.amount <= 8000, '救急之后：传送费储备房从发送方补到储备线（得 ' + JSON.stringify(fp && { to: fp.to.name, amount: fp.amount }) + '）');
+        assert(term.planTransfer([mkTRoom('W32S4', 49000, 30000), mkTRoom('W34S7', 20000, 0), okRoom], fcfg) === null, 'storage 够自己补的储备房不靠调剂');
+        const donorRes = mkTRoom('W38S7', 33000, 10000);
+        assert(term.planTransfer([donorRes, feeRoom, okRoom], fcfg) === null, '发送方自己的储备不算富余（43k − keep 30k − 储备 8k < minSend）');
         const remMod = require('remote');
         const home = { energyAvailable: 1200, storage: { store: { energy: 100 } }, terminal: { store: { energy: 0 } } };
         assert(remMod.haulBudget(home, 5600) === 1200, 'storage 见底：hauler 预算 = energyAvailable（得 ' + remMod.haulBudget(home, 5600) + '）');
@@ -15324,7 +15332,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     Object.assign(config.industry, liveIndustry);
     const mk = require('market');
     const ind = require('industry');
-    const cfg = mk.settings();
+    const cfg = Object.assign(mk.settings(), { dealBuyMinerals: true, buyEnergy: { enabled: true, maxEffective: 15, belowEnergy: 10000, maxAmount: 20000 } });
     const savedMarket = Game.market, savedRooms = Game.rooms, savedMem = Memory.market, savedStats = Memory.stats, savedBucket = Game.cpu.bucket;
     Memory.market = {};
     Memory.stats = [{ cpu: 120 }];
@@ -15343,7 +15351,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     const orders = [{ id: 'o1', type: 'buy', resourceType: 'X', amount: 5000, price: 80, roomName: 'W1N1' }, { id: 'o2', type: 'buy', resourceType: 'X', amount: 5000, price: 90, roomName: 'W1N1' }];
     Game.market = { calcTransactionCost: () => 10 };
     const pk = mk.pickBuyOrder(orders, room, { resource: 'X', amount: 5000 }, cfg, 85);
-    assert(pk && pk.order.id === 'o2' && pk.amount === Math.min(5000, Math.floor(50000 / 90)), '价带内取最高、单笔按 50k credits 截量（得 ' + (pk && pk.order.id + ' ' + pk.amount) + '）');
+    assert(pk && pk.order.id === 'o2' && pk.amount === 5000, '价带内取最高（卖不按 credits 截量，按日量/maxDeal）（得 ' + (pk && pk.order.id + ' ' + pk.amount) + '）');
     // 买：credits 低于 2M 不买；买 Z 补到 3000，价格 ≤ 均价×1.15
     let deals = [];
     const sells = { Z: [{ id: 's1', type: 'sell', resourceType: 'Z', amount: 10000, price: 60, roomName: 'W1N1' }, { id: 's2', type: 'sell', resourceType: 'Z', amount: 10000, price: 50, roomName: 'W1N1' }], energy: [], X: [] };
@@ -15367,6 +15375,38 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     Game.market.calcTransactionCost = (n) => Math.ceil(n * 0.7);
     Memory.market = {};
     assert(mk.tryBuyEnergy(cfg, Game.market, () => 0) === null, '传送费太高（到手 > 15）不买');
+    // 自挂单：先挂 labs 的买单，再挂 ZH2O 卖单；费计入日额度；到期撤单退额度
+    {
+        Memory.market = {};
+        const ocfg = mk.settings();
+        const created = [], cancelled = [];
+        Game.market = { credits: 2300000, orders: {}, getHistory: (r) => [{ avgPrice: r === 'ZH2O' ? 2500 : (r === 'energy' ? 30 : 50), volume: 1 }],
+            createOrder: (o) => { created.push(o); return OK; }, cancelOrder: (id) => { cancelled.push(id); return OK; } };
+        Game.rooms = { W32S4: mkRoom('W32S4', { energy: 3000 }, { energy: 30000 }), W34S7: mkRoom('W34S7', { ZH2O: 300000, energy: 3000 }) };
+        mk.runOwnOrders(ocfg, Game.market);
+        assert(created[0] && created[0].type === 'buy' && created[0].resourceType === 'Z' && created[0].totalAmount === 1000 && created[0].price === 50, '自挂 Z 买单（按 50k credits 截到 1000、均价）（得 ' + JSON.stringify(created[0]) + '）');
+        assert(Memory.market.ledger.buyCredits === 52500, '买单预占额度 + 5% 挂单费（得 ' + Memory.market.ledger.buyCredits + '）');
+        mk.runOwnOrders(ocfg, Game.market);
+        mk.runOwnOrders(ocfg, Game.market);
+        mk.runOwnOrders(ocfg, Game.market);
+        const zs = created.find((o) => o.resourceType === 'ZH2O');
+        assert(zs && zs.type === 'sell' && zs.roomName === 'W34S7' && zs.totalAmount === 2000 && zs.price === 2500 && Memory.market.ledger.sellFees === 250000, 'ZH2O 自挂卖单（当日 2000、均价、卖单费记 sellFees）（得 ' + JSON.stringify(zs) + '）');
+        assert(created.filter((o) => o.resourceType === 'Z').length === 1, '同房同资源只挂一张');
+        // 认领 id、部分成交、到期撤单
+        Game.market.orders = { oid1: { id: 'oid1', type: 'buy', resourceType: 'Z', roomName: 'W32S4', remainingAmount: 400 } };
+        mk.syncOrders(ocfg, Game.market);
+        const zk = Memory.market.orders['buy:W32S4:Z'];
+        assert(zk && zk.id === 'oid1' && Memory.market.ledger.bought.Z === 600, '认领挂单 id、按成交量记账（得 ' + JSON.stringify(Memory.market.ledger.bought) + '）');
+        const before = Memory.market.ledger.buyCredits;
+        zk.expires = world.time;
+        mk.syncOrders(ocfg, Game.market);
+        assert(cancelled.indexOf('oid1') >= 0 && !Memory.market.orders['buy:W32S4:Z'] && Memory.market.ledger.buyCredits === before - 400 * 50, '到期撤单、退回未成交的预占额度');
+        Game.market.credits = 1990000;
+        Memory.market.orders = {};
+        const n = created.length;
+        mk.runOwnOrders(ocfg, Game.market);
+        assert(created.length === n, 'credits < 2M 不挂单');
+    }
     // labs 闸
     const labRoom = mkRoom('W32S4', {}, { energy: 25000 });
     assert(ind.labsAllowed(labRoom) === true && ind.labsAllowed(mkRoom('W33S7', {}, { energy: 90000 })) === false, 'labs 只在 labRooms、storage ≥ 2 万时开');

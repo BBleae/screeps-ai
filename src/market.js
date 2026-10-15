@@ -44,6 +44,8 @@ function settings() {
         dailyBuyCredits: 0,
         buy: null,                // { resources: ['Z','X'], target: 3000, rooms: [...] }
         buyEnergy: null,
+        ownOrders: null,
+        dealBuyMinerals: true,
     }, config.market || {});
 }
 
@@ -122,7 +124,7 @@ function pickBuyOrder(orders, room, entry, cfg, floorPrice) {
     for (const order of orders || []) {
         if (!order || order.type !== BUY() || order.resourceType !== entry.resource) continue;
         if (!(order.amount > 0) || !(order.price > 0) || !order.roomName) continue;
-        const amount = Math.min(entry.amount, order.amount, cfg.maxDeal, Math.floor(cfg.maxOrderCredits / order.price));
+        const amount = Math.min(entry.amount, order.amount, cfg.maxDeal);
         if (amount < cfg.minDeal) continue;
         const cost = market && typeof market.calcTransactionCost === 'function'
             ? market.calcTransactionCost(amount, room.name, order.roomName)
@@ -219,6 +221,7 @@ function tryBuy(cfg, market, countScan) {
     const e = tryBuyEnergy(cfg, market, countScan);
     if (e) return e;
     const b = cfg.buy;
+    if (cfg.dealBuyMinerals === false) return null;
     if (!b || !Array.isArray(b.resources) || !b.resources.length || cfg.priceBand == null) return null;
     if (!(Number(market.credits) >= cfg.creditFloor)) return null;
     const led = ledger();
@@ -261,6 +264,134 @@ function tryBuy(cfg, market, countScan) {
     return null;
 }
 
+// ---- 自挂单（2026-10-15 16:01）----
+function ownSettings(cfg) { return cfg.ownOrders || null; }
+
+function orderBook() {
+    const mem = Memory.market || (Memory.market = {});
+    return mem.orders || (mem.orders = {});
+}
+
+/** 同步自己的挂单：认领新挂出的单（createOrder 当 tick 拿不到 id）、按成交量记账、到期撤单、退回未成交的预占额度 */
+function syncOrders(cfg, market) {
+    const book = orderBook();
+    const led = ledger();
+    const live = market.orders || {};
+    const claimed = new Set(Object.values(book).map((o) => o.id).filter(Boolean));
+    for (const key of Object.keys(book)) {
+        const o = book[key];
+        if (!o.id) {
+            const found = Object.values(live).find((x) => !claimed.has(x.id) && x.type === o.type && x.resourceType === o.resource && x.roomName === o.room);
+            if (found) { o.id = found.id; claimed.add(found.id); }
+            else if (Game.time - o.posted > 20) { delete book[key]; continue; }
+            else continue;
+        }
+        const x = live[o.id];
+        const left = x ? Number(x.remainingAmount) || 0 : 0;
+        const filled = Math.max(0, (o.left != null ? o.left : o.amount) - left);
+        if (filled > 0) {
+            if (o.type === 'sell') {
+                led.sold[o.resource] = (led.sold[o.resource] || 0) + filled;
+                led.soldCredits = Math.round(led.soldCredits + filled * o.price);
+            } else {
+                led.bought[o.resource] = (led.bought[o.resource] || 0) + filled;
+            }
+            led.filled = (led.filled || 0) + filled;
+        }
+        o.left = left;
+        const expired = Game.time >= o.expires;
+        if (!x || left <= 0 || expired) {
+            if (x && left > 0 && typeof market.cancelOrder === 'function') market.cancelOrder(o.id);
+            if (o.type === 'buy' && left > 0) led.buyCredits = Math.max(0, Math.round(led.buyCredits - left * o.price));
+            delete book[key];
+        }
+    }
+}
+
+function postOrder(cfg, market, type, resource, room, price, amount) {
+    const own = ownSettings(cfg);
+    const key = type + ':' + room + ':' + resource;
+    const book = orderBook();
+    if (book[key] || !(amount > 0) || !(price > 0)) return null;
+    const led = ledger();
+    const fee = price * amount * own.fee;
+    const credits = Number(market.credits) || 0;
+    if (credits - fee < cfg.creditFloor) return null;
+    if (type === 'buy') {
+        const commit = price * amount + fee;
+        if (credits - commit < cfg.creditFloor || led.buyCredits + commit > cfg.dailyBuyCredits || price * amount > cfg.maxOrderCredits) return null;
+    } else if ((led.sellFees || 0) + fee > (Number(own.dailySellFeeCredits) || 0)) return null;
+    const ret = market.createOrder({ type, resourceType: resource, price: Math.round(price * 1000) / 1000, totalAmount: amount, roomName: room });
+    const rec = { at: Game.time, type, resource, room, price, amount, result: ret };
+    Memory.market.lastOrder = rec;
+    if (ret !== (typeof OK !== 'undefined' ? OK : 0)) return rec;
+    if (type === 'buy') led.buyCredits = Math.round(led.buyCredits + fee + price * amount);
+    else led.sellFees = Math.round((led.sellFees || 0) + fee);
+    led.fees = Math.round((led.fees || 0) + fee);
+    led.orders = (led.orders || 0) + 1;
+    book[key] = { type, resource, room, price, amount, posted: Game.time, expires: Game.time + own.expireTicks, id: null, left: amount };
+    return rec;
+}
+
+/** 每轮最多挂一张新单（createOrder 也是 CPU 档操作） */
+function runOwnOrders(cfg, market) {
+    const own = ownSettings(cfg);
+    if (!own || !own.enabled || typeof market.createOrder !== 'function') return null;
+    syncOrders(cfg, market);
+    const book = orderBook();
+    const band = cfg.priceBand != null ? cfg.priceBand : 0.15;
+    const sold = ledger().sold || {};
+    const b = cfg.buy;
+    if (own.buyMinerals && b && Array.isArray(b.resources)) {
+        for (const roomName of b.rooms || []) {
+            const room = Game.rooms[roomName];
+            if (!room || !room.terminal) continue;
+            for (const res of b.resources) {
+                if (book['buy:' + roomName + ':' + res]) continue;
+                const have = Number(room.terminal.store[res] || 0) + Number((room.storage && room.storage.store[res]) || 0);
+                const avg = recentAvgPrice(res, cfg);
+                if (avg == null) continue;
+                const amount = Math.min(Number(b.target || 3000) - have, Math.floor(cfg.maxOrderCredits / avg));
+                if (amount < cfg.minDeal) continue;
+                const r = postOrder(cfg, market, 'buy', res, roomName, avg, amount);
+                if (r) return r;
+            }
+        }
+    }
+    const e = own.energy;
+    if (e) {
+        const names = e.rooms === 'priorityReceivers' ? ((config.terminalNetwork || {}).priorityReceivers || []) : (e.rooms || []);
+        const avg = recentAvgPrice(ENERGY, cfg);
+        // 能量的价带：不高于均价 × (1+band)，且到手单价（对方付传送）= 挂单价 ≤ maxPrice
+        const price = Math.min(Number(e.price) || 10, Number(e.maxPrice) || 15, avg != null ? avg * (1 + band) : Infinity);
+        for (const n of names) {
+            const room = Game.rooms[n];
+            if (!room || !room.terminal || book['buy:' + n + ':' + ENERGY]) continue;
+            if (energyHave(room) >= Number(e.below || 10000)) continue;
+            const amount = Math.min(Number(e.amount) || 4500, Math.floor(cfg.maxOrderCredits / price), room.terminal.store.getFreeCapacity ? room.terminal.store.getFreeCapacity() : Infinity);
+            if (amount < cfg.minDeal) continue;
+            const r = postOrder(cfg, market, 'buy', ENERGY, n, price, amount);
+            if (r) return r;
+        }
+    }
+    for (const s of own.sell || []) {
+        const room = Game.rooms[s.room];
+        if (!room || !room.terminal || book['sell:' + s.room + ':' + s.resource]) continue;
+        const have = Number(room.terminal.store[s.resource] || 0);
+        let amount = have - keepFor(s.resource, cfg);
+        const cap = cfg.dailySellUnits && cfg.dailySellUnits[s.resource];
+        if (cap != null) amount = Math.min(amount, Number(cap) - Number(sold[s.resource] || 0));
+        const avg = recentAvgPrice(s.resource, cfg);
+        if (avg == null) continue;
+        // 挂单费计入日额度：卖单量受剩余额度 / (价 × 费率) 限制
+        amount = Math.min(amount, Math.floor(((Number(own.dailySellFeeCredits) || 0) - (ledger().sellFees || 0)) / (avg * own.fee)));
+        if (amount < cfg.minDeal) continue;
+        const r = postOrder(cfg, market, 'sell', s.resource, s.room, avg, Math.floor(amount));
+        if (r) return r;
+    }
+    return null;
+}
+
 function run(shed) {
     const cfg = settings();
     if (!cfg.enabled || !(cfg.interval > 0) || Game.time % cfg.interval !== 0) return null;
@@ -273,10 +404,15 @@ function run(shed) {
     let scans = 0;
     let hold = null;
     try { hold = terminalNet.mineralHolds(); } catch (error) { utils.logErr('market.mineralHolds', error); hold = null; }
+    let posted = null;
+    try { posted = runOwnOrders(cfg, market); } catch (error) { utils.logErr('market.ownOrders', error); }
+    if (posted && posted.result === (typeof OK !== 'undefined' ? OK : 0)) return posted;
     const bought = tryBuy(cfg, market, () => scans++);
     if (bought) return bought;
+    const ownSell = new Set(((ownSettings(cfg) && ownSettings(cfg).enabled && ownSettings(cfg).sell) || []).map((s) => s.room + ':' + s.resource));
     for (const room of sellerRooms(cfg)) {
         for (const entry of sellable(room, cfg, hold)) {
+            if (ownSell.has(room.name + ':' + entry.resource)) continue;   // 这份走自挂卖单
             if (room._depositOnly && depositGoods({ [entry.resource]: 1 }).length === 0) continue;
             const avg = recentAvgPrice(entry.resource, cfg);
             if (avg == null) continue;
@@ -308,4 +444,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { run, settings, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor };
+module.exports = { run, settings, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders };
