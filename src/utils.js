@@ -883,8 +883,9 @@ function pvpHostile(creep) {
     const owner = creep && creep.owner && creep.owner.username;
     if (!owner || PVP_NPC.indexOf(owner) >= 0) return false;
     const cfg = config.pvp || {};
-    if ((cfg.highThreat || []).indexOf(owner) >= 0) return true;
-    return creep.body && creep.body.some((p) => p.hits > 0 && (p.type === ATTACK || p.type === RANGED_ATTACK || p.type === HEAL));
+    // 10-16 bucket 崩：高速路上 'Screeps' 商队 / Kasami 等武装 creep 也被记成威胁，dangerRooms 集合每几 tick 变一次 →
+    // 路径缓存 key 失效，全体 remoteHauler 反复 findRoute+PathFinder（remoteHauler CPU 15→120）。只认 highThreat 名单
+    return (cfg.highThreat || []).indexOf(owner) >= 0;
 }
 /** 记一次可见房的玩家威胁（己方房不记：那里归防御管）。返回房里的威胁 creep 列表 */
 const pvpCache = { time: -1, rooms: {} };
