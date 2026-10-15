@@ -264,6 +264,21 @@ function nextReactionFor(target, stock, minBatch, depth) {
     return null;
 }
 
+/** product 是否在 targets 的反应链上（目标本身或其任一层输入） */
+function inChain(product, targets) {
+    const rev = reverseReactions();
+    const seen = new Set();
+    const stack = (targets || []).slice();
+    while (stack.length) {
+        const t = stack.pop();
+        if (seen.has(t)) continue;
+        seen.add(t);
+        if (t === product) return true;
+        for (const i of rev[t] || []) stack.push(i);
+    }
+    return false;
+}
+
 /** 还想做的目标化合物：config.industry.boostTargets 里库存不到 boostGoal 的第一个 */
 function wantedTarget(stock, cfg) {
     const targets = Array.isArray(cfg.boostTargets) ? cfg.boostTargets : [];
@@ -350,7 +365,7 @@ function chooseReaction(room, mem, roles, labsById, cfg) {
     carriedStock(room, stock);
     if (ta && tb && ta !== tb && typeof REACTIONS !== 'undefined' && REACTIONS && REACTIONS[ta] && REACTIONS[ta][tb]) {
         const product = REACTIONS[ta][tb];
-        if (!outType || outType === product) {
+        if ((!outType || outType === product) && (cfg.opportunistic !== false || inChain(product, cfg.boostTargets))) {
             return { a: ta, b: tb, product, target: saved && saved.product === product ? saved.target || null : null, continued: true, stock };
         }
     }
