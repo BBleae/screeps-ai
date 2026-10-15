@@ -351,7 +351,7 @@ function runOwnOrders(cfg, market) {
                 const have = Number(room.terminal.store[res] || 0) + Number((room.storage && room.storage.store[res]) || 0);
                 const avg = recentAvgPrice(res, cfg);
                 if (avg == null) continue;
-                const amount = Math.min(Number(b.target || 3000) - have, Math.floor(cfg.maxOrderCredits / avg));
+                const amount = Math.min(Number(b.target || 3000) - have, Number(b.orderAmount) || Infinity, Math.floor(cfg.maxOrderCredits / avg));
                 if (amount < cfg.minDeal) continue;
                 const r = postOrder(cfg, market, 'buy', res, roomName, avg, amount);
                 if (r) return r;
