@@ -98,8 +98,44 @@ function cpuAllows(cfg, shed) {
 }
 
 /** 这一轮该做的那笔转账；没有合适的组合返回 null（纯函数，便于单测）。isRich(room) = 发送方的 storageRich 滞回状态 */
+/** 救急：priorityReceivers 里能量（storage+terminal）< starvingBelow 的房按名单顺序先救；发送方门槛降到 starveSendAbove、
+ *  发完自己留 starveKeep（2026-10-14：全账号没有一个房够 sendAbove 10 万，W31S8 等房 storage 归零、外矿 hauler 孵不出来） */
+function planStarving(rooms, cfg, rich) {
+    const order = Array.isArray(cfg.priorityReceivers) ? cfg.priorityReceivers : [];
+    const below = Number(cfg.starvingBelow) || 0;
+    if (!order.length || below <= 0) return null;
+    const byName = {};
+    for (const room of rooms) byName[room.name] = room;
+    const feeReserve = Math.max(0, Number(cfg.feeReserve) || 0);
+    const sendAbove = Number(cfg.starveSendAbove) || cfg.sendAbove;
+    const keep = Number(cfg.starveKeep) || cfg.keep;
+    const senders = rooms.slice().sort((a, b) => roomEnergy(b) - roomEnergy(a)).filter((room) => roomEnergy(room) >= sendAbove &&
+        !(room.terminal.cooldown > 0) && !usedThisTick(room.name) && energyOf(room.terminal.store) > feeReserve && rich(room) &&
+        order.indexOf(room.name) < 0);
+    for (const name of order) {
+        const to = byName[name];
+        if (!to || roomEnergy(to) >= below || freeOf(to.terminal.store) <= 0) continue;
+        for (const from of senders) {
+            const spare = roomEnergy(from) - keep;
+            const budget = energyOf(from.terminal.store) - feeReserve;
+            let amount = Math.min(spare, Number(cfg.starveMaxSend) || cfg.maxSend, freeOf(to.terminal.store), budget);
+            let cost = transactionCost(amount, from.name, to.name);
+            while (amount > 0 && amount + cost > budget) {
+                amount = Math.floor((budget - cost) * 0.98);
+                if (amount <= 0) break;
+                cost = transactionCost(amount, from.name, to.name);
+            }
+            if (amount < cfg.minSend) continue;
+            return { from, to, amount, cost, starving: true };
+        }
+    }
+    return null;
+}
+
 function planTransfer(rooms, cfg, isRich) {
     const rich = typeof isRich === 'function' ? isRich : () => true;
+    const urgent = planStarving(rooms, cfg, rich);
+    if (urgent) return urgent;
     const ranked = rooms.slice().sort((a, b) => roomEnergy(b) - roomEnergy(a));
     const feeReserve = Math.max(0, Number(cfg.feeReserve) || 0);
     const senders = ranked.filter((room) => roomEnergy(room) >= cfg.sendAbove && !(room.terminal.cooldown > 0) &&
