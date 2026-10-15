@@ -12,6 +12,7 @@ const expansion = require('expansion');
 const aid = require('aid');
 const defense = require('defense');
 const conquest = require('conquest');
+const depositMod = require('deposit');
 const queue = require('spawn_queue');
 const spawnExit = require('spawn_exit');
 const { makeBody, bodyCost, bodyPartCount, carryCapacity, packedPathLength, pathLength, repeat, logErr, needsRepair, creepName, bodyTicksPerTile, isRetiring } = utils;
@@ -2459,6 +2460,8 @@ function runQueue(room) {
     const aidDemands = idle.length && !state.recovering ? aid.getDemands(room) : [];
     const remoteOnly = idle.length && !state.recovering ? remote.getDemands(room) : [];
     const conquestDemands = idle.length && !state.recovering ? conquest.getDemands(room) : [];
+    let depositDemands = [];
+    if (idle.length && !state.recovering) { try { depositDemands = depositMod.getDemands(room); } catch (e) { utils.logErr('deposit.getDemands', e); } }
     const remoteDemands = defenseDemands.concat(expansionDemands, aidDemands, remoteOnly, conquestDemands);
     lap('demands');
     const builderBacklog = constructionBacklog(room);
@@ -2580,6 +2583,8 @@ function runQueue(room) {
         // 冻住优先级 >2 的全部经济（reserver=remoteMaintain 4 首当其冲），线上实测把 reserver 打到 0/8。攻城仍靠优先级先拿能量，
         // 只是买不起时不再冻结经济（reserver 是突发性的，多数 tick 无需孵化，母房能量照常累积到攒够攻城身体）。
         for (const item of conquestDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'conquest', settings, { jumpable: true, blocking: false }));
+        // deposit 采集 / 巡逻侦察（src/deposit.js）：最低档、买得起才孵，不挡任何经济需求
+        for (const item of depositDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'opportunistic', settings, { jumpable: true, blocking: false, opportunistic: true }));
     }
     const upgrading = new Set();
     for (const request of harvesterUpgradeRequests(room, state, mem, sources, settings)) {

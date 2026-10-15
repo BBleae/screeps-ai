@@ -112,10 +112,19 @@ function sellerRooms() {
         const terminal = room.terminal;
         if (!terminal || terminal.my === false || !terminal.store || terminal.cooldown > 0) continue;
         if (terminalNet.usedThisTick(room.name)) continue;
-        if (!utils.storageRichState(room, Memory.rooms && Memory.rooms[room.name], config.upgrading || {})) continue;
+        if (!utils.storageRichState(room, Memory.rooms && Memory.rooms[room.name], config.upgrading || {})) {
+            // storage 不富余的房也卖 deposit 产出（silicon/mist：不卖就只是堆着，factory 以后再说）；run() 里只卖这几种
+            if (depositGoods(terminal.store).length) { room._depositOnly = true; out.push(room); }
+            continue;
+        }
         out.push(room);
     }
     return out;
+}
+
+function depositGoods(store) {
+    const types = (config.deposit && config.deposit.enabled !== false && config.deposit.types) || [];
+    return types.filter((t) => Number(store && store[t] || 0) > 0);
 }
 
 function run(shed) {
@@ -130,6 +139,7 @@ function run(shed) {
     try { hold = terminalNet.mineralHolds(); } catch (error) { utils.logErr('market.mineralHolds', error); hold = null; }
     for (const room of sellerRooms()) {
         for (const entry of sellable(room, cfg, hold)) {
+            if (room._depositOnly && depositGoods({ [entry.resource]: 1 }).length === 0) continue;
             const avg = recentAvgPrice(entry.resource, cfg);
             if (avg == null) continue;
             if (!ordersBy[entry.resource]) {

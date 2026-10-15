@@ -18,6 +18,7 @@ const MODULE_MAP = {
     brain: 'brain.js', expansion: 'expansion.js', roles_claimer: 'roles/claimer.js', roles_pioneer: 'roles/pioneer.js',
     defense: 'defense.js', roles_defender: 'roles/defender.js', retire: 'retire.js',
     cpu_shed: 'cpu_shed.js', spawn_exit: 'spawn_exit.js',
+    deposit: 'deposit.js', roles_depositMiner: 'roles/depositMiner.js', roles_depositScout: 'roles/depositScout.js',
     conquest: 'conquest.js', roles_siegeDismantler: 'roles/siegeDismantler.js', roles_siegeGuard: 'roles/siegeGuard.js', roles_downgrader: 'roles/downgrader.js',
 };
 const origResolve = Module._resolveFilename;
@@ -15256,6 +15257,58 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     for (const h in liveRemoteAssign) for (const r of liveRemoteAssign[h]) { if (owners[r] && !(r === 'W29S2')) dup.push(r); owners[r] = h; }
     assert(dup.length === 0, '同一外矿只归一个母房（W29S2 沿用大脑的双母房）（重复: ' + dup.join(',') + '）');
     brainMod.get = savedGet;
+}
+
+{
+    console.log('== deposit 采集（src/deposit.js）：只 silicon/mist、真实跳数、冷却/视野/CPU 闸 ==');
+    const dep = require('deposit');
+    const savedMap = Game.map, savedRooms = Game.rooms, savedStats = Memory.stats, savedDep = Memory.deposits, savedBucket = Game.cpu.bucket;
+    Memory.deposits = undefined;
+    Memory.stats = [{ cpu: 120 }, { cpu: 125 }];
+    Game.cpu.bucket = 9000;
+    const routeCalls = [];
+    Game.map = Object.assign({}, savedMap, {
+        getRoomLinearDistance: (a, b) => { const p = (n) => /^W(\d+)S(\d+)$/.exec(n).slice(1).map(Number); const [ax, ay] = p(a), [bx, by] = p(b); return Math.max(Math.abs(ax - bx), Math.abs(ay - by)); },
+        findRoute: (a, b, opts) => {
+            routeCalls.push(b);
+            // W33S7 → W34S6(SK) → W34S5 → W35S5? 用一条经过 SK 的直线与一条绕路：回调挡掉 SK 时绕路 3 跳
+            if (b === 'W30S7') return [{ room: 'W32S7' }, { room: 'W31S7' }, { room: 'W30S7' }];
+            if (b === 'W35S5') return opts.routeCallback('W34S6') === Infinity ? -2 : [{ room: 'W34S6' }, { room: 'W35S5' }];
+            return -2;
+        },
+    });
+    const home = { name: 'W33S7', controller: { my: true, level: 7, owner: { username: 'BBleae' } }, terminal: { store: {} }, energyCapacityAvailable: 5600, find: () => [] };
+    const depObj = (id, type, cd, decay) => ({ id, depositType: type, pos: { x: 10, y: 10 }, lastCooldown: cd, ticksToDecay: decay });
+    let deps = [depObj('d1', 'silicon', 20, 40000), depObj('d2', 'biomass', 0, 40000), depObj('d3', 'mist', 150, 40000)];
+    const hw = { name: 'W30S7', find: (t) => (t === 122 ? deps : []) };
+    Game.rooms = { W33S7: home, W30S7: hw };
+    assert(dep.isHighway('W30S7') && !dep.isHighway('W33S7') && dep.isKeeperRoom('W34S6') && !dep.isKeeperRoom('W35S5'), '过道/SK 房识别');
+    assert(dep.hops('W33S7', 'W35S5', dep.settings()) === Infinity, '路线只能穿 SK 房 ⇒ 不可达');
+    assert(dep.hops('W33S7', 'W30S7', dep.settings()) === 3, '真实跳数 3');
+    const before = routeCalls.length; dep.hops('W33S7', 'W30S7', dep.settings());
+    assert(routeCalls.length === before, '跳数有缓存');
+    world.time = Math.ceil((world.time + 1) / 20) * 20;
+    dep.run();
+    const list = Memory.deposits.list;
+    assert(list.d1 && !list.d2 && list.d3, '只记 silicon/mist（得 ' + Object.keys(list).join(',') + '）');
+    assert(list.d1.home === 'W33S7' && !list.d3.home, '冷却低的分配给母房，lastCooldown 150 > 100 的不开工');
+    const dem = dep.getDemands(home);
+    const miner = dem.find((d) => d.role === 'depositMiner');
+    assert(miner && miner.memory.depositId === 'd1' && miner.body.filter((p) => p === 'work').length === 15, '出采集者需求（5 组 15W，得 ' + (miner && miner.body.length) + '）');
+    list.d1.at = world.time - 5000;
+    assert(!dep.getDemands(home).some((d) => d.role === 'depositMiner'), '情报过期（没看见）不出采集者');
+    list.d1.at = world.time;
+    Memory.stats = [{ cpu: 150 }, { cpu: 152 }];
+    list.d1.home = null;
+    world.time += 20; dep.run();
+    assert(!Memory.deposits.list.d1.home && Memory.deposits.gate && Memory.deposits.gate.cpuOk === false, 'CPU 均值 > 145：不开新工');
+    config.deposit.enabled = false;
+    assert(dep.getDemands(home).length === 0, 'enabled:false ⇒ 无需求');
+    config.deposit.enabled = true;
+    assert(dep.minerBody(1900, dep.settings()).length === 0 && dep.minerBody(1950, dep.settings()).length === 30, '采集者最少 3 组 1950');
+    const mk = require('market');
+    assert(typeof mk.sellerRooms === 'function', 'market 可用');
+    Game.map = savedMap; Game.rooms = savedRooms; Memory.stats = savedStats; Memory.deposits = savedDep; Game.cpu.bucket = savedBucket;
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);

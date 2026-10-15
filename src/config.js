@@ -772,6 +772,17 @@ module.exports = {
     // 终端网络（src/terminal.js，移植 overmind-absorb 2214dcc）：把能量从富裕的己方房瞬时送到饥饿的己方房。
     // 跨房搬能量原本只有 courier 走路，距离一远几乎不产出；terminal 之间是传送，代价按距离折算（calcTransactionCost）。
     // 保守取值：宁可不发，也不把发送方掏空。发送方还要 storageRich 滞回开着（线上 10/14 个房 storage≈0，它们只会是接收方）
+    // 过道 deposit 采集（src/deposit.js，2026-10-15 战略猫）：只 silicon/mist、真实跳数 ≤ 3、lastCooldown > 100 收工、产出进 terminal 由 market 卖。
+    // 新开工受 CPU 闸（近 10 条均值 ≤ 145、bucket ≥ 3000）；enabled:false 整模块停（在岗的回家交货自毁）
+    deposit: {
+        enabled: true,
+        types: ['silicon', 'mist'],
+        maxHops: 3,
+        maxCooldown: 100,
+        maxActive: 2,
+        cpuAvgMax: 145,
+        minBucket: 3000,
+    },
     terminalNetwork: {
         enabled: true,
         interval: 10,        // 每 10 tick 最多做一笔（terminal 冷却也是 10）

@@ -26,6 +26,7 @@ const conquest = require('conquest');
 const industry = require('industry');
 const terminalNetwork = require('terminal');
 const market = require('market');
+const depositMod = require('deposit');
 const taskBroker = require('task_broker');
 const haulStats = require('haul_stats');
 const cpuShed = require('cpu_shed');
@@ -51,6 +52,8 @@ const ROLES = {
     siegeDismantler: require('roles_siegeDismantler'),
     siegeGuard: require('roles_siegeGuard'),
     downgrader: require('roles_downgrader'),
+    depositMiner: require('roles_depositMiner'),
+    depositScout: require('roles_depositScout'),
 };
 
 function hasBodyPart(creep, type) {
@@ -339,6 +342,7 @@ module.exports.loop = function () {
         if (!(shed && (shed.active || shed.stopped))) {
             try { market.run(shed); } catch (e) { logErr('market.run', e); }
             try { terminalNetwork.run(shed); } catch (e) { logErr('terminal.run', e); }
+            try { depositMod.run(); } catch (e) { logErr('deposit.run', e); }
             cpuLap(cpuProf.mod, 'terminal');
         }
         sampleStats();
