@@ -191,6 +191,7 @@ function labSettings() {
         boostTargets: Array.isArray(cfg.boostTargets) ? cfg.boostTargets : [],
         boostGoal: Math.max(1, num(cfg.boostGoal, 3000)),
         boostStock: Math.max(1, num(cfg.labBoostStock, 1000)),
+        opportunistic: cfg.labOpportunistic !== false,
     };
 }
 
@@ -359,7 +360,7 @@ function chooseReaction(room, mem, roles, labsById, cfg) {
     const target = wantedTarget(targetStock, cfg);
     let step = target ? nextReactionFor(target, stock, cfg.minBatch, 0) : null;
     let stepTarget = step ? target : null;
-    if (!step) step = pickPair(stock, cfg.minBatch);
+    if (!step && cfg.opportunistic !== false) step = pickPair(stock, cfg.minBatch);
     if (!step) return null;
     // 已经装着其中一种的输入 lab 就装那一种：换位置意味着先把它清空
     let a = step.a;

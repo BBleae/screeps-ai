@@ -803,13 +803,42 @@ function salvageCargo(creep, room) {
     if (!(Number(store.getUsedCapacity()) > energyIn(store))) return false;
     const type = Object.keys(store).find((key) => key !== RESOURCE_ENERGY && Number(store[key]) > 0);
     if (!type) return false;
-    const sink = salvageSink(room, type);
+    const st = stashCfg(room);
+    const sink = (st && type === st.resource && room.storage && room.storage.my && room.storage.store.getFreeCapacity(type) > 0)
+        ? room.storage : salvageSink(room, type);
     if (!sink) { creep.drop(type); noteCounter(room, 'haulSalvage'); return false; }
     // 与 salvagePickup 同样的理由：这条路径也从 run() 早早 return、一路不碰 broker，而且每 tick 只 transfer 一种资源、
     // 站在 sink 旁不动、energyOf 不变——六种以上的货就会踩到卡住检测，把租约目标屏蔽 150 tick
     leaveBroker(creep);
     if (near(creep, sink)) { creep.transfer(sink, type); noteCounter(room, 'haulSalvage'); }
     else movement.go(creep, sink, { range: 1, reusePath: 20 });
+    return true;
+}
+
+/** 低优先级囤货（config.hauling.stash[房] = {resource, keep, storageFree}）：空闲 hauler 把 terminal 里超过 keep 的该资源搬进 storage。
+ *  只在本来要 park 的时候做、房间不急，卸货走 salvageCargo（该资源的 sink 改成 storage） */
+function stashCfg(room) {
+    const all = hauling().stash;
+    return all && room && all[room.name] ? all[room.name] : null;
+}
+function stashPull(creep, room, ctx, plan) {
+    const st = stashCfg(room);
+    if (!st || plan.withdraw || !room.terminal || !room.storage || !room.storage.my) return false;
+    const res = st.resource;
+    const over = Number(room.terminal.store[res] || 0) - Number(st.keep || 0);
+    if (!(over > 0)) return false;
+    if (Number(room.storage.store.getFreeCapacity(res)) <= Number(st.storageFree || 50000)) return false;
+    if (isUrgent(room, ctx)) return false;
+    const free = Number(creep.store.getFreeCapacity()) || 0;
+    if (free <= 0) return false;
+    if (!near(creep, room.terminal)) { plan.move = room.terminal; plan.moveRange = 1; return true; }
+    const amount = Math.min(free, over);
+    if (creep.withdraw(room.terminal, res, amount) === OK) {
+        plan.withdraw = true;
+        const mem = Memory.rooms[room.name] || (Memory.rooms[room.name] = {});
+        const rec = mem.stashed || (mem.stashed = { amount: 0 });
+        rec.amount = (Number(rec.amount) || 0) + amount; rec.at = Game.time;
+    }
     return true;
 }
 
@@ -839,7 +868,7 @@ function run(creep) {
         if (collecting) {
             if (!collect(creep, room, ctx, plan, energy + plan.gained, capacity)) {
                 if (energy + plan.gained > 0) deliver(creep, room, ctx, plan, energy, capacity);
-                else { haulStats.note(creep, 'park'); park(creep, room, plan); }
+                else if (!stashPull(creep, room, ctx, plan)) { haulStats.note(creep, 'park'); park(creep, room, plan); }
             }
         } else {
             deliver(creep, room, ctx, plan, energy, capacity);

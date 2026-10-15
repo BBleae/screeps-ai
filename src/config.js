@@ -141,6 +141,8 @@ module.exports = {
         topUpShare: 0.25,
         // 从 storage 取出的货不回 storage（倒腾保护）；揣了这么多 tick 仍送不出去才允许放回
         storageCargoRelease: 100,
+        // W34S7 terminal 被 30 万 ZH2O 塞满（晴猫 16:22）：空闲 hauler 搬进 storage，terminal 留 10 万给卖单
+        stash: { W34S7: { resource: 'ZH2O', keep: 100000, storageFree: 50000 } },
         // 溢出：源容器 ≥ spillShare 满、或源旁地上 ≥ spillDrop（每 tick 衰减 ceil(量/1000)），取货权重提到 spillWeight，
         // 同时 storage 的富余回流退回兜底（线上 2026-09-12 W33S3：22 格外的源容器 57% 采样满仓、脚下 3.4k–8.7k 在烂，
         // hauler 被 storage → ctrl link 的回流任务（权重 8）整场吸走，187 tick 没去过一次）
@@ -760,7 +762,9 @@ module.exports = {
         // 没有这份清单时 labs 只会「库存里哪两种能反应就做哪种」，产物没有用途。顺序：攻城（拆/治疗）→ 升级 → 移动；
         // 每种攒到 boostGoal 就换下一个——一只 50 部件的 creep 一次最多吃 1500（LAB_BOOST_MINERAL 30 × 50），3000 够两只
         // 2026-10-15 战略猫：升级 boost 优先（排行榜 = GCL），攻城其次
-        boostTargets: ['XGH2O', 'XZH2O', 'XLHO2', 'XKHO2', 'XUH2O', 'XZHO2'],
+        boostTargets: ['XGH2O'],   // 晴猫 16:22：只做升级链；攻城化合物等第 3 阶段
+        // false = 目标链这一步做不了时不做「库存里随便两种能反应」的机会主义反应（以前因此做了 UH）
+        labOpportunistic: false,
         // labs 单独的低门槛（反应本身不耗能）：只在 labRooms 里跑、storage 能量 ≥ labStorageReserve、CPU 闸开着（deposit.cpuOk）
         labRooms: ['W32S4', 'W33S3'],
         labStorageReserve: 20000,
@@ -850,7 +854,7 @@ module.exports = {
         creditFloor: 2000000,         // 低于它只卖不买
         maxOrderCredits: 50000,       // 单笔上限（买卖都按它截量）
         dailyBuyCredits: 200000,      // 每日买入总额
-        buy: { resources: ['Z', 'X'], target: 3000, rooms: ['W32S4', 'W33S3'] },   // 只买 labs 链缺的 Z/X，补到 3000
+        buy: { resources: ['Z', 'X'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'] },   // 只买 labs 链缺的 Z/X，补到 3000
         // 买能量（战略猫 15:49）：只给 terminalNetwork.priorityReceivers 里 storage+terminal < belowEnergy 的房；
         // 到手单价 = 价格×买量 / (买量 − 传送费能量) ≤ maxEffective；计入 dailyBuyCredits。传送费从接收房 terminal 的能量里扣
         // 直接 deal 买能量只在紧急时（storage+terminal < belowEnergy 3000）；平时走自挂买单（ownOrders.energy）

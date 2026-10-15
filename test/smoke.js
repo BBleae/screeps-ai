@@ -736,7 +736,8 @@ const config = require('../src/config');
 const liveRemoteAssign = config.remote.assign;
 config.remote.assign = {};
 // labs 的 2026-10-15 线上配置（labRooms 闸、XGH2O 优先）与老测试的前提不同：先存档还原成旧语义，末尾单测新语义
-const liveIndustry = { labRooms: config.industry.labRooms, boostTargets: config.industry.boostTargets, boostUpgraders: config.industry.boostUpgraders };
+const liveIndustry = { labRooms: config.industry.labRooms, boostTargets: config.industry.boostTargets, boostUpgraders: config.industry.boostUpgraders, labOpportunistic: config.industry.labOpportunistic };
+config.industry.labOpportunistic = true;
 delete config.industry.labRooms;
 config.industry.boostTargets = ['XZH2O', 'XLHO2', 'XGH2O', 'XKHO2', 'XUH2O', 'XZHO2'];
 config.industry.boostUpgraders = false;
@@ -15384,8 +15385,8 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
             createOrder: (o) => { created.push(o); return OK; }, cancelOrder: (id) => { cancelled.push(id); return OK; } };
         Game.rooms = { W32S4: mkRoom('W32S4', { energy: 3000 }, { energy: 30000 }), W34S7: mkRoom('W34S7', { ZH2O: 300000, energy: 3000 }) };
         mk.runOwnOrders(ocfg, Game.market);
-        assert(created[0] && created[0].type === 'buy' && created[0].resourceType === 'Z' && created[0].totalAmount === 1000 && created[0].price === 50, '自挂 Z 买单（按 50k credits 截到 1000、均价）（得 ' + JSON.stringify(created[0]) + '）');
-        assert(Memory.market.ledger.buyCredits === 52500, '买单预占额度 + 5% 挂单费（得 ' + Memory.market.ledger.buyCredits + '）');
+        assert(created[0] && created[0].type === 'buy' && created[0].resourceType === 'Z' && created[0].totalAmount === 500 && created[0].price === 50, '自挂 Z 买单（orderAmount 500、均价）（得 ' + JSON.stringify(created[0]) + '）');
+        assert(Memory.market.ledger.buyCredits === 26250, '买单预占额度 + 5% 挂单费（得 ' + Memory.market.ledger.buyCredits + '）');
         mk.runOwnOrders(ocfg, Game.market);
         mk.runOwnOrders(ocfg, Game.market);
         mk.runOwnOrders(ocfg, Game.market);
@@ -15396,7 +15397,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         Game.market.orders = { oid1: { id: 'oid1', type: 'buy', resourceType: 'Z', roomName: 'W32S4', remainingAmount: 400 } };
         mk.syncOrders(ocfg, Game.market);
         const zk = Memory.market.orders['buy:W32S4:Z'];
-        assert(zk && zk.id === 'oid1' && Memory.market.ledger.bought.Z === 600, '认领挂单 id、按成交量记账（得 ' + JSON.stringify(Memory.market.ledger.bought) + '）');
+        assert(zk && zk.id === 'oid1' && Memory.market.ledger.bought.Z === 100, '认领挂单 id、按成交量记账（得 ' + JSON.stringify(Memory.market.ledger.bought) + '）');
         const before = Memory.market.ledger.buyCredits;
         zk.expires = world.time;
         mk.syncOrders(ocfg, Game.market);
