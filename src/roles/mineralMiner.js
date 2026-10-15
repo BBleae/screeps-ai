@@ -2,9 +2,23 @@
 /** External mineral plan executor. No room scans, body search or pathfinding. */
 const brain = require('brain');
 
+// 外部大脑 2026-10-14 停用，冻结的指令里 K 矿全是 enabled:false（reason energy）。
+// config.minerals.force[房] = true 时在游戏内强开（count 1），其余字段（sinks/路线/身体）沿用大脑最后一份指令。
+const forcedCache = { tick: -1, byRoom: {} };
+function forced(room, plan) {
+    const force = ((require('config').minerals) || {}).force;
+    if (!force || !force[room.name] || plan.enabled) return plan;
+    const tick = typeof Game !== 'undefined' ? Game.time : 0;
+    if (forcedCache.tick !== tick) { forcedCache.tick = tick; forcedCache.byRoom = {}; }
+    const hit = forcedCache.byRoom[room.name];
+    if (hit && hit.src === plan) return hit.plan;
+    const out = Object.assign({}, plan, { enabled: true, count: 1, reason: 'forced' });
+    forcedCache.byRoom[room.name] = { src: plan, plan: out };
+    return out;
+}
 function directive(room) {
     const plan = room && brain.get(room.name, 'mineral', null);
-    return plan && plan.version === 1 ? plan : null;
+    return plan && plan.version === 1 ? forced(room, plan) : null;
 }
 function object(id) { return id ? Game.getObjectById(id) : null; }
 function active(structure) {
@@ -112,4 +126,4 @@ function run(creep) {
     const before = creep.store[type] || 0;
     if (creep.harvest(mineral) === OK) creep.memory.mineralIntent = { tick: Game.time, type, before, action: 'harvest' };
 }
-module.exports = { run, directive, ready, mineralOf };
+module.exports = { run, directive, ready, mineralOf, forced };

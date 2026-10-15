@@ -352,7 +352,8 @@ function runOwnOrders(cfg, market) {
                 const avg = recentAvgPrice(res, cfg);
                 if (avg == null) continue;
                 const amount = Math.min(Number(b.target || 3000) - have, Number(b.orderAmount) || Infinity, Math.floor(cfg.maxOrderCredits / avg));
-                if (amount < cfg.minDeal) continue;
+                // 对方付传送，小单不亏；minDeal 500 × 均价超过单笔上限的资源（X）按上限截量照挂
+                if (amount < Math.min(cfg.minDeal, Number(own.minBuyAmount) || cfg.minDeal)) continue;
                 const r = postOrder(cfg, market, 'buy', res, roomName, avg, amount);
                 if (r) return r;
             }

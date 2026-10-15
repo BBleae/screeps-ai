@@ -23,7 +23,9 @@ function setup() {
     const plan = { version: 1, enabled: true, count: 1, mineralId: 'min', extractorId: 'ext', mineralType: 'H',
         stand: { x: 11, y: 10 }, maxStock: 50000, reserveFree: 10, returnTicks: 60,
         outbound: { 1021: 8 }, sinks: [{ id: 'term', path: { 511: 4 } }, { id: 'store', path: { 511: 4 } }] };
+    const cfg = { minerals: { force: {} } };
     const context = { module: { exports: {} }, require: name => {
+        if (name === 'config') return cfg;   // 只读 minerals.force（2026-10-15 K 矿强开）
         assert.equal(name, 'brain'); return { get: () => plan };
     }, Game: { time: 1, rooms: { W1N1: room }, getObjectById: id => objects[id] },
     Memory: { rooms: { W1N1: {} } }, WORK: 'work', OK: 0, ERR_NOT_IN_RANGE: -9 };
@@ -34,7 +36,7 @@ function setup() {
         move: d => calls.push(['move', d]),
         harvest: () => { calls.push(['harvest']); return 0; },
         transfer: target => { calls.push(['transfer', target.id]); return 0; } };
-    return { run: () => context.module.exports.run(creep), plan, creep, mineral, terminal, storage, extractor,
+    return { run: () => context.module.exports.run(creep), plan, cfg, creep, mineral, terminal, storage, extractor,
         objects, context, calls, room };
 }
 {
@@ -90,4 +92,14 @@ console.log('mineral executor: lifecycle, cargo, cooldown and no-search checks p
     assert(context.module.exports.testSite(room, { x: 10, y: 10 }, 'extractor'));
     assert(!context.module.exports.testSite(room, { x: 10, y: 10 }, 'storage'));
     assert.equal(placed, 1, 'natural-wall exception only applies to extractor');
+}
+{
+    // 冻结的大脑指令 enabled:false：force 名单里的房照样开采，名单外不动
+    const f = setup(); f.plan.enabled = false; f.plan.count = 0;
+    assert.equal(f.context.module.exports.directive(f.room).enabled, false);
+    const g = setup(); g.plan.enabled = false; g.plan.count = 0; g.cfg.minerals.force.W1N1 = true;
+    g.run(); assert.equal(g.calls[0][0], 'harvest');
+    assert.equal(g.context.module.exports.directive(g.room).count, 1);
+    assert.equal(g.plan.enabled, false, 'frozen brain plan is not mutated');
+    console.log('mineral executor: force override checks passed');
 }
