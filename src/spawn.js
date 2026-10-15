@@ -1173,7 +1173,7 @@ function labTechTarget(room, mem) {
     const count = Math.max(0, Math.floor(Number(settings.labTechs) || 0));
     if (!count || room.controller.level < 6) return 0;
     const industry = require('industry');
-    if (!industry.canSpend(room)) return 0;
+    if (!(industry.labsAllowed ? industry.labsAllowed(room) : industry.canSpend(room))) return 0;
     let plan = null;
     try { plan = industry.labPlan(room); } catch (error) { plan = null; }
     if (!plan) return 0;
