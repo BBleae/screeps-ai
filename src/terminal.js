@@ -100,6 +100,11 @@ function cpuAllows(cfg, shed) {
 /** 这一轮该做的那笔转账；没有合适的组合返回 null（纯函数，便于单测）。isRich(room) = 发送方的 storageRich 滞回状态 */
 /** 救急：priorityReceivers 里能量（storage+terminal）< starvingBelow 的房按名单顺序先救；发送方门槛降到 starveSendAbove、
  *  发完自己留 starveKeep（2026-10-14：全账号没有一个房够 sendAbove 10 万，W31S8 等房 storage 归零、外矿 hauler 孵不出来） */
+function feeReserveOf(room) {
+    const map = (config.terminalNetwork || {}).terminalFeeReserve;
+    return Math.max(0, Number(map && map[room.name]) || 0);
+}
+
 function planStarving(rooms, cfg, rich) {
     const order = Array.isArray(cfg.priorityReceivers) ? cfg.priorityReceivers : [];
     const below = Number(cfg.starvingBelow) || 0;
@@ -116,8 +121,8 @@ function planStarving(rooms, cfg, rich) {
         const to = byName[name];
         if (!to || roomEnergy(to) >= below || freeOf(to.terminal.store) <= 0) continue;
         for (const from of senders) {
-            const spare = roomEnergy(from) - keep;
-            const budget = energyOf(from.terminal.store) - feeReserve;
+            const spare = roomEnergy(from) - keep - feeReserveOf(from);
+            const budget = energyOf(from.terminal.store) - Math.max(feeReserve, feeReserveOf(from));
             let amount = Math.min(spare, Number(cfg.starveMaxSend) || cfg.maxSend, freeOf(to.terminal.store), budget);
             let cost = transactionCost(amount, from.name, to.name);
             while (amount > 0 && amount + cost > budget) {
@@ -132,10 +137,45 @@ function planStarving(rooms, cfg, rich) {
     return null;
 }
 
+function feeReserve(room, cfg) {
+    const map = cfg.terminalFeeReserve;
+    return Math.max(0, Number(map && map[room.name]) || 0);
+}
+
+/** 传送费储备房（排在救急之后）：terminal 能量 < 储备一半、且 storage 自己补不上（≤ feeReserveStorageFloor + 缺口）时，按救急的发送方规则送到储备线 */
+function planFeeReserve(rooms, cfg, rich) {
+    const map = cfg.terminalFeeReserve;
+    if (!map) return null;
+    const floor = Math.max(0, Number(cfg.feeReserveStorageFloor) || 0);
+    const sendAbove = Number(cfg.starveSendAbove) || cfg.sendAbove;
+    const keep = Number(cfg.starveKeep) || cfg.keep;
+    const feeKeep = Math.max(0, Number(cfg.feeReserve) || 0);
+    for (const to of rooms) {
+        const fee = feeReserve(to, cfg);
+        if (!fee) continue;
+        const have = energyOf(to.terminal.store);
+        if (have >= fee / 2) continue;
+        const storageE = to.storage && to.storage.store ? energyOf(to.storage.store) : 0;
+        if (storageE > floor + (fee - have)) continue;   // 本房 hauler 补得上
+        for (const from of rooms) {
+            if (from.name === to.name || roomEnergy(from) < sendAbove || from.terminal.cooldown > 0 || usedThisTick(from.name) || !rich(from)) continue;
+            const budget = energyOf(from.terminal.store) - Math.max(feeKeep, feeReserve(from, cfg));
+            let amount = Math.min(fee - have, roomEnergy(from) - keep - feeReserve(from, cfg), budget, freeOf(to.terminal.store));
+            let cost = transactionCost(amount, from.name, to.name);
+            while (amount > 0 && amount + cost > budget) { amount = Math.floor((budget - cost) * 0.98); if (amount <= 0) break; cost = transactionCost(amount, from.name, to.name); }
+            if (amount < cfg.minSend) continue;
+            return { from, to, amount, cost, feeReserve: true };
+        }
+    }
+    return null;
+}
+
 function planTransfer(rooms, cfg, isRich) {
     const rich = typeof isRich === 'function' ? isRich : () => true;
     const urgent = planStarving(rooms, cfg, rich);
     if (urgent) return urgent;
+    const fee = planFeeReserve(rooms, cfg, rich);
+    if (fee) return fee;
     const ranked = rooms.slice().sort((a, b) => roomEnergy(b) - roomEnergy(a));
     const feeReserve = Math.max(0, Number(cfg.feeReserve) || 0);
     const senders = ranked.filter((room) => roomEnergy(room) >= cfg.sendAbove && !(room.terminal.cooldown > 0) &&
@@ -144,10 +184,10 @@ function planTransfer(rooms, cfg, isRich) {
     for (const from of senders) {
         for (const to of receivers) {
             if (to.name === from.name) continue;
-            const spare = roomEnergy(from) - cfg.keep;
+            const spare = roomEnergy(from) - cfg.keep - feeReserveOf(from);
             if (spare <= 0) continue;
-            // 传送的能量与传送费都从 terminal 里出，且留 feeReserve 给市场
-            const budget = energyOf(from.terminal.store) - feeReserve;
+            // 传送的能量与传送费都从 terminal 里出，且留 feeReserve 给市场（有传送费储备的房留储备）
+            const budget = energyOf(from.terminal.store) - Math.max(feeReserve, feeReserveOf(from));
             let amount = Math.min(spare, cfg.maxSend, freeOf(to.terminal.store), budget);
             let cost = transactionCost(amount, from.name, to.name);
             while (amount > 0 && amount + cost > budget) {
