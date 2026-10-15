@@ -852,14 +852,19 @@ function conserving(room) {
     if (!room || !room.controller || !room.controller.my) return false;
     if (conserveCache.time !== Game.time) { conserveCache.time = Game.time; conserveCache.rooms = {}; }
     if (conserveCache.rooms[room.name] !== undefined) return conserveCache.rooms[room.name];
-    let on = false;
-    if (room.storage && room.storage.my !== false && room.storage.store) {
-        const mem = Memory.rooms[room.name] || (Memory.rooms[room.name] = {});
-        const energy = Number(room.storage.store[RESOURCE_ENERGY] || 0);
-        const prev = !!(mem.conserve && mem.conserve.on);
-        on = prev ? energy < 20000 : energy < 5000;
-        if (on !== prev || !mem.conserve) mem.conserve = { on, at: Game.time, energy };
-    }
+    // 10-16 战略猫修正：storage+terminal < 2000 且 spawn 等能量 >= 300 tick 才进入；>= 10000 退出（状态 Memory.rooms[n].conserve2）
+    const mem = Memory.rooms[room.name] || (Memory.rooms[room.name] = {});
+    const energy = (room.storage && room.storage.store ? Number(room.storage.store[RESOURCE_ENERGY] || 0) : 0) +
+        (room.terminal && room.terminal.my !== false && room.terminal.store ? Number(room.terminal.store[RESOURCE_ENERGY] || 0) : 0);
+    let waiting = false;
+    try { waiting = !!spawnWaitingFor(room); } catch (e) { waiting = false; }
+    if (waiting) { if (!mem.spawnWaitSince) mem.spawnWaitSince = Game.time; }
+    else if (mem.spawnWaitSince) delete mem.spawnWaitSince;
+    const waited = mem.spawnWaitSince ? Game.time - mem.spawnWaitSince : 0;
+    const prev = !!(mem.conserve2 && mem.conserve2.on);
+    const on = !!room.storage && (prev ? energy < 10000 : (energy < 2000 && waited >= 300));
+    if (on !== prev || !mem.conserve2) mem.conserve2 = { on, at: Game.time, energy };
+    if (mem.conserve) delete mem.conserve;
     conserveCache.rooms[room.name] = on;
     return on;
 }
