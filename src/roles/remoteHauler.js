@@ -859,6 +859,7 @@ function run(creep) {
     const homeName = creep.memory.home;
     const remoteRoom = creep.memory.remoteRoom;
     if (!homeName || !remoteRoom) return;
+    if (require('pvp').fleeHighThreat(creep)) return;   // 10-16：Jumpp/武装玩家 → 撤回母房
     settleRoadBudget(creep);
     // 走线汇总排在退役检查之前：卸空那一 tick 标的退役，这一趟的走线仍要结算
     if (creep.room && creep.room.name !== remoteRoom) flushRoadTrail(creep);

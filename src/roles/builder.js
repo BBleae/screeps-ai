@@ -4,7 +4,7 @@ const config = require('config');
 const layout = require('layout');
 const movement = require('movement');
 const taskBroker = require('task_broker');
-const { findCached, logErr, needsRepair, criticallyDamaged, energySurplus, creepsHomeRole, compareRepairTargets, isRetiring, spawnWaitingFor, siteWanted } = require('utils');
+const { findCached, logErr, needsRepair, criticallyDamaged, energySurplus, creepsHomeRole, compareRepairTargets, isRetiring, spawnWaitingFor, siteWanted, conserving } = require('utils');
 
 const runtimeGlobal = typeof global !== 'undefined' ? global : {};
 const fallbackBudgetState = runtimeGlobal.__roleEnergyFallbackBudget ||
@@ -264,6 +264,20 @@ function run(creep) {
     const room = Game.rooms[creep.memory.home];
     if (!room) { movement.go(creep, new RoomPosition(25, 25, creep.memory.home)); return; }
     const state = (Memory.rooms[room.name] || {}).state || {};
+    // 10-16 节能模式：不建（含 lab 工地）不修；手里的能量先补 spawn/extension，再交回 storage，然后在 storage 旁待命
+    if (conserving(room)) {
+        if (creep.store[RESOURCE_ENERGY] > 0) {
+            const fill = room.energyAvailable < room.energyCapacityAvailable
+                ? creep.pos.findClosestByRange(findCached(room, FIND_MY_STRUCTURES).filter((s) =>
+                    (s.structureType === STRUCTURE_SPAWN || s.structureType === STRUCTURE_EXTENSION) && s.store.getFreeCapacity(RESOURCE_ENERGY) > 0))
+                : null;
+            const dest = fill || room.storage;
+            if (dest && creep.transfer(dest, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) movement.go(creep, dest, { reusePath: 15 });
+        } else if (room.storage && !creep.pos.inRangeTo(room.storage, 3)) {
+            movement.go(creep, room.storage, { range: 3, reusePath: 30 });
+        }
+        return;
+    }
 
     const hasLoad = creep.store[RESOURCE_ENERGY] > 0;
     if (hasLoad && creep.memory.waitSince) delete creep.memory.waitSince;

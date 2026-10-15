@@ -135,8 +135,13 @@ function run(creep) {
         const home = Game.rooms[creep.memory.home];
         if (home) remote.observe(home, creep.room);
     }
-    const hostiles = defense.armedHostiles(creep.room);
-    const any = hostiles.length ? hostiles : creep.room.find(FIND_HOSTILE_CREEPS);
+    const ownRoom = !!(creep.room.controller && creep.room.controller.my);
+    if (!ownRoom && require('pvp').fleeHighThreat(creep)) return;   // 10-16：外房见 Jumpp/武装玩家就撤，不还手
+    // 10-16：己方房以外不和玩家 creep 交火，只打 NPC，或贴着我们外矿容器（3 格内）的玩家
+    const pvpOk = (h) => ownRoom || !(h.owner && h.owner.username !== 'Invader' && h.owner.username !== 'Source Keeper') ||
+        h.pos.findInRange(FIND_STRUCTURES, 3, { filter: (s) => s.structureType === STRUCTURE_CONTAINER }).length > 0;
+    const hostiles = defense.armedHostiles(creep.room).filter(pvpOk);
+    const any = hostiles.length ? hostiles : creep.room.find(FIND_HOSTILE_CREEPS).filter(pvpOk);
     if (any.length) {
         delete creep.memory.idleSince;
         if (squad > 1 && !creep.memory.engaged) {

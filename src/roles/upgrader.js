@@ -389,6 +389,8 @@ function run(creep) {
     reportBudget(room, mem, upgradeDuty(room, mem));
 
     const station = ctrlStation(room, plan);
+    // 10-16 节能模式：降级计时 > 一半时不取能，手里有的照常用完
+    const conserveHold = utils.conserving(room) && !utils.conserveUpgradeAllowed(room);
     if (creep.store[RESOURCE_ENERGY] > 0) {
         // 常驻站位：站在供能容器/工作位 1 格内即可（多个 upgrader 共用一个容器，不必抢同一格）；storage 站位时 ctrl link 旁也算
         if (station && !atStation(creep, station, ctrl) && !(station.storageFed && atLinkSide(room, plan, creep.pos, ctrl))) {
@@ -400,7 +402,7 @@ function run(creep) {
         // 同 tick 补能：withdraw 与 upgradeController 属不同管线，可同 tick 执行；仓内不足两轮 WORK 时就地补满，
         // 避免"用空→取能→再升级"每 100 能量丢 1 tick。取能量按开 tick 时的空余容量算（升级消耗在同 tick 结算）
         const work = creep.getActiveBodyparts(WORK);
-        if (creep.store[RESOURCE_ENERGY] < work * 2) {
+        if (!conserveHold && creep.store[RESOURCE_ENERGY] < work * 2) {
             const near = energySourceAt(room, creep, plan);
             const free = creep.store.getFreeCapacity(RESOURCE_ENERGY);
             if (near && free > 0) creep.withdraw(near, RESOURCE_ENERGY, Math.min(free, withdrawable(near)));
@@ -417,6 +419,10 @@ function run(creep) {
         return;
     }
 
+    if (conserveHold) {
+        if (!creep.pos.inRangeTo(ctrl, 3)) movement.go(creep, ctrl, { range: 3, reusePath: 30 });
+        return;
+    }
     // 空载：就近补能（storage 只取到 reserve 以上）
     const near = energySourceAt(room, creep, plan);
     const relief = station && station.storageFed && !(near && near.structureType === STRUCTURE_LINK) ? linkReliefSpot(room, plan, station, creep, ctrl, mem) : null;

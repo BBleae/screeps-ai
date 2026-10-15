@@ -78,6 +78,7 @@ function myName() {
 function blockedRoom(name, target, me) {
     if (name === target) return false;
     if (isKeeperRoom(name)) return true;
+    if (require('utils').pvpDangerRoom(name)) return true;   // 10-16：W30S9 / Jumpp 等玩家威胁房
     const info = Memory.map && Memory.map[name];
     if (info && info.owner && info.owner !== me) return true;
     return false;
@@ -111,6 +112,7 @@ function homes(cfg) {
 
 /** 把一个可见房里的 deposit 记进情报（creep 进房 / 扫描时调） */
 function note(room) {
+    require('utils').notePvpThreat(room);
     if (!room || !isHighway(room.name)) return;
     const cfg = settings();
     const m = mem();

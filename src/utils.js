@@ -844,7 +844,74 @@ function siteWanted(room, site) {
     return !!site && (!luxuryStructure(site.structureType) || luxuryAllowed(room));
 }
 
+/** 节能模式（10-16 战略猫）：有 storage 的己方房 storage 能量 < 5000 进入，>= 20000 退出（滞回，状态存 Memory.rooms[n].conserve）。
+ *  无 storage 的房不进入：低 RCL 房 energyAvailable 永远 < 5000，按代理值会永久停建。
+ *  节能期间：builder 不建不修、把手里能量交回 storage；升级者至多 1 只最小身体，控制器降级计时 > 一半时不取能。 */
+const conserveCache = { time: -1, rooms: {} };
+function conserving(room) {
+    if (!room || !room.controller || !room.controller.my) return false;
+    if (conserveCache.time !== Game.time) { conserveCache.time = Game.time; conserveCache.rooms = {}; }
+    if (conserveCache.rooms[room.name] !== undefined) return conserveCache.rooms[room.name];
+    let on = false;
+    if (room.storage && room.storage.my !== false && room.storage.store) {
+        const mem = Memory.rooms[room.name] || (Memory.rooms[room.name] = {});
+        const energy = Number(room.storage.store[RESOURCE_ENERGY] || 0);
+        const prev = !!(mem.conserve && mem.conserve.on);
+        on = prev ? energy < 20000 : energy < 5000;
+        if (on !== prev || !mem.conserve) mem.conserve = { on, at: Game.time, energy };
+    }
+    conserveCache.rooms[room.name] = on;
+    return on;
+}
+
+/** 节能模式下升级者是否允许取能：控制器降级计时低于该 RCL 满值的一半 */
+function conserveUpgradeAllowed(room) {
+    const c = room && room.controller;
+    if (!c || c.ticksToDowngrade == null) return true;
+    const full = (typeof CONTROLLER_DOWNGRADE !== 'undefined' && CONTROLLER_DOWNGRADE[c.level]) || 0;
+    return !full || c.ticksToDowngrade < full / 2;
+}
+
+/** 高威胁玩家（config.pvp）：非 NPC、在 highThreat 名单里，或带战斗部件的玩家 creep */
+const PVP_NPC = ['Invader', 'Source Keeper'];
+function pvpHostile(creep) {
+    const owner = creep && creep.owner && creep.owner.username;
+    if (!owner || PVP_NPC.indexOf(owner) >= 0) return false;
+    const cfg = config.pvp || {};
+    if ((cfg.highThreat || []).indexOf(owner) >= 0) return true;
+    return creep.body && creep.body.some((p) => p.hits > 0 && (p.type === ATTACK || p.type === RANGED_ATTACK || p.type === HEAL));
+}
+/** 记一次可见房的玩家威胁（己方房不记：那里归防御管）。返回房里的威胁 creep 列表 */
+const pvpCache = { time: -1, rooms: {} };
+function notePvpThreat(room) {
+    if (!room) return [];
+    if (pvpCache.time !== Game.time) { pvpCache.time = Game.time; pvpCache.rooms = {}; }
+    if (pvpCache.rooms[room.name]) return pvpCache.rooms[room.name];
+    const own = !!(room.controller && room.controller.my);
+    const list = own ? [] : room.find(FIND_HOSTILE_CREEPS).filter(pvpHostile);
+    if (list.length) {
+        const m = Memory.pvpThreat || (Memory.pvpThreat = {});
+        m[room.name] = { until: Game.time + (Number((config.pvp || {}).armedMemory) || 300), user: list[0].owner.username, n: list.length, at: Game.time };
+    }
+    pvpCache.rooms[room.name] = list;
+    return list;
+}
+/** 这个房现在要回避：手动 dangerRooms，或 armedMemory 内见过玩家威胁 */
+function pvpDangerRoom(name) {
+    const cfg = config.pvp || {};
+    if ((cfg.dangerRooms || []).indexOf(name) >= 0) return true;
+    const rec = Memory.pvpThreat && Memory.pvpThreat[name];
+    if (rec && rec.until > Game.time) return true;
+    if (rec && Game.time % 100 === 0) delete Memory.pvpThreat[name];
+    return false;
+}
+
 module.exports = {
+    pvpHostile,
+    notePvpThreat,
+    pvpDangerRoom,
+    conserving,
+    conserveUpgradeAllowed,
     isRetiring,
     luxuryStructure,
     luxuryAllowed,

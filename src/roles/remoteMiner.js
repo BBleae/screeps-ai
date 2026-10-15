@@ -58,6 +58,7 @@ function run(creep) {
     const homeName = creep.memory.home;
     const remoteRoom = creep.memory.remoteRoom;
     if (!homeName || !remoteRoom) return;
+    if (require('pvp').fleeHighThreat(creep)) return;   // 10-16：Jumpp/武装玩家 → 撤回母房
     if (remote.isSuspended(homeName, remoteRoom)) {
         retreat(creep);
         return;

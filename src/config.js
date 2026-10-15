@@ -332,6 +332,14 @@ module.exports = {
         timeout: 200,
     },
     // 远程采矿：RCL4+ 开启，由 scout 探明后自动纳入（要求无主、无 Keeper 巢穴、双源；keeper 房只走 config.sk 那条闸）
+    // 10-16 战略猫：高威胁玩家回避。highThreat 的玩家一露面、或任何玩家的武装 creep 出现过的非己方房，armedMemory tick 内
+    // 外矿/deposit 不派人、在场 creep 撤回母房、不在己方房以外和玩家交火；dangerRooms 是手动永久回避（寻路绕开、不做外矿/deposit/防御）
+    pvp: {
+        highThreat: ['Jumpp'],
+        highThreatIds: ['5a8a3d2d90d85961a7b853de'],
+        armedMemory: 300,   // 10-16 战略猫：威胁离开后再等 300 tick 才恢复
+        dangerRooms: [],   // 10-16 晴猫：W30S9 不永久回避，只按 pvpThreat 临时回避
+    },
     remote: {
         holdReserver: { W31S9: 20000 },   // 10-16 战略猫：W31S8 storage < 2 万时不派 W31S9 reserver（矿工/hauler 照常），首次到 2 万自动恢复
         // 母房 storage+terminal 低于它时外矿 hauler 按 max(energyAvailable, lowStorageHaulMin) 定身体（remote.haulBudget，2026-10-15）

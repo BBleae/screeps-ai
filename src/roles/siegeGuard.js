@@ -120,6 +120,7 @@ function healSupport(creep) {
 
 function run(creep) {
     const target = creep.memory.targetRoom;
+    if (require('pvp').fleeHighThreat(creep)) return;   // 10-16：Jumpp/武装玩家 → 撤回母房
     if (!target) return;
     conquest.recordHostileTowers(creep.room, creep);   // 过境避塔：缓存看到的敌塔位供本波无视野时绕塔（并记过境最近距离遥测）
     const staging = creep.memory.staging || target;
