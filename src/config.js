@@ -962,6 +962,11 @@ module.exports = {
     // 矿物数量、库存门槛和身体由 scripts/brain/minerals.py 决定。
     // 2026-10-15 战略猫：K 矿只开 W31S6、W33S8、W37S7（大脑已停用，冻结指令里是 enabled:false）。见 roles/mineralMiner.forced
     minerals: { force: { W31S6: true, W33S8: true, W37S7: true } },
+    // 外部大脑 2026-10-14 停用（晴猫）。retired = true：最后一份指令（issuedAt 10-14 12:00 JST、ttl 7 天）永不过期、不算掉线，
+    // 否则 10-21 18:00 JST（ttl + 6h 宽限）起 brain.get 全返回 null：三座 K 矿 + W38S7 的矿全停（mineralMiner 只认指令）、
+    // scout 名额从 0 变自治、外矿排序丢失，再过一天 expansion.autoClaim 开始自治占房。游戏内覆盖（remote.assign、minerals.force）照旧优先。
+    // 要改回「大脑掉线就退回自治」把它设成 false（2026-10-16 爬爬代码猫，按最保守方案：维持现状）
+    brain: { retired: true },
     // Memory 卫生：控制台探针（monitor.py 的 _mon、remote_roi.py 的 _roi、临时 _dbg*）把结果留在
     // Memory 的下划线键里，读取方只删探针源、不删结果。线上实测 359,623 字节的 Memory 里约 102 KB（28%）
     // 是这种死数据，而引擎每 tick 都要把整个 Memory 解析+序列化一遍 —— 这是白付的 CPU。
