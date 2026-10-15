@@ -333,6 +333,7 @@ module.exports = {
     },
     // 远程采矿：RCL4+ 开启，由 scout 探明后自动纳入（要求无主、无 Keeper 巢穴、双源；keeper 房只走 config.sk 那条闸）
     remote: {
+        holdReserver: { W31S9: 20000 },   // 10-16 战略猫：W31S8 storage < 2 万时不派 W31S9 reserver（矿工/hauler 照常），首次到 2 万自动恢复
         // 母房 storage+terminal 低于它时外矿 hauler 按 max(energyAvailable, lowStorageHaulMin) 定身体（remote.haulBudget，2026-10-15）
         lowStorageHaulBelow: 5000,
         lowStorageHaulMin: 800,
@@ -809,6 +810,7 @@ module.exports = {
         // 发送方只要 ≥ starveSendAbove（且 storageRich）、发完留 starveKeep，一笔最多 starveMaxSend
         priorityReceivers: ['W31S8', 'W35S7', 'W34S7', 'W31S5', 'W37S5'],
         starvingBelow: 10000,
+        starvingUntil: { W31S8: 20000 },   // 10-16 战略猫：W31S8 排第一、每轮都送，直到 storage+terminal ≥ 2 万（只按 storage 算的话 terminal 送来的能量被直接取用，会无限送）
         starveSendAbove: 40000,
         starveKeep: 30000,
         starveMaxSend: 10000,

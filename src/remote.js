@@ -1298,6 +1298,17 @@ function controllerTravelDistance(home, record) {
     return distance;
 }
 
+/** 母房缺能量时暂停某外矿的 reserver（config.remote.holdReserver：{ 外矿: 母房 storage 能量门槛 }，10-16 战略猫 W31S9）：
+ *  矿工/hauler 照常；母房 storage 第一次到门槛就解除（record.reserverHoldReleased 锁存，之后不再暂停） */
+function reserverOnHold(home, record) {
+    const map = config.remote && config.remote.holdReserver;
+    const until = map && Number(map[record.room]);
+    if (!until || record.reserverHoldReleased) return false;
+    const stored = Number((home.storage && home.storage.store[RESOURCE_ENERGY]) || 0);
+    if (stored >= until) { record.reserverHoldReleased = Game.time; return false; }
+    return true;
+}
+
 function reserverBody(capacity) {
     if (capacity >= positiveSetting('reserverDoubleClaimCapacity', 1650)) return ['claim', 'claim', 'move', 'move'];
     if (capacity >= 650) return ['claim', 'move'];
@@ -1702,6 +1713,8 @@ function getDemands(home) {
         if (usable && usable.manned > 0 && usable.unmanned === 0 && usable.gain < positiveSetting('reserveMinGain', 1)) {
             // 遥测：预定该续了，但矿工太弱、预定多出的产量没人采（旧规则照样派 reserver）
             record.reserverWeakMiner = { at: Game.time, gain: usable.gain, n: (Number(record.reserverWeakMiner && record.reserverWeakMiner.n) || 0) + 1 };
+        } else if (reserveDue && reserverOnHold(home, record)) {
+            record.reserverOnHold = Game.time;
         } else if (reserveDue) {
             const slot = 'reserver:' + record.room;
             // Prefer two CLAIM for reserve growth, but a single CLAIM can bridge an expiring incumbent.
