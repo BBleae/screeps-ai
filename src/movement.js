@@ -680,6 +680,7 @@ function stats() {
         workTileErrors: state.stats.workTileErrors,
         workTileCalls: state.stats.workTileCalls,
         workTileComputes: state.stats.workTileComputes,
+        avoidKeptPaths: engine && typeof engine.avoidKeptPaths === 'function' ? engine.avoidKeptPaths() : 0,
         engineAvailable: !!engine,
         lastEngineError: state.lastEngineError || null,
     };

@@ -10,7 +10,7 @@ const Module = require('module');
 // ---- 扁平模块名解析（同 grunt/dist 布局）；movement/retire 用桩替换 ----
 const MODULE_MAP = {
     config: 'config.js', utils: 'utils.js', conquest: 'conquest.js', actions: 'actions.js', boost: 'boost.js',
-    roles_siegeDismantler: 'roles/siegeDismantler.js', roles_siegeGuard: 'roles/siegeGuard.js', roles_downgrader: 'roles/downgrader.js',
+    roles_siegeDismantler: 'roles/siegeDismantler.js', roles_siegeGuard: 'roles/siegeGuard.js', roles_downgrader: 'roles/downgrader.js', pvp: 'pvp.js',
 };
 const moveCalls = [];
 const retireCalls = [];
