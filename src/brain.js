@@ -78,7 +78,14 @@ function stale(directive) {
     return now() - Number(directive.issuedAt) > ttlOf(directive);
 }
 
+/** config.brain.retired：外部大脑已永久停用，最后一份指令冻结沿用（永不过期、不算掉线） */
+function retired() {
+    const cfg = require('config').brain;
+    return !!(cfg && cfg.retired);
+}
+
 function expired(directive) {
+    if (retired()) return false;
     return now() - Number(directive.issuedAt) > ttlOf(directive) + STALE_GRACE_MS;
 }
 
@@ -124,6 +131,8 @@ function run() {
     if (expired(directive)) return null;
     if (stale(directive)) directive.stale = true;
     else delete directive.stale;
+    if (retired()) directive.frozen = true;
+    else delete directive.frozen;
     runtime.active = directive;
     return directive;
 }
@@ -190,4 +199,4 @@ function standingLock(key) {
     return { value: lock.value === undefined ? null : lock.value };
 }
 
-module.exports = { run, directive, get, isStale, available, offlineMs, standingLock, CONTRACT_VERSION, SEGMENT, STALE_GRACE_MS };
+module.exports = { run, directive, get, isStale, available, offlineMs, standingLock, retired, CONTRACT_VERSION, SEGMENT, STALE_GRACE_MS };

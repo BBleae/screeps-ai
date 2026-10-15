@@ -5016,7 +5016,15 @@ assert(brainMod.directive('W33S7') != null && Memory.brain.stale === true && bra
     '超过 ttl 但在 6 小时宽限内：指令继续提供并标记 stale（得 ' + JSON.stringify(brainMod.directive('W33S7')) + ' stale=' + Memory.brain.stale + '）');
 world.time++;
 Memory.brain.issuedAt = Date.now() - 1800000 - brainMod.STALE_GRACE_MS - 1000;
+config.brain = { retired: false };
 assert(brainMod.directive('W33S7') == null, '超过 ttl + 宽限的指令视为过期，访问器返回 null');
+assert(brainMod.offlineMs() > 0, '过期后算掉线（offlineMs > 0）');
+config.brain = { retired: true };
+world.time++;
+assert(brainMod.directive('W33S7') != null && Memory.brain.frozen === true && brainMod.offlineMs() === 0,
+    'config.brain.retired：过期指令冻结沿用、不算掉线（得 ' + JSON.stringify(brainMod.directive('W33S7')) + ' offline=' + brainMod.offlineMs() + '）');
+config.brain = { retired: false };
+world.time++;
 assert(Memory.map.W34S7.source === 'external', '过期只影响指令，已合并的情报保留');
 
 world.time++;
