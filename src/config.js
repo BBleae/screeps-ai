@@ -813,7 +813,7 @@ module.exports = {
         // 传送费储备（2026-10-15）：这些房的 terminal 常备这么多能量给市场/调剂付传送费。
         // 先由本房 hauler 从 storage 补（storage 高于 feeReserveStorageFloor 时，不看 storageRich）；storage 也没有就排在救急房之后
         // 用同样的发送方规则从别房送；这份储备不算发送方的富余、也不被 hauler 取回 storage
-        terminalFeeReserve: { W34S7: 3000, W32S4: 3000, W33S3: 3000, W33S7: 1000 },   // W33S7：L 调剂给 lab 房的传送费（2000 L ≈ 200 能量）   // 15:01 战略猫：自挂单后对方付传送费，储备降到 3k
+        terminalFeeReserve: { W34S7: 3000, W32S4: 3000, W33S3: 3000, W33S7: 1000, W31S6: 1000, W33S8: 1000, W37S7: 1000 },   // W33S7：L 调剂给 lab 房的传送费（2000 L ≈ 200 能量）   // 15:01 战略猫：自挂单后对方付传送费，储备降到 3k
         feeReserveStorageFloor: 2000,
         maxSend: 50000,
         // terminal 里留给市场传送费的底（src/market.js 的 deal 从 terminal 扣能量）：5000 矿物发到 10 房外约 1500 能量
@@ -856,12 +856,12 @@ module.exports = {
         dailySellUnits: { ZH2O: 2000 },
         creditFloor: 2000000,         // 低于它只卖不买
         maxOrderCredits: 50000,       // 单笔上限（买卖都按它截量）
-        dailyBuyCredits: 200000,      // 每日买入总额
-        buy: { resources: ['Z', 'X'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'] },   // 只买 labs 链缺的 Z/X，补到 3000
+        dailyBuyCredits: 500000,      // 每日买入总额（10-15 战略猫：20 万 → 50 万）
+        buy: { resources: ['Z', 'O', 'X', 'U'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'] },   // 只买 labs 链缺的 Z/X，补到 3000
         // 买能量（战略猫 15:49）：只给 terminalNetwork.priorityReceivers 里 storage+terminal < belowEnergy 的房；
         // 到手单价 = 价格×买量 / (买量 − 传送费能量) ≤ maxEffective；计入 dailyBuyCredits。传送费从接收房 terminal 的能量里扣
         // 直接 deal 买能量只在紧急时（storage+terminal < belowEnergy 3000）；平时走自挂买单（ownOrders.energy）
-        buyEnergy: { enabled: true, maxEffective: 15, belowEnergy: 3000, maxAmount: 20000 },
+        buyEnergy: { enabled: false, maxEffective: 15, belowEnergy: 3000, maxAmount: 20000 },
         dealBuyMinerals: false,       // Z/X 不再直接 deal（自挂买单代替）
         // 自挂单（战略猫 16:01）：对方成交时付传送能量。价格 = 近 historyDays 天均价（卖/买都夹在 ±priceBand 内），
         // 每单 expireTicks 到期撤单按最新均价重挂；每房每资源一张；5% 挂单费计入 dailyBuyCredits；买单挂单时按全额预占日额度、撤单退回未成交部分
@@ -875,7 +875,7 @@ module.exports = {
             dailySellFeeCredits: 300000,
             sell: [{ resource: 'ZH2O', room: 'W34S7' }],           // 量 = min(富余, 当日剩余 dailySellUnits)
             buyMinerals: true,                                       // 用 buy.resources/buy.rooms/buy.target
-            energy: { rooms: 'priorityReceivers', below: 10000, price: 10, maxPrice: 15, amount: 4500 },
+            energy: null,   // 10-15 战略猫：能量买单停掉（挂 10 而均价 38 不成交），缺能量房靠 terminal 调剂
         },
     },
     // CPU 预留（bucket 健康时 creep 循环的上限 = limit − cpuReserve，超了只跳 broker 分数 < 20 的单位，与过去一致）
