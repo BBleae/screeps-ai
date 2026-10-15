@@ -1342,8 +1342,9 @@ function targetFor(room, role, mem, sources, backlog) {
     if (state.recovering && role !== 'harvester' && role !== 'hauler' && role !== 'operator') return 0;
     if (role === 'harvester') return harvesterTarget(room, mem, sources);
     if (role === 'hauler') return estimateHomeHaulerTarget(room, mem, sources);
-    if (role === 'upgrader') return upgraderTarget(room, mem);
-    if (role === 'builder') return builderTarget(room, backlog || constructionBacklog(room));
+    // 10-16 节能模式：至多 1 只升级者、不孵 builder
+    if (role === 'upgrader') return utils.conserving(room) ? Math.min(1, upgraderTarget(room, mem)) : upgraderTarget(room, mem);
+    if (role === 'builder') return utils.conserving(room) ? 0 : builderTarget(room, backlog || constructionBacklog(room));
     if (role === 'feeder') return feederTarget(room, mem);
     if (role === 'operator') return operatorTarget(room, mem);
     if (role === 'mineralMiner') return mineralMinerTarget(room, mem);
@@ -1475,6 +1476,7 @@ function upgraderBody(room, mem, budget) {
         // 低档预算下限：W4 的 550 吃不完 ctrl link 的 10/tick，src link 与 ctrl link 会一起堵在满仓，免费供给白白浪费（线上 2026-09-05 W33S7 升级 16 → 4/tick）
         allowance = Math.min(allowance, Math.max(200, Number(settings.lowBudget) || 550, utils.upgraderBudgetForWork(linkFedWork(room, mem))));
     }
+    if (utils.conserving(room)) allowance = Math.min(allowance, 300);   // 节能模式：最小升级者（W2C1M1 级别）
     // 身体按可持续供给封顶（utils.upgraderSupplyWork：本地供给 + storage 富余摊到一只升级者的寿命），不按瞬时限流（utils.upgraderWorkCap）：
     // 限流有竞争需求时是 W12、一放开就是 Infinity，旧代码跟着它孵 W12 / W47 来回换代（线上 2026-10-08：放开就孵 W47C2M1 4850，
     // CP 却被 ctrl link 的 20/tick 卡死）。限流期间多出的 WORK 由 roles/upgrader.js 按 duty 降频，身体只多花 (20−12)×100/1500 ≈ 0.5/tick

@@ -372,6 +372,7 @@ function planFor(home, roomName) {
     const cfg = settings();
     if (home.energyCapacityAvailable < cfg.minCapacity) return null;
     const mem = Memory.rooms && Memory.rooms[home.name] || null;
+    { const t = Game.rooms[roomName]; if (!(t && t.controller && t.controller.my) && require('utils').pvpDangerRoom(roomName)) return null; }
     const result = evaluate(home, roomName, remoteRecordOf(home, roomName), cfg, brain.get(home.name, 'defense', null), mem);
     if (result.plan) return result.plan;
     return !result.threat.count && result.threat.core ? { style: 'melee', count: 1, core: true } : null;
@@ -392,6 +393,8 @@ function getDemands(home) {
     const consider = (roomName, record) => {
         if (seen.has(roomName)) return;
         seen.add(roomName);
+        // 10-16 战略猫：不为玩家威胁房（W30S9 / Jumpp）出兵；己方房照常防守
+        { const t = Game.rooms[roomName]; if (!(t && t.controller && t.controller.my) && require('utils').pvpDangerRoom(roomName)) return; }
         // 己方无 spawn 的房（没有外矿记录）每个母房都会考虑一遍：只让最近的那个出兵。外矿只由拥有记录的母房考虑，不套这道门——
         // 以前外矿也要"本房是切比雪夫最近的有 spawn 房"，所属母房不是最近的那条外矿就没人防、大脑的 fight 指令也被丢掉
         // （线上 2026-09-11 8/17 条启用外矿无人防守，入侵一次停产 1300–1500 tick）

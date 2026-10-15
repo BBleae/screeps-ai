@@ -732,6 +732,7 @@ function refreshVisible(home, record, room) {
         }
     }
 
+    require('utils').notePvpThreat(room);   // 10-16：玩家威胁记进 Memory.pvpThreat（isSuspended 据此停 armedMemory tick）
     const threat = threatReason(room, record.sk);
     if (threat) {
         record.suspendedUntil = Math.max(record.suspendedUntil, now + HOSTILE_COOLDOWN);
@@ -744,6 +745,13 @@ function refreshVisible(home, record, room) {
         record.suspendedUntil = 0;
         record.suspendReason = null;
         record.threat = null;
+    }
+
+    // 10-16 晴猫/战略猫：Jumpp 或武装玩家在场/近期出现过 → 暂停到 pvpThreat 到期（不孵、在场的撤），到期自动恢复
+    const pvpRec = Memory.pvpThreat && Memory.pvpThreat[room.name];
+    if (pvpRec && pvpRec.until > now) {
+        record.suspendedUntil = Math.max(record.suspendedUntil || 0, pvpRec.until);
+        record.suspendReason = 'pvpThreat:' + pvpRec.user;
     }
 
     const previous = {};
@@ -1256,7 +1264,7 @@ function isDisabled(home, remoteRoom) {
 
 function isSuspended(home, remoteRoom) {
     const record = getRemote(home, remoteRoom);
-    return !record || !record.enabled || record.suspendedUntil > Game.time;
+    return !record || !record.enabled || record.suspendedUntil > Game.time || require('utils').pvpDangerRoom(remoteRoom);
 }
 
 /** 停用还剩多少 tick（永久停用返回 Infinity；没停用 0） */

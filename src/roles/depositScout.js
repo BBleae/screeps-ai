@@ -5,6 +5,7 @@ const deposit = require('deposit');
 
 function run(creep) {
     const cfg = deposit.settings();
+    if (require('pvp').fleeHighThreat(creep)) return;   // 10-16：Jumpp/武装玩家 → 撤回母房
     if (!cfg.enabled) { creep.suicide(); return; }
     const m = creep.memory;
     if (deposit.isHighway(creep.room.name)) deposit.note(creep.room);

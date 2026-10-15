@@ -182,6 +182,10 @@ function dangerRooms() {
         if (visible && visible.controller && visible.controller.my) continue;   // 自家房（情报里 owner 是自己）
         if (entry.class === 'sk' || entry.lairs > 0 || entry.owner || isKeeperRoom(name)) rooms.add(name);
     }
+    // 10-16 战略猫：手动 dangerRooms + 近期出现玩家威胁的房（config.pvp）
+    for (const name of (require('config').pvp || {}).dangerRooms || []) rooms.add(name);
+    const pvp = typeof Memory !== 'undefined' && Memory && Memory.pvpThreat;
+    for (const name of Object.keys(pvp || {})) if (pvp[name] && pvp[name].until > tick && !(gameRooms[name] && gameRooms[name].controller && gameRooms[name].controller.my)) rooms.add(name);
     state.danger = { tick, rooms };
     return rooms;
 }

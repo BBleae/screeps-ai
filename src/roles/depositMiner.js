@@ -21,6 +21,7 @@ function goHome(creep) {
 
 function run(creep) {
     const cfg = deposit.settings();
+    if (require('pvp').fleeHighThreat(creep)) return;   // 10-16：Jumpp/武装玩家 → 撤回母房
     const m = creep.memory;
     const info = Memory.deposits && Memory.deposits.list && Memory.deposits.list[m.depositId];
     const travel = m.travel || 150;
