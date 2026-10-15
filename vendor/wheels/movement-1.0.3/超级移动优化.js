@@ -188,6 +188,7 @@ let pathCacheTimer = {}; // 用于记录path被使用的时间，清理长期未
 /** @type {CreepPaths} */
 let creepPathCache = {};    // 缓存每个creep使用path的情况
 let routePolicyVersion = 0;
+let avoidKeptPaths = 0;   // 遥测：危险名单变化后沿用的缓存路条数（isSameOps）
 const optionFunctionIds = new WeakMap();
 let nextOptionFunctionId = 1;
 let creepMoveCache = {};    // 缓存每个creep最后一次移动的tick
@@ -553,8 +554,36 @@ function isHighWay(roomName) {
  * @param {MyPath} path 
  * @param {*} ops 
  */
-function isSameOps(path, ops) {
-    return path.optionsKey === pathOptionsKey(ops);
+function isSameOps(path, ops, ownPath) {
+    const key = pathOptionsKey(ops);
+    if (path.optionsKey === key) return true;
+    // 10-16 战略猫：危险名单（显式 avoidRooms）变了不整表失效。除 avoidRooms 外其余参数都相同、且缓存路不经过当前任一回避房时，路仍然安全：
+    // - 名单只增不减：沿用，并把 key 改成当前的（公用缓存里也算当前路）
+    // - 名单删了房：只让 creep 自己正在走的路（ownPath）走完，不改 key——公用缓存查找仍按旧 key 不命中，新行程按新名单重算，
+    //   避免多绕的旧路因为一直有人用（pathClearDelay 内）而永久留在公用缓存里
+    // 只放宽显式 Set（default@ 版本号的语义不动）
+    if (!(ops && ops.avoidRooms instanceof Set) || typeof path.optionsKey !== 'string') return false;
+    if (ownPath && path.keptFor === key) return true;
+    const cached = path.optionsKey.split('|');
+    const current = key.split('|');
+    const AVOID = 14;
+    if (cached.length !== current.length || cached.length <= AVOID) return false;
+    if (cached[AVOID].indexOf('default@') === 0) return false;
+    for (let i = 0; i < current.length; i++) if (i !== AVOID && cached[i] !== current[i]) return false;
+    const removed = cached[AVOID] !== '' && cached[AVOID].split(',').some((roomName) => !ops.avoidRooms.has(roomName));
+    if (removed && !ownPath) return false;
+    const posArray = path.posArray || [];
+    let last = '';
+    for (let i = 0; i < posArray.length; i++) {
+        const roomName = posArray[i] && posArray[i].roomName;
+        if (roomName === last) continue;
+        last = roomName;
+        if (ops.avoidRooms.has(roomName)) return false;
+    }
+    if (removed) path.keptFor = key;
+    else path.optionsKey = key;
+    avoidKeptPaths++;
+    return true;
 }
 
 function optionFunctionId(callback) {
@@ -2191,7 +2220,7 @@ function betterMoveTo(firstArg, secondArg, opts) {
     if (creepCache) {  // 有缓存
         path = creepCache.path;
         idx = creepCache.idx;
-        if (path && idx < path.posArray.length - 1 && isSameOps(path, ops)) {  // 缓存路条件相同
+        if (path && idx < path.posArray.length - 1 && isSameOps(path, ops, true)) {  // 缓存路条件相同（true：自己正在走的路，危险名单删房也走完）
             posArray = path.posArray;
             if (posArray[0] && (isEqual(toPos, creepCache.dst) || inRange(posArray[posArray.length - 1], toPos, ops.range))) {   // 正向走，目的地没变
                 if (isEqual(this.pos, posArray[idx])) {    // 正常
@@ -3036,6 +3065,7 @@ RoomPosition.prototype.findSquadPathTo = wrapFn(findSquadPathTo, 'findSquadPathT
 // RoomPosition.prototype.findClosestByPath = wrapFn(betterFindClosestByPath, 'findClosestByPath');
 
 module.exports = {
+    avoidKeptPaths: function () { return avoidKeptPaths; },
     squadMove,
     squadMoveTo,
     preTickBetterMove,
@@ -3089,7 +3119,7 @@ module.exports = {
                 const paths = globalPathCache[startKey][endKey].slice();
                 for (const path of paths) {
                     if (isNear(path.start, formalFromPos) && inRange(path.end, formalToPos, range) &&
-                        (!opts || isSameOps(path, opts))) {
+                        (!opts || path.optionsKey === pathOptionsKey(opts))) {   // 删除按精确 key，不走 isSameOps 的危险名单放宽
                         deletePath(path);
                     }
                 }

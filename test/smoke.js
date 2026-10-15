@@ -17,7 +17,7 @@ const MODULE_MAP = {
     roles_operator: 'roles/operator.js',
     brain: 'brain.js', expansion: 'expansion.js', roles_claimer: 'roles/claimer.js', roles_pioneer: 'roles/pioneer.js',
     defense: 'defense.js', roles_defender: 'roles/defender.js', retire: 'retire.js',
-    cpu_shed: 'cpu_shed.js', spawn_exit: 'spawn_exit.js',
+    cpu_shed: 'cpu_shed.js', spawn_exit: 'spawn_exit.js', pvp: 'pvp.js',
     deposit: 'deposit.js', roles_depositMiner: 'roles/depositMiner.js', roles_depositScout: 'roles/depositScout.js',
     conquest: 'conquest.js', roles_siegeDismantler: 'roles/siegeDismantler.js', roles_siegeGuard: 'roles/siegeGuard.js', roles_downgrader: 'roles/downgrader.js',
 };
@@ -1856,8 +1856,10 @@ const exactSearches = searches.length;
 movement.clear();
 base.moveTo(target, { avoidRooms: new Set(['W9N9']) });
 const afterAvoidA = searches.length;
-base.moveTo(target, { avoidRooms: new Set(['W8N8']) });
+base.moveTo(target, { avoidRooms: new Set(['W9N9', 'W8N8']) });
 const afterAvoidB = searches.length;
+base.moveTo(target, { avoidRooms: new Set(['W9N9', 'W8N8', 'W1N1']) });
+const afterAvoidC = searches.length;
 base.moveTo(target, { costCallback: callbackA });
 const afterCallbackA = searches.length;
 base.moveTo(target, { costCallback: callbackB });
@@ -1891,6 +1893,7 @@ console.log(JSON.stringify({
   exactSearches,
   afterAvoidA,
   afterAvoidB,
+  afterAvoidC,
   afterCallbackA,
   afterCallbackB,
   afterCallbackBRepeat,
@@ -1899,7 +1902,8 @@ console.log(JSON.stringify({
 `);
 assert(isolatedMovement.damagedResult !== -12, '真实 wheel runtime: 尾部损坏 body part 不会误判无 MOVE');
 assert(isolatedMovement.exactResult === 0 && isolatedMovement.exactSearches > 0, '真实 wheel runtime: range=0 会保留精确站位语义');
-assert(isolatedMovement.afterAvoidB > isolatedMovement.afterAvoidA, '真实 wheel runtime: avoidRooms 变化会触发新 PathFinder.search');
+assert(isolatedMovement.afterAvoidB === isolatedMovement.afterAvoidA, '真实 wheel runtime: 危险名单新增的房不在缓存路上 ⇒ 沿用，不重新 PathFinder.search');
+assert(isolatedMovement.afterAvoidC > isolatedMovement.afterAvoidB, '真实 wheel runtime: 危险名单新增的房在缓存路上 ⇒ 触发新 PathFinder.search');
 assert(isolatedMovement.afterCallbackB > isolatedMovement.afterCallbackA, '真实 wheel runtime: costCallback 变化会触发新 PathFinder.search');
 assert(isolatedMovement.afterCallbackBRepeat === isolatedMovement.afterCallbackB, '真实 wheel runtime: 相同 costCallback 会复用缓存路径');
 assert(isolatedMovement.resetCached === isolatedMovement.resetA && isolatedMovement.resetOtherKept === isolatedMovement.resetA,
