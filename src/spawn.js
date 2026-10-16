@@ -522,7 +522,9 @@ function builderTarget(room, backlog) {
     const limits = settings.maxBuilders || {};
     // 无 storage 的房能量闲置（容器快满 / 地上成堆）时上限 +1：能量在等 WORK，多一只 builder 就是多 5/tick 的进度
     const surplusExtra = !room.storage && utils.energySurplus(room) ? Math.max(0, Number(config.energySurplus && config.energySurplus.extraBuilders) || 0) : 0;
-    const max = Math.max(1, Number(limits[room.controller.level] || roster.builder || 1)) + surplusExtra;
+    let max = Math.max(1, Number(limits[room.controller.level] || roster.builder || 1)) + surplusExtra;
+    // 按房奢侈门槛没过（config.construction.luxuryStorageAboveByRoom，10-16 W29S3）：builder 只留 1 只修路/维护，storage 回线自动恢复
+    if ((settings.luxuryStorageAboveByRoom || {})[room.name] != null && !utils.luxuryAllowed(room)) max = 1;
     const estimate = builderWorkEstimate(room);
     // 建造每点进度花 1 能量：能分给建设的能量收入决定了有意义的 WORK 上限，超出的 builder 只会排队等能量
     const sourceCount = Math.max(1, (room.find(FIND_SOURCES) || []).length);
