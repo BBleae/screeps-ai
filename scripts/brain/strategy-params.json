@@ -24,7 +24,25 @@
         "maxHops": 2,
         "policy": "总数不增，只在房间间挪",
         "targets": {
-            "W35S7": []
+            "W35S7": [],
+            "W29S3": [
+                "W29S2",
+                "W29S1"
+            ]
+        },
+        "pauseNotes": {
+            "W29S3": {
+                "paused": [
+                    "W31S1"
+                ],
+                "kept": [
+                    "W29S2",
+                    "W29S1"
+                ],
+                "reason": "single spawn + forceRichUpgraders RCL7 rush; W31S1 farthest (dist 126)",
+                "restoreAfter": "W29S3 RCL7 with 2nd spawn built; if upgrader still starved also pause W29S1 then restore both",
+                "date": "2026-10-16"
+            }
         }
     },
     "brain": {
