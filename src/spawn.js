@@ -2089,7 +2089,14 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
     // upgradeBudget 遥测只由 upgrader 自己写（roles/upgrader.reportBudget）：一只都没有时会停在旧值（W29S3 停在 forceRich 时代的 18 WORK）
     if (planned.upgrader === 0 && mem.upgradeBudget && mem.upgradeBudget.work) { mem.upgradeBudget.work = 0; mem.upgradeBudget.at = Game.time; }
     const upPerBody = upWorkCap == null ? 0 : bodyPartCount(upgraderBody(room, mem, cap), 'work');
-    for (let n = planned.upgrader; n < targets.upgrader; n++) {
+    // 10-16 战略：恢复顺序 矿工/hauler → 塔充到 towerFirst 门槛 → 才出 upgrader。塔没充够不出任何 upgrader 请求
+    // （控制器快降级 < 5000 tick 时例外，保住等级）
+    const towerHoldUp = utils.towerFirstHold(room) && !(room.controller && room.controller.ticksToDowngrade < 5000);
+    if (towerHoldUp && planned.upgrader < targets.upgrader) {
+        const track = mem.upgradeSupply || (mem.upgradeSupply = { ema: 0, extra: 0, at: -1, changedAt: -1 });
+        track.towerHold = Game.time;
+    }
+    for (let n = planned.upgrader; !towerHoldUp && n < targets.upgrader; n++) {
         if (upWorkCap != null && upWork >= upWorkCap) {
             const track = mem.upgradeSupply || (mem.upgradeSupply = { ema: 0, extra: 0, at: -1, changedAt: -1 });
             track.workGate = { at: Game.time, cap: upWorkCap, planned: upWork, held: targets.upgrader - n };
@@ -2427,6 +2434,14 @@ function runQueue(room) {
     try { releaseStalledSpawns(room, mem, allSpawns); } catch (error) { logErr('spawn.releaseStalledSpawns ' + room.name, error); }
     // 困在出生口袋里的 creep（旧兜底孵进去的）打标记，由 retire.retirePocketTrapped 让贴着的 spawn 回收（按房错峰，每 trappedScanInterval tick 一次）
     try { spawnExit.markPocketTrapped(room, mem, allSpawns); } catch (error) { logErr('spawnExit.markPocketTrapped ' + room.name, error); }
+    // 10-16 战略：pauseWhileHostile 房里有敌人时什么都不孵（包括换代/body 升级），队列挂起；敌人消失自动恢复
+    const hostilePause = utils.spawnPausedByHostile(room);
+    if (hostilePause > 0) {
+        mem.spawnQueue = { at: Game.time, paused: 'hostile', hostiles: hostilePause };
+        delete mem.spawnWaiting;
+        lap('pre');
+        return;
+    }
     const idle = allSpawns.filter((s) => !s.spawning);
     lap('pre');
     // 所有 spawn 都在忙时，下面整套编制推导（plannedCounts / targets / 建造 backlog / 矿工统计）只服务于遥测：

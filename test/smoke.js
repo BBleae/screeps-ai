@@ -10763,6 +10763,25 @@ console.log('== 10-16 21:00 W31S5 塔优先（towerFirst 500）+ bankRooms 0.6 =
     assert(utils.bankingWorkCap(bs) === 12, 'W31S5 bankRooms 0.6：升级 WORK 封顶 12（得 ' + utils.bankingWorkCap(bs) + '）');
 }
 
+console.log('== 10-16 21:47 W31S5 有敌人时暂停孵化（spawn.pauseWhileHostile）==');
+{
+    world.time++;
+    const inv = { owner: { username: 'Invader' }, body: [{ type: 'ranged_attack' }] };
+    const scout = { owner: { username: 'Someone' }, body: [{ type: 'move' }] };
+    const pr = (name, hs) => ({ name, find: (k) => (k === C.FIND_HOSTILE_CREEPS ? hs : []) });
+    assert(utils.spawnPausedByHostile(pr('W31S5', [inv, inv])) === 2, 'W31S5 有 2 只 invader：暂停孵化');
+    assert(utils.spawnPausedByHostile(pr('W31S5', [])) === 0, '入侵者消失：自动恢复');
+    assert(utils.spawnPausedByHostile(pr('W31S5', [scout])) === 0, '纯 MOVE 侦察不暂停');
+    assert(utils.spawnPausedByHostile(pr('W33S7', [inv])) === 0, '不在名单里的房照常孵');
+    assert(utils.pausedRoom('W31S5') && !utils.pausedRoom('W31S8'), 'W31S5 不被任何房派 defender（defense.getDemands 跳过）');
+    const dsrc = require('fs').readFileSync(require.resolve('../src/defense.js'), 'utf8');
+    assert(/pausedRoom\(roomName\)\) return;/.test(dsrc), 'defense.getDemands 对 pauseWhileHostile 房直接 return');
+    const ssrc = require('fs').readFileSync(require.resolve('../src/spawn.js'), 'utf8');
+    assert(ssrc.indexOf('spawnPausedByHostile(room)') > 0 && ssrc.indexOf('spawnPausedByHostile(room)') < ssrc.indexOf('function tryBodyUpgrade') === false ||
+        ssrc.indexOf('spawnPausedByHostile(room)') > ssrc.indexOf('function runQueue'), '暂停门在 runQueue 里、执行孵化/换代之前');
+    assert(/!towerHoldUp && n < targets\.upgrader/.test(ssrc), '恢复顺序：塔没到 towerFirst 门槛前不出 upgrader 请求');
+}
+
 console.log('== 10-16 19:00 市场降档：日额度 15 万、只给 W32S4 买 Z、救急买能量不占日额度 ==');
 {
     // 前面的场景会改写/删掉 config.market 做 mock：读一份新鲜的源配置
