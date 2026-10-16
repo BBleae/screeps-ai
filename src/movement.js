@@ -190,9 +190,77 @@ function dangerRooms() {
     return rooms;
 }
 
+// ---- 10-16 战略：高速路上的玩家战斗部队对非战斗 creep 封路 -------------------------------------------
+// 可见的高速路房（坐标 mod 10 == 0）里有非 NPC 玩家的 ATTACK/RANGED_ATTACK/HEAL creep → Memory.highwayBlock[房] = { at, until, n, user }。
+// 可见且没有了 → 删；看不见的记录 until（at + highwayBlockTtl，默认 1500）过期删。每 tick 只扫一次（第一次有非战斗 creep 跨房移动时）。
+// 非战斗 creep（身上没有 ATTACK/RANGED_ATTACK/HEAL）跨房寻路时把这些房并进 avoidRooms（集合按 tick 一份，路径缓存 key 稳定；
+// 集合变了 key 就变，在途 creep 自动重算路线）。目的地被封或整条路都被封：原地等，不硬闯
+const COMBAT_PARTS = ['attack', 'ranged_attack', 'heal'];
+const NPC_OWNERS = ['Invader', 'Source Keeper', 'Power Bank'];
+function isHighwayRoom(name) {
+    const c = utils.roomCoords(name);
+    if (!c) return false;
+    const dx = c.x < 0 ? -c.x - 1 : c.x, dy = c.y < 0 ? -c.y - 1 : c.y;
+    return dx % 10 === 0 || dy % 10 === 0;
+}
+function isCombatCreep(creep) {
+    return !!(creep && (creep.body || []).some((p) => COMBAT_PARTS.indexOf(p.type || p) >= 0));
+}
+function highwayBlocks() {
+    const tick = typeof Game !== 'undefined' ? Game.time : 0;
+    if (state.hwBlock && state.hwBlock.tick === tick) return state.hwBlock.rooms;
+    const mem = typeof Memory !== 'undefined' && Memory ? (Memory.highwayBlock || (Memory.highwayBlock = {})) : {};
+    const ttl = Number((require('config').pvp || {}).highwayBlockTtl) || 1500;
+    const gameRooms = typeof Game !== 'undefined' && Game.rooms || {};
+    const hostileKind = typeof FIND_HOSTILE_CREEPS === 'undefined' ? 'hostileCreeps' : FIND_HOSTILE_CREEPS;
+    for (const name of Object.keys(gameRooms)) {
+        if (!isHighwayRoom(name)) continue;
+        const room = gameRooms[name];
+        if (!room || typeof room.find !== 'function') continue;
+        const armed = (room.find(hostileKind) || []).filter((c) => c.owner && NPC_OWNERS.indexOf(c.owner.username) < 0 && isCombatCreep(c));
+        if (armed.length) mem[name] = { at: tick, until: tick + ttl, n: armed.length, user: armed[0].owner.username };
+        else if (mem[name]) delete mem[name];
+    }
+    const rooms = new Set();
+    for (const name of Object.keys(mem)) {
+        const rec = mem[name];
+        if (!rec || !(Number(rec.until) > tick)) { delete mem[name]; continue; }
+        rooms.add(name);
+    }
+    state.hwBlock = { tick, rooms };
+    return rooms;
+}
+/** 非战斗 creep 用的回避集合 = dangerRooms ∪ highwayBlocks（按 tick 一份） */
+function civilianDangerRooms() {
+    const tick = typeof Game !== 'undefined' ? Game.time : 0;
+    if (state.civDanger && state.civDanger.tick === tick) return state.civDanger.rooms;
+    const base = dangerRooms(), blocks = highwayBlocks();
+    const rooms = blocks.size ? new Set([...base, ...blocks]) : base;
+    state.civDanger = { tick, rooms, blocks };
+    return rooms;
+}
+const civRoutes = new Map();
+/** 非战斗 creep 从 from 到 to 是否有不穿封路房的路线（按 from>to + 封路签名缓存 100 tick） */
+function civilianRouteOk(from, to) {
+    const blocks = highwayBlocks();
+    if (!blocks.size) return true;
+    if (blocks.has(to)) return false;
+    const map = typeof Game !== 'undefined' && Game.map;
+    if (!map || typeof map.findRoute !== 'function') return true;
+    const danger = civilianDangerRooms();
+    const sig = Array.from(blocks).sort().join(',');
+    const key = from + '>' + to;
+    const hit = civRoutes.get(key);
+    if (hit && hit.sig === sig && Game.time - hit.at < 100) return hit.ok;
+    let ok = true;
+    try { ok = Array.isArray(map.findRoute(from, to, { routeCallback: (r) => (r !== to && danger.has(r) ? Infinity : 1) })); } catch (e) { ok = true; }
+    civRoutes.set(key, { ok, at: Game.time, sig });
+    return ok;
+}
+
 function applyDangerAvoidance(creep, pos, moveOpts) {
     if (moveOpts.avoidRooms !== undefined || !creep.pos || pos.roomName === creep.pos.roomName) return;
-    const base = dangerRooms();
+    const base = isCombatCreep(creep) ? dangerRooms() : civilianDangerRooms();
     if (!base.size) return;
     if (!base.has(pos.roomName)) { moveOpts.avoidRooms = base; return; }
     const rooms = new Set(base);
@@ -331,6 +399,13 @@ function go(creep, target, opts) {
     if (rangeBetween(creep.pos, pos) <= moveOpts.range) {
         state.stats.inRange += 1;
         return resultCode('OK', 0);
+    }
+    // 10-16：非战斗 creep 跨房时目的地/整条路被高速路玩家部队封住 → 原地等
+    if (pos.roomName !== creep.pos.roomName && moveOpts.avoidRooms === undefined && !isCombatCreep(creep) &&
+        !civilianRouteOk(creep.pos.roomName, pos.roomName)) {
+        state.stats.blockedWaits = (state.stats.blockedWaits || 0) + 1;
+        if (creep.memory) creep.memory.blockedWait = Game.time;
+        return resultCode('ERR_NO_PATH', -2);
     }
     applyDangerAvoidance(creep, pos, moveOpts);
 
@@ -701,7 +776,7 @@ api = {
     resetCreepPath,
     keeperAvoidCallback,
     hostileTerritoryRooms,
-    safeRouteExists,
+    safeRouteExists, highwayBlocks, civilianDangerRooms, civilianRouteOk, isHighwayRoom, isCombatCreep,
     resetSafeRoutes,
     knownLairs,
     noteKeeperTransit,
