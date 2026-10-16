@@ -206,7 +206,7 @@ function controllerFeedLink(room) {
     if (backlog <= 0) return null;
     const starved = energy < buffer * (Number(config.controllerFeedStarvedBelow) || 0.1) &&
         room.energyAvailable >= room.energyCapacityAvailable * (Number(config.controllerFeedSpawnShare) || 0.5) &&
-        !utils.spawnWaitingFor(room);
+        !utils.spawnWaitingFor(room) && !utils.towerFirstHold(room);   // 10-16 塔优先（config.towerFirst）：塔没补够前控制器供能不插队
     return { target, backlog, starved };
 }
 
@@ -230,7 +230,7 @@ function controllerFeedStorage(room) {
     if (energy >= floor || freeEnergy(storage.store) <= 0) return null;
     const starved = energy < (Number(config.controllerFeedStorageStarved) || 500) &&
         room.energyAvailable >= room.energyCapacityAvailable * (Number(config.controllerFeedSpawnShare) || 0.5) &&
-        !utils.spawnWaitingFor(room);
+        !utils.spawnWaitingFor(room) && !utils.towerFirstHold(room);   // 10-16 塔优先（config.towerFirst）：塔没补够前控制器供能不插队
     // 决策事件遥测：storage 已在取用底线之上却仍要补——这一段就是工作带，旧代码（地板 = reserve）结构上到不了这里。
     // 私服生效断言看的是这个计数，而不是期末的 storage/进度快照（末态会被"补给自然涨过底线"抹平）
     if (mem && energy >= reserve) {
@@ -475,7 +475,7 @@ function roomTasks(room) {
             // spawn 正在等能量孵买不起的 creep（外矿/援建）时不抢：否则 spawn 永远停在一半，外矿 creep 永远买不起
             const starved = energyOf(ctrlFeed.store) < capacity * (Number(config.controllerFeedStarvedBelow) || 0.1) &&
                 room.energyAvailable >= room.energyCapacityAvailable * (Number(config.controllerFeedSpawnShare) || 0.5) &&
-                !utils.spawnWaitingFor(room);
+                !utils.spawnWaitingFor(room) && !utils.towerFirstHold(room);   // 10-16 塔优先（config.towerFirst）：塔没补够前控制器供能不插队
             // storage 富余时控制器容器与 spawn 同层（权重 9 < spawn 的 10：spawn 有缺口仍先补，补完这一车剩下的直接进容器）
             addTask(tasks, { kind: 'deliver', id: ctrlFeed.id, target: ctrlFeed, backlog: free, until: capacity * fillBelow,
                 weight: starved ? 20 : richFeed ? 9 : 4, tier: starved || richFeed ? 1 : 3, roles: ['hauler', 'remoteHauler'] });
