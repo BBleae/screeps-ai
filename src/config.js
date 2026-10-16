@@ -336,6 +336,7 @@ module.exports = {
     // 外矿/deposit 不派人、在场 creep 撤回母房、不在己方房以外和玩家交火；dangerRooms 是手动永久回避（寻路绕开、不做外矿/deposit/防御）
     pvp: {
         highThreat: ['Jumpp'],
+        aggressorTtl: 20000,   // 10-16：Memory.pvpAggressors 里的玩家这么多 tick 没再动手就移除
         highThreatIds: ['5a8a3d2d90d85961a7b853de'],
         armedMemory: 300,   // 10-16 战略猫：威胁离开后再等 300 tick 才恢复
         dangerRooms: [],   // 10-16 晴猫：W30S9 不永久回避，只按 pvpThreat 临时回避

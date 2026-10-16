@@ -10837,6 +10837,33 @@ console.log('== 10-16 22:05 高速路玩家战斗部队对非战斗 creep 封路
     Game.rooms = savedRooms; Game.map = savedMap; Memory.highwayBlock = savedHB; if (savedHB === undefined) delete Memory.highwayBlock;
 }
 
+console.log('== 10-16 22:20 自动记攻击者（Memory.pvpAggressors）==');
+{
+    world.time++;
+    const mv = require('../src/movement');
+    const saved = { rooms: Game.rooms, gobi: Game.getObjectById, agg: Memory.pvpAggressors, log: Memory.pvpAggressorLog, hb: Memory.highwayBlock, pt: Memory.pvpThreat };
+    const mine = { id: 'm1', my: true, name: '铃仙' };
+    const inv = { id: 'i1', owner: { username: 'Invader' }, body: [{ type: 'attack' }] };
+    const kas = { id: 'k1', owner: { username: 'Kasami' }, body: [{ type: 'attack' }, { type: 'heal' }] };
+    const room = { name: 'W30S4', hostiles: [inv], events: [{ event: C.EVENT_ATTACK || 1, objectId: 'i1', data: { targetId: 'm1' } }],
+        find: (k) => (k === C.FIND_HOSTILE_CREEPS ? room.hostiles : k === C.FIND_MY_CREEPS ? [mine] : []), getEventLog: () => room.events };
+    Game.getObjectById = (id) => (id === 'm1' ? mine : null);
+    Memory.pvpAggressors = {}; Memory.pvpThreat = {}; Memory.highwayBlock = {};
+    utils.noteAggressors(room);
+    assert(!Object.keys(Memory.pvpAggressors).length, 'NPC（Invader）攻击不记');
+    room.hostiles = [kas]; room.events = [{ event: C.EVENT_ATTACK || 1, objectId: 'k1', data: { targetId: 'm1' } }];
+    assert(utils.noteAggressors(room) === 1 && Memory.pvpAggressors.Kasami && Memory.pvpAggressors.Kasami.n === 1, '玩家攻击我方 creep：记入 pvpAggressors');
+    assert((Memory.pvpAggressorLog || []).some((e) => e.user === 'Kasami'), '新攻击者留提示');
+    Game.rooms = { W30S4: room };
+    world.time++;
+    assert(mv.highwayBlocks().has('W30S4'), '记入后：他的战斗部队所在高速路房封路');
+    world.time += 20001;
+    assert(utils.pvpAggressors().length === 0 && !Memory.pvpAggressors.Kasami, '2 万 tick 没再动手：移除');
+    assert(require('../src/config').pvp.highThreat.indexOf('Kasami') < 0, '不改 highThreat 名单');
+    Game.rooms = saved.rooms; Game.getObjectById = saved.gobi;
+    for (const [k, v] of [['pvpAggressors', saved.agg], ['pvpAggressorLog', saved.log], ['highwayBlock', saved.hb], ['pvpThreat', saved.pt]]) { if (v === undefined) delete Memory[k]; else Memory[k] = v; }
+}
+
 console.log('== 10-16 19:00 市场降档：日额度 15 万、只给 W32S4 买 Z、救急买能量不占日额度 ==');
 {
     // 前面的场景会改写/删掉 config.market 做 mock：读一份新鲜的源配置

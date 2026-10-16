@@ -218,6 +218,7 @@ function highwayBlocks() {
     const hostileUsers = new Set(pvpCfg.highThreat || []);
     const pvpMem = typeof Memory !== 'undefined' && Memory && Memory.pvpThreat || {};
     for (const k of Object.keys(pvpMem)) if (pvpMem[k] && pvpMem[k].user) hostileUsers.add(pvpMem[k].user);
+    for (const u of utils.pvpAggressors()) hostileUsers.add(u);   // 第三个来源：打过我们的玩家（utils.noteAggressors）
     const detect = pvpCfg.highwayBlockDetect !== false;
     for (const name of Object.keys(gameRooms)) {
         if (!detect || !isHighwayRoom(name)) continue;
