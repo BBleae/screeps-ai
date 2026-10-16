@@ -153,6 +153,28 @@ function senderLinks(room, plan) {
     return senders;
 }
 
+/** storage 超过 reverseCtrlFeedAbove 时，允许把超额经 store link 反向送给 ctrl（战略猫 10-16） */
+function reverseCtrlFeedAbove() {
+    return Math.max(0, Number(config.reverseCtrlFeedAbove) || 0);
+}
+
+function storageEnergy(room) {
+    const energyKey = typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy';
+    return Number(room && room.storage && room.storage.my !== false && room.storage.store && room.storage.store[energyKey]) || 0;
+}
+
+function reverseCtrlFeedWanted(room, plan) {
+    const floor = reverseCtrlFeedAbove();
+    if (!(floor > 0) || !room || !room.storage || room.storage.my === false) return false;
+    if (storageEnergy(room) <= floor) return false;
+    const resolved = planOf(room, plan);
+    const store = storeLinkReady(room, resolved);
+    const ctrl = getLink(room, resolved, 'ctrl');
+    if (!store || !ctrl || !ctrl.store) return false;
+    const energyKey = typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy';
+    return Number(ctrl.store.getFreeCapacity(energyKey)) > 0;
+}
+
 function run(room) {
     if (room.controller.level < 5) return;
     const plan = (Memory.rooms[room.name] || {}).plan;
@@ -200,9 +222,29 @@ function run(room) {
         const ret = sender.transferEnergy(receiver, amount);
         if (ret === OK) incoming[receiver.id] = (incoming[receiver.id] || 0) + amount;
     }
+
+    // 反向：storage 超额时 store link → ctrl（源链仍优先补 ctrl；这里补源吞吐不够的部分）
+    if (store && ctrl && reverseCtrlFeedWanted(room, plan) && !(store.cooldown > 0)) {
+        const energyKey = typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy';
+        const have = Number(store.store[energyKey]) || 0;
+        const need = Number(ctrl.store.getFreeCapacity(energyKey)) || 0;
+        const minSend = Math.min(Number(config.linkSendAt) || 700, 400);
+        if (have >= minSend && need > 0) {
+            const amount = Math.min(have, need);
+            const ret = store.transferEnergy(ctrl, amount);
+            if (ret === OK) {
+                const mem = Memory.rooms[room.name] || (Memory.rooms[room.name] = {});
+                const rec = mem.reverseCtrlFeed || (mem.reverseCtrlFeed = { n: 0, amount: 0 });
+                rec.at = Game.time;
+                rec.n = (Number(rec.n) || 0) + 1;
+                rec.amount = (Number(rec.amount) || 0) + amount;
+            }
+        }
+    }
 }
 
 module.exports = {
     run, getLink, senderLinks, sourceLink, storeLinkReady, sourceFedToStore, hubHaulMode,
     skipSourceContainer, skipLinkedDrop, operatorKeepEnergy, operatorStation,
+    reverseCtrlFeedWanted, reverseCtrlFeedAbove, storageEnergy,
 };

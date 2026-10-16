@@ -1,5 +1,6 @@
 'use strict';
-/** 枢纽搬运工：站在 storage 与邻接 store link 之间，只把 link 里的能量倒进 storage。
+/** 枢纽搬运工：站在 storage 与邻接 store link 之间。
+ *  默认把 store link 能量倒进 storage；storage 超过 reverseCtrlFeedAbove 且 ctrl link 缺能时反向：storage → store link，由 links.run 送给 ctrl。
  *  编制由 spawn.operatorTarget 出（RCL7、store link 贴着 storage、至少一口源已 link）。
  *  不走 task broker；store/storage 没了就退役回收。 */
 const movement = require('movement');
@@ -13,7 +14,7 @@ function atHub(creep, storage, store) {
 function record(room, field, amount) {
     if (typeof Memory === 'undefined' || !Memory.rooms) return;
     const mem = Memory.rooms[room.name] || (Memory.rooms[room.name] = {});
-    const rec = mem.operator || (mem.operator = { at: 0, withdrawn: 0, transferred: 0, n: 0 });
+    const rec = mem.operator || (mem.operator = { at: 0, withdrawn: 0, transferred: 0, reverse: 0, n: 0 });
     rec.at = Game.time;
     rec[field] = (Number(rec[field]) || 0) + Math.max(0, Number(amount) || 0);
     rec.n = (Number(rec.n) || 0) + 1;
@@ -39,10 +40,27 @@ function run(creep) {
         movement.go(creep, station, { range: station.range != null ? station.range : 0, reusePath: 20 });
         return;
     }
+    const reverse = typeof links.reverseCtrlFeedWanted === 'function' && links.reverseCtrlFeedWanted(room, plan);
+    const floor = typeof links.reverseCtrlFeedAbove === 'function' ? links.reverseCtrlFeedAbove() : 0;
     if (carrying) {
+        if (reverse) {
+            const free = store.store.getFreeCapacity(RESOURCE_ENERGY);
+            if (free <= 0) return;
+            const amount = Math.min(creep.store[RESOURCE_ENERGY], free);
+            if (amount > 0 && creep.transfer(store, RESOURCE_ENERGY, amount) === OK) record(room, 'reverse', amount);
+            return;
+        }
         if (storage.store.getFreeCapacity(RESOURCE_ENERGY) <= 0) return;
         const amount = Math.min(creep.store[RESOURCE_ENERGY], storage.store.getFreeCapacity(RESOURCE_ENERGY));
         if (amount > 0 && creep.transfer(storage, RESOURCE_ENERGY, amount) === OK) record(room, 'transferred', amount);
+        return;
+    }
+    if (reverse) {
+        const spare = Math.max(0, (storage.store[RESOURCE_ENERGY] || 0) - floor);
+        const free = creep.store.getFreeCapacity(RESOURCE_ENERGY);
+        const take = Math.min(spare, free);
+        if (take <= 0) return;
+        if (creep.withdraw(storage, RESOURCE_ENERGY, take) === OK) record(room, 'withdrawn', take);
         return;
     }
     const keep = links.operatorKeepEnergy(room, plan, store);
