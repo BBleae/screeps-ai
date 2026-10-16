@@ -1737,6 +1737,7 @@ function residualHarvesterBody(room, mem, sources, index, cap, workNeeded) {
 function queueSettings() {
     const settings = config.spawnQueue || {};
     return {
+        richBuilderStorage: Number(settings.richBuilderStorage) || 0,
         classes: Object.assign({ defense: 0, survival: 1, expansion: 2, remoteMaintain: 3, development: 4, aid: 5, remote: 6, opportunistic: 7 }, settings.classes || {}),
         grace: Object.assign({ defense: 0, survival: 30, expansion: 300, remoteMaintain: 60, development: 150, aid: 300, remote: 300 }, settings.grace || {}),
         // spawn 全忙时编制推导的刷新间隔（只服务于遥测）：1 = 每 tick 全跑
@@ -2120,8 +2121,15 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
         const seen = mem.criticalBuilder || {};
         mem.criticalBuilder = { at: Game.time, n: (Number(seen.n) || 0) + 1 };
     }
+    // 10-16：storage 富余（≥ spawnQueue.richBuilderStorage）却一只 builder 都没有时，第 1 只 builder 插到外矿维护前面（不 vital）。
+    // 线上 W29S3（单 spawn、storage 7.4 万）：spawn 全被 W29S1/W29S2/W31S1 外矿维护占满，builder 4000+ tick 没排上，
+    // terminal 工地 0/100000，还被 deadRoom 判死房裁掉 10 个工地；没有 terminal，hoardFlush 也送不出囤能
+    const richBuilderAt = Number(settings.richBuilderStorage) || 0;
+    const richBuilder = planned.builder === 0 && richBuilderAt > 0 && !!room.storage &&
+        (Number(room.storage.store[RESOURCE_ENERGY]) || 0) >= richBuilderAt;
     for (let n = planned.builder; n < targets.builder; n++) {
         const vitalBuilder = n === 0 && (containerGap > 0 || criticalGap);
+        const richFirst = n === 0 && !vitalBuilder && richBuilder;
         // 生存档 builder 排在源矿工 / 第 1 只 hauler（1）和核心替补预留（1.5）之后、扩张（2）之前：同为生存档时按首次出现排序会让
         // 等了几百 tick 的 builder 挡住刚死的 hauler；vital：没有容器的房不该再给别人援建（上线后 W34S7 的 builder 等待仍被援建绕过）
         // 普通 builder 等能量时也挡住后面的非 strategic 请求（新外矿开路、弱房已能自转的援建、富余升级者）：以前不挡，
@@ -2129,7 +2137,7 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
         requests.push({
             key: 'core:builder:' + n,
             role: 'builder',
-            priority: vitalBuilder ? settings.classes.survival + 0.75 : settings.classes.development,
+            priority: vitalBuilder ? settings.classes.survival + 0.75 : richFirst ? settings.classes.remoteMaintain - 0.5 : settings.classes.development,
             grace: vitalBuilder ? settings.grace.survival : settings.grace.development,
             vital: vitalBuilder,
             memory: { home: room.name, role: 'builder' },
