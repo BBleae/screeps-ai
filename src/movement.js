@@ -218,14 +218,21 @@ function highwayBlocks() {
     const hostileUsers = new Set(pvpCfg.highThreat || []);
     const pvpMem = typeof Memory !== 'undefined' && Memory && Memory.pvpThreat || {};
     for (const k of Object.keys(pvpMem)) if (pvpMem[k] && pvpMem[k].user) hostileUsers.add(pvpMem[k].user);
-    for (const u of utils.pvpAggressors()) hostileUsers.add(u);   // 第三个来源：打过我们的玩家（utils.noteAggressors）
+    // 第三个来源：打过我们的玩家（utils.noteAggressors，只认伤害 > 0）。只靠这个来源封的房，到期 = 他最后一次真动手 + ttl，
+    // 光是在房里出现不续期
+    const aggMem = typeof Memory !== 'undefined' && Memory && Memory.pvpAggressors || {};
+    const aggressors = new Set(utils.pvpAggressors());
     const detect = pvpCfg.highwayBlockDetect !== false;
     for (const name of Object.keys(gameRooms)) {
         if (!detect || !isHighwayRoom(name)) continue;
         const room = gameRooms[name];
         if (!room || typeof room.find !== 'function') continue;
-        const armed = (room.find(hostileKind) || []).filter((c) => c.owner && NPC_OWNERS.indexOf(c.owner.username) < 0 && hostileUsers.has(c.owner.username) && isCombatCreep(c));
-        if (armed.length) mem[name] = { at: tick, until: tick + ttl, n: armed.length, user: armed[0].owner.username };
+        const players = (room.find(hostileKind) || []).filter((c) => c.owner && NPC_OWNERS.indexOf(c.owner.username) < 0 && isCombatCreep(c));
+        const armed = players.filter((c) => hostileUsers.has(c.owner.username));
+        if (armed.length) { mem[name] = { at: tick, until: tick + ttl, n: armed.length, user: armed[0].owner.username }; continue; }
+        const agg = players.filter((c) => aggressors.has(c.owner.username));
+        const until = agg.reduce((m, c) => Math.max(m, Number(aggMem[c.owner.username] && aggMem[c.owner.username].last) + ttl), 0);
+        if (agg.length && until > tick) mem[name] = { at: tick, until, n: agg.length, user: agg[0].owner.username, source: 'aggressor' };
         else if (mem[name]) delete mem[name];
     }
     const rooms = new Set();

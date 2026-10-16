@@ -987,7 +987,7 @@ function noteAggressors(room) {
     let added = 0;
     const attackEv = typeof EVENT_ATTACK === 'undefined' ? 1 : EVENT_ATTACK;
     for (const ev of room.getEventLog() || []) {
-        if (ev.event !== attackEv || !ev.data) continue;
+        if (ev.event !== attackEv || !ev.data || !(Number(ev.data.damage) > 0)) continue;   // 10-16：只记实际伤害 > 0（打 power bank 的范围攻击溅到 0 伤害不算）
         const user = byId[ev.objectId];
         if (!user) continue;
         const target = Game.getObjectById(ev.data.targetId);
