@@ -34,7 +34,8 @@ function segmentKey(raw) {
 /** 外部大脑把完整指令写进 segment 90（console 表达式有 1KB 限制，segment 可到 100KB）；内容变化时解析进 Memory.brain */
 function ingestSegment() {
     if (typeof RawMemory === 'undefined' || !RawMemory) return;
-    if (typeof RawMemory.setActiveSegments === 'function') RawMemory.setActiveSegments([SEGMENT]);
+    // 91 = main 的 cpuSpikes 遥测段；一并激活，避免大脑把 active 盖成只剩 90
+    if (typeof RawMemory.setActiveSegments === 'function') RawMemory.setActiveSegments([SEGMENT, 91]);
     const raw = RawMemory.segments && RawMemory.segments[SEGMENT];
     // 引擎在 tick 末尾会把 RawMemory.segments 上存在的每个键原样写回（driver runtime.js），
     // 大脑通过 API 写入的指令若恰好落在本 tick 读取之后就会被旧内容覆盖；读完即删键，本 tick 不再写回
