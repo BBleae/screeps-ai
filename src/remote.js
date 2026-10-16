@@ -1721,6 +1721,9 @@ function getDemands(home) {
         if (usable && usable.manned > 0 && usable.unmanned === 0 && usable.gain < positiveSetting('reserveMinGain', 1)) {
             // 遥测：预定该续了，但矿工太弱、预定多出的产量没人采（旧规则照样派 reserver）
             record.reserverWeakMiner = { at: Game.time, gain: usable.gain, n: (Number(record.reserverWeakMiner && record.reserverWeakMiner.n) || 0) + 1 };
+        } else if (reserveDue && require('utils').towerFirstHold(home)) {
+            // 10-16 战略 W31S5：塔优先期间母房不孵 reserver（在岗的自然到期），塔都到门槛自动恢复
+            record.reserverTowerFirst = Game.time;
         } else if (reserveDue && reserverOnHold(home, record)) {
             record.reserverOnHold = Game.time;
         } else if (reserveDue && creepsHomeRole(home.name, 'reserver').some((creep) => !isRetiring(creep.memory) &&
@@ -1759,7 +1762,11 @@ function getDemands(home) {
             const lost = !source.containerId && Number(source.containerLostAt) > 0;
             if (!source.containerId && !lost) continue;
             const rate = Math.max(5, (source.energyCapacity || 1500) / 300);
-            const planned = haulerSlots(source, distance, capacity, dropName);
+            // 10-16 战略 W31S5 塔优先（utils.towerFirstHold）：reserver 暂停 ⇒ 预定会掉、源回到 1500 档，需求按半量算；
+            // 每槽身体按"这条线还缺的 CARRY"（需求 − 其它槽在途 CARRY）封顶，不出满配换代
+            const towerFirst = require('utils').towerFirstHold(home);
+            const planSource = towerFirst ? Object.assign({}, source, { energyCapacity: Math.min(Number(source.energyCapacity) || 1500, 1500) }) : source;
+            const planned = haulerSlots(planSource, distance, capacity, dropName);
             const slots = lost ? planned.filter((plan) => plan.slotIndex === 0) : planned;
             if (lost) record.containerLostHaul = { at: Game.time, source: source.id, lostAt: source.containerLostAt };
             source.haulNeed = requiredCarryFor(source, distance, dropName);   // 遥测：这条运输线需要同时在途的 CARRY
@@ -1775,9 +1782,22 @@ function getDemands(home) {
                 starvedLine = liveCarry * 2 < source.haulNeed;
                 if (starvedLine) record.starvedHaul = { at: Game.time, live: liveCarry, need: source.haulNeed };
             }
+            const lineHaulers = towerFirst ? creepsHomeRole(home.name, 'remoteHauler').filter((creep) => !isRetiring(creep.memory) &&
+                creep.memory.remoteRoom === record.room && creep.memory.sourceId === source.id) : [];
+            const lineNeed = towerFirst ? requiredCarryFor(planSource, distance, dropName) : 0;
+            if (towerFirst) source.haulNeedTowerFirst = lineNeed;   // 遥测：塔优先期间按半量源算的需求
             for (const plan of slots) {
-                const { slotIndex, body, carry: bodyCarry } = plan;
+                let { slotIndex, body, carry: bodyCarry } = plan;
                 const slot = 'remoteHauler:' + record.room + ':' + source.id + ':' + slotIndex;
+                if (towerFirst) {
+                    const others = lineHaulers.filter((creep) => creep.memory.slotKey !== slot)
+                        .reduce((sum, creep) => sum + bodyPartCount(creep.body, 'carry'), 0);
+                    const gap = Math.max(MIN_RESIDUAL_CARRY, lineNeed - others);
+                    if (gap < bodyCarry) {
+                        const trimmed = remoteHaulerBody(capacity, source.roadComplete, slotIndex === 0, gap);
+                        if (carryParts(trimmed)) { body = trimmed; bodyCarry = carryParts(trimmed); }
+                    }
+                }
                 const lead = body.length * 3 + distance + 20;
                 const haulDemand = demand('remoteHauler', slot, body, {
                     home: home.name,
