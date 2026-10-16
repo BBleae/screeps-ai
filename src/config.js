@@ -363,9 +363,7 @@ module.exports = {
             W33S3: ['W33S2', 'W32S3', 'W32S2', 'W32S1'],
             W31S4: ['W31S3', 'W31S2', 'W29S2'],
             W38S7: ['W38S8', 'W39S7', 'W39S8'],   // W38S9（1 源 1500）让出名额，抵 W35S7 新开的 W36S7
-            // 10-16 战略猫：W29S3 单 spawn 冲 RCL7，先停最远外矿 W31S1（距 126）；保留 W29S2（2 源近）与 W29S1。
-            // 恢复条件：W29S3 到 RCL7 且建好第 2 个 spawn 后，把 W31S1 加回本列表（若当时也停了 W29S1 一并加回）。
-            W29S3: ['W29S2', 'W29S1'],  // paused: W31S1 during RCL7 rush
+            W29S3: ['W29S2', 'W29S1', 'W31S1'],
         },
         minRcl: 4,
         maxRooms: { 4: 1, 5: 1, 6: 2, 7: 2, 8: 2 },
@@ -710,8 +708,8 @@ module.exports = {
         feeders: 1, feederMaxDistance: 15, feederRate: 20, feederMinCarry: 4,
         storageFeedRate: 20,
         maxUpgradersRich: { 1: 1, 2: 4, 3: 4, 4: 4, 5: 3, 6: 3, 7: 3, 8: 1 },
-        // 10-16：无 terminal 的囤能房强制按富余上限孵 upgrader（W29S3 冲 RCL7）
-        forceRichUpgraders: ['W29S3'],
+        // 无 terminal 的囤能房强制按富余上限孵 upgrader（10-16 W29S3 已移出：外矿全开攒 storage，不再硬冲 RCL7）
+        forceRichUpgraders: [],
         // 升级者由 storage 供能时没有容器可看：EMA 改用 storage 能量 / storageFullAt（30k 与 builderUpgradeAbove 同口径，视为"有富余"）
         storageFullAt: 30000,
         // storage 分档（向 Kalgen 学，docs/observe/kalgen-learnings.md 第 3 条：他在 storage 低于 ~1.7e5 时把 RCL8 升级者换成 W1 保级，
