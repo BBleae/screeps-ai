@@ -10782,6 +10782,31 @@ console.log('== 10-16 21:47 W31S5 有敌人时暂停孵化（spawn.pauseWhileHos
     assert(/!towerHoldUp && n < targets\.upgrader/.test(ssrc), '恢复顺序：塔没到 towerFirst 门槛前不出 upgrader 请求');
 }
 
+console.log('== 10-16 22:01 一次性放行：W29S3 → W31S5 共 1 万能量（Memory.aidOneShot）==');
+{
+    world.time++;
+    const aidM = require('../src/aid');
+    const savedG = { rooms: Game.rooms, creeps: Game.creeps }, savedOS = Memory.aidOneShot;
+    Game.rooms = {}; Game.creeps = {};
+    const w29 = { name: 'W29S3', controller: { my: true, level: 6 }, energyCapacityAvailable: 2300, terminal: null,
+        storage: { my: true, store: { energy: 70000, [C.RESOURCE_ENERGY]: 70000 } }, find: () => [] };
+    assert(aidM.getDemands(w29).length === 0, '没有放行标记：W29S3 照旧不导出（exportAfterTerminal）');
+    Memory.aidOneShot = { from: 'W29S3', to: 'W31S5', amount: 10000, withdrawn: 0 };
+    let ds = aidM.getDemands(w29);
+    assert(ds.length === 2 && ds.every((d) => d.role === 'courier' && d.memory.home === 'W31S5' && d.memory.from === 'W29S3' && d.memory.oneShot),
+        '放行：W29S3 为 W31S5 出 2 只 oneShot courier（得 ' + ds.length + '）');
+    assert(utils.bodyCost(ds[0].body) <= 2300 && utils.bodyPartCount(ds[0].body, 'carry') === 30, 'courier 体型 30C16M（2300）');
+    Memory.aidOneShot.withdrawn = 9000;
+    ds = aidM.getDemands(w29);
+    assert(ds.length === 1 && aidM.oneShotRemaining() === 1000, '只剩 1000：一只就够');
+    Memory.aidOneShot.withdrawn = 10000;
+    assert(aidM.getDemands(w29).length === 0 && aidM.oneShotRemaining() === 0, '送满 1 万：不再出 courier');
+    const csrc = require('fs').readFileSync(require.resolve('../src/roles/courier.js'), 'utf8');
+    assert(/delete Memory\.aidOneShot/.test(csrc) && /spare = Math\.min\(spare, left\)/.test(csrc), 'courier 取货按剩余量封顶、取满后删放行标记');
+    Memory.aidOneShot = savedOS; if (savedOS === undefined) delete Memory.aidOneShot;
+    Game.rooms = savedG.rooms; Game.creeps = savedG.creeps;
+}
+
 console.log('== 10-16 19:00 市场降档：日额度 15 万、只给 W32S4 买 Z、救急买能量不占日额度 ==');
 {
     // 前面的场景会改写/删掉 config.market 做 mock：读一份新鲜的源配置

@@ -156,7 +156,41 @@ function getDemands(home) {
                 (b) => utils.makeBody('hauler', Math.min(b, c.courierBudget)), false));
         }
     }
+    oneShotDemands(home, demands, priority);
     return demands;
 }
 
-module.exports = { getDemands, needsAid, linearDistance, shortHanded, markStranded };
+/** 10-16 战略例外：一次性放行 Memory.aidOneShot = { from, to, amount, withdrawn }。from 房为 to 房孵 courier（memory.oneShot），
+ *  无视 needsAid / exportAfterTerminal；courier 每次从 from 的 storage 取货时把取出量记进 withdrawn，取满 amount 后删掉放行标记
+ *  （roles/courier.js），之后已取的货送完、空车就回 spawn 回收。孵化成本不计入 amount */
+function oneShot() {
+    const o = Memory.aidOneShot;
+    if (!o || !o.from || !o.to || !(Number(o.amount) > 0)) return null;
+    return o;
+}
+function oneShotRemaining() {
+    const o = oneShot();
+    return o ? Math.max(0, Number(o.amount) - (Number(o.withdrawn) || 0)) : 0;
+}
+function oneShotDemands(home, demands, priority) {
+    const o = oneShot();
+    if (!o || o.from !== home.name) return;
+    const remaining = oneShotRemaining();
+    if (remaining <= 0) return;
+    const c = cfg();
+    const maxCouriers = Math.max(1, Number(o.couriers) || 2);
+    const budget = Math.min(home.energyCapacityAvailable, Number(o.budget) || 2500);
+    const body = utils.makeBody('hauler', budget);
+    const perTrip = utils.bodyPartCount(body, 'carry') * 50;
+    const live = Object.values(Game.creeps || {}).filter((cr) => cr.memory && cr.memory.oneShot && cr.memory.role === 'courier' && !utils.isRetiring(cr.memory));
+    // 已在编的 courier 一趟就能装下剩余量时不再加人
+    const want = Math.min(maxCouriers, Math.ceil(remaining / Math.max(1, perTrip)));
+    for (let i = 0; i < want; i++) {
+        const slot = 'aid:oneshot:' + o.to + ':' + i;
+        if (live.some((cr) => cr.memory.slotKey === slot)) continue;
+        demands.push(demand('courier', slot, body, { home: o.to, from: o.from, aid: o.from, oneShot: true }, c.lead, priority++,
+            (b) => utils.makeBody('hauler', Math.min(b, budget)), true));
+    }
+}
+
+module.exports = { oneShotRemaining, getDemands, needsAid, linearDistance, shortHanded, markStranded };
