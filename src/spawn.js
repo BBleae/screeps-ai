@@ -2083,6 +2083,8 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
     // 一只 W47 顶两只 W20 的名额还多（线上 W38S7：4 只 W47 = 188 WORK、供给 20/tick，旧口径按人头仍在补）
     const upWorkCap = planned.upgrader < targets.upgrader ? utils.upgraderSupplyWork(room, mem) : null;
     let upWork = upWorkCap == null ? 0 : plannedUpgraderWork(room);
+    // upgradeBudget 遥测只由 upgrader 自己写（roles/upgrader.reportBudget）：一只都没有时会停在旧值（W29S3 停在 forceRich 时代的 18 WORK）
+    if (planned.upgrader === 0 && mem.upgradeBudget && mem.upgradeBudget.work) { mem.upgradeBudget.work = 0; mem.upgradeBudget.at = Game.time; }
     const upPerBody = upWorkCap == null ? 0 : bodyPartCount(upgraderBody(room, mem, cap), 'work');
     for (let n = planned.upgrader; n < targets.upgrader; n++) {
         if (upWorkCap != null && upWork >= upWorkCap) {
@@ -2094,12 +2096,14 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
         // 10-16 战略猫：upgrader 永不进 survival。否则底线 upgrader 与第 2 只 hauler（development-0.25）抢队时会挡在前面，
         // 买不起的大 upgrader 用 blockCore 冻住整个经济补位（W31S5：core:upgrader 等 424 tick，hauler 死光）。
         const economyThin = planned.hauler < 2 || planned.harvester < survivalTargets.harvester;
-        const cls = economyThin ? 'opportunistic'
+        // 10-16 W29S3：一只 upgrader 都没有时第 1 只插到外矿维护前面（外矿重建期整队 remoteMaintain 把它压了几百 tick）；身体照常非 rich
+        const noUpgrader = n === 0 && planned.upgrader === 0;
+        const cls = noUpgrader && !economyThin ? 'firstUpgrader' : economyThin ? 'opportunistic'
             : (n < baseUpgraders || richUpgrade ? 'development' : 'opportunistic');
         requests.push({
             key: 'core:upgrader:' + n,
             role: 'upgrader',
-            priority: settings.classes[cls],
+            priority: cls === 'firstUpgrader' ? settings.classes.remoteMaintain - 0.5 : settings.classes[cls],
             grace: settings.grace[cls] || settings.grace.development,
             opportunistic: cls === 'opportunistic',
             // 10-16：upgrader 永远 jumpable，买不起时只挡更低类，绝不 blockCore 冻住矿工/hauler

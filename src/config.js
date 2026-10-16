@@ -698,8 +698,8 @@ module.exports = {
         // 依据：无外矿的房（线上 W35S7、基准 W33S8）收入只有自采 20/tick，storage 常年停在 14–15k、够不到 2 万的门，
         // 于是没有 feeder、没有 storage → 控制器回流，升级者只被喂饱约 37%，能量在仓里趴着。screeps-9e 的五个分叉里
         // "storage ≥ 2 万"的采样占比只有 0–3%，控制器容器均值 17–238（基本是空的）。由 A/B 判决是否并入 main
-        storageFeedAbove: 8000,
-        storageFeedBelow: 4000,
+        storageFeedAbove: 30000,   // 10-16 战略猫：≥3 万开、<1.5 万关（原 8000/4000 让中等库存的房一直 rich，W29S3 10k 仍在花 storage）
+        storageFeedBelow: 15000,
         // 专职短途搬运工（roles/feeder.js，spawn.feederTarget）：storage 富余（滞回状态开）且控制器由容器供能、storage 到控制器容器 ≤ feederMaxDistance 格时
         // 出 feeders 只，只跑 storage ↔ 控制器容器；富余关闭就退役回收。第 2 轮 A/B（docs/benchmarks/2026-09-06-storage-ab-round2.md）：兜底取货修正后
         // 总 CP +3.8%，但 W33S8 两源离 storage 23/31 格、hauler 永远有源容器可取，"都没得取才取 storage"一次也轮不到，storage 攒到 17 万、控制器容器

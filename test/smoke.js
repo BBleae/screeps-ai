@@ -3400,8 +3400,11 @@ console.log('== boost lab（2026-10-13，移植 overmind-absorb 019c5b1）：目
     brStorage.store[C.RESOURCE_ENERGY] = indCfg.terminalFillStorageAbove + 300;
     lt = labTasks();
     assert(lt.length === 1 && lt[0].backlog === 300, 'storage 只比门槛多 300 ⇒ 最多补 300（得 ' + (lt[0] && lt[0].backlog) + '）');
-    brStorage.store[C.RESOURCE_ENERGY] = Math.max(SF_RICH, indCfg.terminalFillStorageAbove - 1);
-    assert(labTasks().length === 0, 'storage 富余但低于 terminalFillStorageAbove ⇒ 不补');
+    // 10-16 富余线升到 3 万后可能高于 terminalFillStorageAbove，"富余但低于门槛"这一态不存在时跳过
+    if (SF_RICH < indCfg.terminalFillStorageAbove) {
+        brStorage.store[C.RESOURCE_ENERGY] = indCfg.terminalFillStorageAbove - 1;
+        assert(labTasks().length === 0, 'storage 富余但低于 terminalFillStorageAbove ⇒ 不补');
+    }
     brStorage.store[C.RESOURCE_ENERGY] = 0;
     assert(labTasks().length === 0, 'storage 0 ⇒ 不补');
     delete Memory.conquest;
@@ -10724,7 +10727,7 @@ console.log('== 援建加码：容量 < 1300 且 storage 不足的弱房受援�
     const aiHome = makeRoom('W33S7', { rcl: 5, energy: 1800, cap: 1800, owner: 'me' });
     aiHome._sources = [makeSource(aiHome, 14, 6, 'ai0'), makeSource(aiHome, 31, 12, 'ai1')];
     makeSpawn(aiHome, 23, 21);
-    const aiStorage = makeStructure(aiHome, C.STRUCTURE_STORAGE, 21, 20, { energy: 26000, capacity: 1000000 });
+    const aiStorage = makeStructure(aiHome, C.STRUCTURE_STORAGE, 21, 20, { energy: 36000, capacity: 1000000 });   // 10-16：导出线跟富余线 3 万
     aiHome.storage = aiStorage;
     const aiWeak = makeRoom('W33S8', { rcl: 4, energy: 300, cap: 900, owner: 'me' });
     aiWeak._sources = [makeSource(aiWeak, 4, 19, 'aw0'), makeSource(aiWeak, 13, 32, 'aw1')];
@@ -10739,7 +10742,7 @@ console.log('== 援建加码：容量 < 1300 且 storage 不足的弱房受援�
     assert(aidMod.needsAid(aiHome, aiWeak), '容量 900 < untilCapacity 1300、无 storage 的房受援（原上限 800 不受援）');
     const aiCourier = aidMod.getDemands(aiHome).find((d) => d.role === 'courier');
     assert(aiCourier && aiCourier.memory.home === 'W33S8' && aiCourier.memory.from === 'W33S7' && aiCourier.strategic === false && utils.bodyCost(aiCourier.body) <= aidCfg.courierBudget,
-        '母房 storage 26000 ≥ exportAbove：出一只非 strategic 的 courier 需求（得 ' + JSON.stringify(aiCourier && [aiCourier.memory, utils.bodyCost(aiCourier.body)]) + '）');
+        '母房 storage 36000 ≥ exportAbove：出一只非 strategic 的 courier 需求（得 ' + JSON.stringify(aiCourier && [aiCourier.memory, utils.bodyCost(aiCourier.body)]) + '）');
     aiStorage.store[C.RESOURCE_ENERGY] = 5000;
     assert(!aidMod.getDemands(aiHome).some((d) => d.role === 'courier'), '母房 storage 5000 < exportAbove 时不派 courier');
     aiStorage.store[C.RESOURCE_ENERGY] = 26000;
