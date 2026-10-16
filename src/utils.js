@@ -845,6 +845,10 @@ function luxuryStructure(type) {
 
 function luxuryAllowed(room) {
     const construction = config.construction || {};
+    // 10-16 战略 W29S3：名单里的房要等自己的 terminal 建成才恢复奢侈建筑（不按 storage 线）；terminal 本身走 terminalMinStorage，不受影响
+    if (room && (construction.luxuryAfterTerminal || []).indexOf(room.name) >= 0) {
+        return !!(room.terminal && room.terminal.my !== false);
+    }
     const byRoom = construction.luxuryStorageAboveByRoom || {};
     // 按房覆盖（10-16 战略 W29S3：storage ≥ 3 万才接着建 lab），storage 回到线上自动恢复
     const threshold = Number(room && byRoom[room.name] != null ? byRoom[room.name] : construction.luxuryStorageAbove);
