@@ -1365,7 +1365,7 @@ def print_summary(entry):
                 broker_bits.append(f'{key}={current}')
         broker_text = f' broker {" ".join(broker_bits)}' if broker_bits else ''
         print(
-            f'  {room["name"]} RCL{room["rcl"]} 进度 {room["prog"]}/{room["total"]} '
+            f'  {room["name"]} RCL{room["rcl"]} 进度 {room.get("prog")}/{room.get("total") or "max"} '
             f'能量 {room["energy"]}/{room["cap"]} 存储 {room.get("storage", 0)} '
             f'spawn {sp.get("busy", 0)}/{sp.get("total", 0)} busy rate={rate_text}'
             f'{broker_text} 远程 {sum(1 for remote in analysis.get("remotes") or [] if remote.get("active"))}/{analysis.get("remoteCount", 0)}'
