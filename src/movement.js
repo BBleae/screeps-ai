@@ -272,6 +272,46 @@ function civilianRouteOk(from, to) {
     return ok;
 }
 
+/** 10-16 战略：可见的非己方房里非 NPC 玩家带 RANGED_ATTACK 的 creep 坐标（按 tick 一份）→ { 房: [{x,y}] } */
+function rangedThreats() {
+    const tick = typeof Game !== 'undefined' ? Game.time : 0;
+    if (state.rangedThreat && state.rangedThreat.tick === tick) return state.rangedThreat.rooms;
+    const rooms = {};
+    const gameRooms = typeof Game !== 'undefined' && Game.rooms || {};
+    const hostileKind = typeof FIND_HOSTILE_CREEPS === 'undefined' ? 'hostileCreeps' : FIND_HOSTILE_CREEPS;
+    for (const name of Object.keys(gameRooms)) {
+        const room = gameRooms[name];
+        if (!room || typeof room.find !== 'function' || (room.controller && room.controller.my)) continue;
+        const list = (room.find(hostileKind) || []).filter((c) => c.owner && NPC_OWNERS.indexOf(c.owner.username) < 0 &&
+            (c.body || []).some((p) => (p.type || p) === 'ranged_attack'));
+        if (list.length) rooms[name] = list.map((c) => ({ x: c.pos.x, y: c.pos.y }));
+    }
+    state.rangedThreat = { tick, rooms };
+    return rooms;
+}
+/** 非战斗 creep 绕开玩家远程 creep 3 格：costCallback 只改有远程威胁的房（轮子带 costCallback 时每 tick 重算，所以只在出发房/目的房有威胁时挂上） */
+function rangedAvoidCallback(threats) {
+    return function (roomName, costMatrix) {
+        const list = threats[roomName];
+        if (!list || !costMatrix || typeof costMatrix.set !== 'function') return costMatrix;
+        for (const t of list) {
+            for (let dx = -3; dx <= 3; dx++) for (let dy = -3; dy <= 3; dy++) {
+                const x = t.x + dx, y = t.y + dy;
+                if (x < 0 || x > 49 || y < 0 || y > 49) continue;
+                if (costMatrix.get(x, y) >= 255) continue;
+                costMatrix.set(x, y, 250);
+            }
+        }
+        return costMatrix;
+    };
+}
+function applyRangedAvoidance(creep, pos, moveOpts) {
+    if (moveOpts.costCallback !== undefined || isCombatCreep(creep)) return;
+    const threats = rangedThreats();
+    if (!threats[creep.pos.roomName] && !threats[pos.roomName]) return;
+    moveOpts.costCallback = rangedAvoidCallback(threats);
+}
+
 function applyDangerAvoidance(creep, pos, moveOpts) {
     if (moveOpts.avoidRooms !== undefined || !creep.pos || pos.roomName === creep.pos.roomName) return;
     const base = isCombatCreep(creep) ? dangerRooms() : civilianDangerRooms();
@@ -422,6 +462,7 @@ function go(creep, target, opts) {
         return resultCode('ERR_NO_PATH', -2);
     }
     applyDangerAvoidance(creep, pos, moveOpts);
+    applyRangedAvoidance(creep, pos, moveOpts);
 
     const loaded = loadEngine();
     if (loaded) {
@@ -790,7 +831,7 @@ api = {
     resetCreepPath,
     keeperAvoidCallback,
     hostileTerritoryRooms,
-    safeRouteExists, highwayBlocks, civilianDangerRooms, civilianRouteOk, isHighwayRoom, isCombatCreep,
+    safeRouteExists, rangedThreats, rangedAvoidCallback, highwayBlocks, civilianDangerRooms, civilianRouteOk, isHighwayRoom, isCombatCreep,
     resetSafeRoutes,
     knownLairs,
     noteKeeperTransit,
