@@ -10807,6 +10807,30 @@ console.log('== 10-16 22:01 一次性放行：W29S3 → W31S5 共 1 万能量（
     Game.rooms = savedG.rooms; Game.creeps = savedG.creeps;
 }
 
+console.log('== 10-16 22:05 高速路玩家战斗部队对非战斗 creep 封路（Memory.highwayBlock）==');
+{
+    world.time++;
+    const mv = require('../src/movement');
+    const savedRooms = Game.rooms, savedMap = Game.map, savedHB = Memory.highwayBlock;
+    const bank = (t) => ({ owner: { username: 'Someone' }, body: [{ type: t }, { type: 'move' }] });
+    const hw = { name: 'W30S4', find: (k) => (k === C.FIND_HOSTILE_CREEPS ? hw.hostiles : []), hostiles: [bank('heal'), bank('attack')] };
+    Game.rooms = { W30S4: hw }; Memory.highwayBlock = {};
+    assert(mv.isHighwayRoom('W30S4') && !mv.isHighwayRoom('W31S5'), 'W30S4 是高速路房，W31S5 不是');
+    assert(mv.highwayBlocks().has('W30S4') && Memory.highwayBlock.W30S4.at === Game.time, '看到玩家 HEAL/ATTACK 部队：W30S4 记入封路（带最后看到的 tick）');
+    assert(Memory.highwayBlock.W30S4.until === Game.time + 1500, '无视野 1500 tick 后过期');
+    assert(mv.isCombatCreep({ body: [{ type: 'ranged_attack' }] }) && !mv.isCombatCreep({ body: [{ type: 'carry' }, { type: 'move' }] }), 'courier 等非战斗 creep 才受封路约束');
+    Game.map = { findRoute: (f, t, o) => (o.routeCallback('W30S4') === Infinity && o.routeCallback('W29S4') === Infinity ? -2 : [{ room: 'W29S4' }]) };
+    assert(mv.civilianRouteOk('W29S3', 'W31S5') === true, '有绕行路线：照常出发');
+    assert(mv.civilianRouteOk('W29S3', 'W30S4') === false, '目的地被封：原地等');
+    world.time++;
+    hw.hostiles = [{ owner: { username: 'Invader' }, body: [{ type: 'attack' }] }];
+    assert(!mv.highwayBlocks().has('W30S4') && !Memory.highwayBlock.W30S4, '有视野、只剩 NPC：解除封路');
+    world.time++;
+    Game.rooms = {}; Memory.highwayBlock = { W30S4: { at: 1, until: Game.time - 1 } };
+    assert(!mv.highwayBlocks().has('W30S4'), '无视野的过期记录自动删除');
+    Game.rooms = savedRooms; Game.map = savedMap; Memory.highwayBlock = savedHB; if (savedHB === undefined) delete Memory.highwayBlock;
+}
+
 console.log('== 10-16 19:00 市场降档：日额度 15 万、只给 W32S4 买 Z、救急买能量不占日额度 ==');
 {
     // 前面的场景会改写/删掉 config.market 做 mock：读一份新鲜的源配置
