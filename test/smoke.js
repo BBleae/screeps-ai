@@ -11048,7 +11048,9 @@ console.log('== 10-16 19:00 市场降档：日额度 15 万、只给 W32S4 买 Z
     const cfgPath = require.resolve('../src/config'); const savedCfg = require.cache[cfgPath]; delete require.cache[cfgPath];
     const mc = require('../src/config').market; require.cache[cfgPath] = savedCfg;
     assert(mc.dailyBuyCredits === 150000, '每日买入上限 15 万（得 ' + mc.dailyBuyCredits + '）');
-    assert(JSON.stringify(mc.buy.resources) === '["Z"]' && JSON.stringify(mc.buy.rooms) === '["W32S4"]', '只给 W32S4 买 Z，O/X/U 不买（得 ' + JSON.stringify(mc.buy) + '）');
+    // 10-17 03:xx：停买 Z，当天日买额 0 → buy.resources/rooms 清空，原配置记进 pauseNotes.market
+    assert(mc.buy.resources.length === 0 && mc.buy.rooms.length === 0, '停买：buy.resources/rooms 清空（得 ' + JSON.stringify(mc.buy) + '）');
+    assert(mc.pauseNotes && mc.pauseNotes.market && JSON.stringify(mc.pauseNotes.market.buy.resources) === '["Z"]' && JSON.stringify(mc.pauseNotes.market.buy.rooms) === '["W32S4"]', '原买入配置记进 pauseNotes.market');
     assert(!Object.keys(mc.buyShare.reserve || {}).length, 'O/X 不再占预留份额');
     assert(mc.buyEnergy.spawnStuckEmergency === true && mc.buyEnergy.emergencyOutsideDaily === true, '救急买能量保留、且不占日额度');
 }

@@ -810,7 +810,7 @@ module.exports = {
         labOpportunistic: false,
         // labs 单独的低门槛（反应本身不耗能）：只在 labRooms 里跑、storage 能量 ≥ labStorageReserve、CPU 闸开着（deposit.cpuOk）
         labRooms: ['W32S4', 'W33S3'],
-        labStorageReserve: 20000,
+        labStorageReserve: 8000,   // 10-17 03:xx 战略：20000 → 8000，让 W32S4/W33S3 的 lab 恢复（原 20000）
         // lab 房的 upgrader：boost lab 里 XGH2O 够这只的 WORK×30 时先去强化（boost.js），等不到 boostMaxWait 就放弃
         boostUpgraders: true,
         boostGoal: 3000,
@@ -929,7 +929,9 @@ module.exports = {
         dailyBuyCredits: 150000,      // 每日买入总额（10-15：20 万 → 50 万；10-16 19:00 战略：能量平衡达标前降到 15 万，lab 恢复后调回 50 万）
         // 分资源份额（10-16）：Z 最多 40%（成交快、曾一个人吃光日额度）；O、X 各预留 20%，Z/U 不得挤占
         buyShare: { cap: {}, reserve: {} },   // 10-16 19:00：只买 Z，O/X 预留取消（原 { cap: { Z: 0.4 }, reserve: { O: 0.2, X: 0.2 } }，lab 恢复后调回）
-        buy: { resources: ['Z'], target: 3000, orderAmount: 500, rooms: ['W32S4'] },   // 10-16 19:00：只给 W32S4 的 ZK 链补 Z（K 自产）；原 ['Z','O','X','U'] × ['W32S4','W33S3']，lab 恢复后调回   // 只买 labs 链缺的 Z/X，补到 3000
+        // 10-17 03:xx 战略：09:00 JST 后不再买 Z，当天实际日买额 0 → 清空 resources/rooms；原配置记入 pauseNotes.market
+        pauseNotes: { market: { buy: { resources: ['Z'], rooms: ['W32S4'] }, at: '2026-10-17', reason: '09:00 JST 后停买 Z，当天日买额 0' } },
+        buy: { resources: [], target: 3000, orderAmount: 500, rooms: [] },   // 10-17：清空（停买）；原 ['Z'] × ['W32S4']，见 pauseNotes.market   // 只买 labs 链缺的 Z/X，补到 3000
         // 买能量（战略猫 15:49）：只给 terminalNetwork.priorityReceivers 里 storage+terminal < belowEnergy 的房；
         // 到手单价 = 价格×买量 / (买量 − 传送费能量) ≤ maxEffective；计入 dailyBuyCredits。传送费从接收房 terminal 的能量里扣
         // 直接 deal 买能量只在紧急时（storage+terminal < belowEnergy 3000）；平时走自挂买单（ownOrders.energy）
