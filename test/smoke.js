@@ -10721,6 +10721,22 @@ console.log('== 外矿运输工全局就近卸货：卸货房 = 路程最短的�
     Game.map.findRoute = dpSavedRoute;
 }
 
+console.log('== 10-16 21:00 W31S5 塔优先（towerFirst 500）+ bankRooms 0.6 ==');
+{
+    world.time++;
+    const tw = (e) => ({ structureType: C.STRUCTURE_TOWER, store: { [C.RESOURCE_ENERGY]: e, energy: e } });
+    const ts = { name: 'W31S5', towers: [tw(5), tw(7), tw(900)] };
+    ts.find = () => ts.towers.concat([{ energyCapacity: 3000 }]);
+    assert(utils.towerFirstHold(ts) === true, 'W31S5 有塔 < 500：upgrader/builder 停止取能');
+    world.time++;
+    ts.towers = [tw(500), tw(600), tw(900)];
+    assert(utils.towerFirstHold(ts) === false, '塔都到 500：自动恢复');
+    world.time++;
+    assert(utils.towerFirstHold({ name: 'W33S7', find: () => [tw(0)] }) === false, '不在 towerFirst 里的房不受影响');
+    const bs = { name: 'W31S5', find: () => [{ energyCapacity: 3000 }, { energyCapacity: 3000 }] };
+    assert(utils.bankingWorkCap(bs) === 12, 'W31S5 bankRooms 0.6：升级 WORK 封顶 12（得 ' + utils.bankingWorkCap(bs) + '）');
+}
+
 console.log('== 10-16 19:00 市场降档：日额度 15 万、只给 W32S4 买 Z、救急买能量不占日额度 ==');
 {
     // 前面的场景会改写/删掉 config.market 做 mock：读一份新鲜的源配置

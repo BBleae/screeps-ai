@@ -899,6 +899,22 @@ function conserving(room) {
     return on;
 }
 
+/** 塔优先（config.towerFirst：{ 房: 门槛 }，10-16 战略 W31S5）：房里有己方塔能量低于门槛时为 true——
+ *  upgrader/builder 不取能量（手里有的 builder 先送塔）、builder 不修路不建；全部塔到门槛后自动恢复。每 tick 每房算一次 */
+const towerFirstCache = { time: -1, rooms: {} };
+function towerFirstHold(room) {
+    const below = Number(((config.towerFirst) || {})[room && room.name]);
+    if (!(below > 0) || typeof room.find !== 'function') return false;
+    if (towerFirstCache.time !== Game.time) { towerFirstCache.time = Game.time; towerFirstCache.rooms = {}; }
+    if (towerFirstCache.rooms[room.name] != null) return towerFirstCache.rooms[room.name];
+    const kind = typeof FIND_MY_STRUCTURES === 'undefined' ? 'myStructures' : FIND_MY_STRUCTURES;
+    const towerType = typeof STRUCTURE_TOWER === 'undefined' ? 'tower' : STRUCTURE_TOWER;
+    const key = typeof RESOURCE_ENERGY === 'undefined' ? 'energy' : RESOURCE_ENERGY;
+    const hold = (room.find(kind) || []).some((s) => s.structureType === towerType && s.store && Number(s.store[key] || 0) < below);
+    towerFirstCache.rooms[room.name] = hold;
+    return hold;
+}
+
 /** 节能模式下升级者是否允许取能：控制器降级计时低于该 RCL 满值的一半 */
 function conserveUpgradeAllowed(room) {
     const c = room && room.controller;
@@ -948,6 +964,7 @@ module.exports = {
     pvpDangerRoom,
     conserving,
     conserveUpgradeAllowed,
+    towerFirstHold,
     isRetiring,
     luxuryStructure,
     luxuryAllowed,
