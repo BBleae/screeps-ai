@@ -10721,6 +10721,24 @@ console.log('== 外矿运输工全局就近卸货：卸货房 = 路程最短的�
     Game.map.findRoute = dpSavedRoute;
 }
 
+console.log('== 10-16 W29S3：lab 等 terminal 建成才恢复；bankRooms 0.6 封顶优先于 storageRich ==');
+{
+    world.time++;
+    const bk = { name: 'W29S3', find: () => [{ energyCapacity: 3000 }, { energyCapacity: 3000 }],
+        storage: { my: true, store: { energy: 35000, [C.RESOURCE_ENERGY]: 35000 } }, terminal: null, controller: { level: 6, my: true } };
+    const labSite = { structureType: C.STRUCTURE_LAB }, termSite = { structureType: C.STRUCTURE_TERMINAL };
+    assert(!utils.luxuryAllowed(bk) && !utils.siteWanted(bk, labSite), 'W29S3 storage 3.5 万、没有 terminal：lab 工地仍不建');
+    bk.storage.store.energy = bk.storage.store[C.RESOURCE_ENERGY] = 130000;
+    assert(utils.siteWanted(bk, termSite), 'terminal 工地照 terminalMinStorage 12 万的线建，不被 lab 规则挡');
+    bk.terminal = { my: true, store: { energy: 0 } };
+    assert(utils.luxuryAllowed(bk), 'terminal 建成后 lab 自动恢复');
+    const bkMem = { storageRich: { on: true, at: 1 } };
+    bk.storage.store.energy = bk.storage.store[C.RESOURCE_ENERGY] = 35000;
+    assert(utils.storageRichState(bk, bkMem, config.upgrading) === true, '前提：storageRich 开着');
+    assert(utils.upgraderWorkCap(bk, bkMem) === 12, 'storageRich 开着时 bankRooms 仍把升级 WORK（duty）封在 12（得 ' + utils.upgraderWorkCap(bk, bkMem) + '）');
+    assert(utils.upgraderSupplyWork(bk, bkMem) === 12, 'storageRich 开着时身体/编制的可持续供给也封在 12（得 ' + utils.upgraderSupplyWork(bk, bkMem) + '）');
+}
+
 console.log('== 援建加码：容量 < 1300 且 storage 不足的弱房受援；母房 storage 富余时派 courier 把能量搬到弱房 ==');
 {
     resetWorld(6400);

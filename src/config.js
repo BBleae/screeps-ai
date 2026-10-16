@@ -601,7 +601,9 @@ module.exports = {
         // 线上 W33S7 在 storage 0 时把升级限流让出的能量全灌进了 terminal
         luxuryStorageAbove: 10000,
         // 10-16 战略：W29S3 storage < 3 万时 lab 工地停建（保留不拆）、builder 上限 1（只修路/维护）；回到 3 万自动恢复
-        luxuryStorageAboveByRoom: { W29S3: 30000 },
+        luxuryStorageAboveByRoom: {},
+        // 10-16 战略（18:00 拍板）：W29S3 改为 terminal 建成后才恢复 lab（之前是 storage ≥ 3 万）；在此之前 lab 不放不建、builder ≤ 1
+        luxuryAfterTerminal: ['W29S3'],
         // 10-16 战略：RCL8 后先不建 nuker / power spawn（第 3 阶段之前）
         deferNuker: true,
         deferPowerSpawn: true,
