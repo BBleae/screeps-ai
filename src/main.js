@@ -392,10 +392,11 @@ module.exports.loop = function () {
         if (pendingStat) {
             pendingStat.cpu = Math.round(Game.cpu.getUsed() * 10) / 10;
             // 未记账 = 整 tick − cpuBy 之和（Memory 解析/序列化、GC、模块外开销）；观察猫：模块差~7 总差~30
+            // 用本 tick 的 spkTick（模块打点）合计，不要用 cpuBy 窗口均值——否则会和单 tick cpu 错位（曾出现 -14）
             let accounted = 0;
-            const by = pendingStat.cpuBy || {};
-            for (const k in by) accounted += Number(by[k]) || 0;
+            for (const k in spkTick) accounted += Number(spkTick[k]) || 0;
             pendingStat.unaccounted = Math.round((pendingStat.cpu - accounted) * 10) / 10;
+            pendingStat.accounted = Math.round(accounted * 10) / 10;
             pendingStat.t0 = Math.round(spkT0 * 1000) / 1000;
             const diag = Memory.cpuDiag || (Memory.cpuDiag = {});
             diag.unaccounted = pendingStat.unaccounted;
