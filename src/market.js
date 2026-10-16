@@ -207,14 +207,17 @@ function tryBuyEnergy(cfg, market, countScan) {
     if (!(Number(market.credits) >= cfg.creditFloor)) return null;
     const led = ledger();
     const left = cfg.dailyBuyCredits - led.buyCredits;
-    if (!(left > 0)) return null;
+    // 10-16 战略：救急买能量（spawn 卡死）可以不占 dailyBuyCredits（be.emergencyOutsideDaily），只受 emergencyDailyEnergy 与 maxOrderCredits 约束，
+    // 免得原料额度压低/花光后把救急路径一起误杀
+    const emergOutside = !!be.emergencyOutsideDaily;
+    if (!(left > 0) && !(emergencyOn && emergOutside)) return null;
     const waitTicks = Number(be.emergencyWaitTicks) || 200;
     const dailyEmerg = Number(be.emergencyDailyEnergy) || 10000;
     const emergBought = Number(led.boughtEnergyEmergency) || 0;
     const emergLeft = Math.max(0, dailyEmerg - emergBought);
 
     const candidates = [];
-    if (be.enabled) {
+    if (be.enabled && left > 0) {
         const order = (config.terminalNetwork && config.terminalNetwork.priorityReceivers) || [];
         for (const n of order) {
             const r = Game.rooms[n];
@@ -225,7 +228,7 @@ function tryBuyEnergy(cfg, market, countScan) {
             candidates.push({ room: r, mode: 'normal' });
         }
     }
-    if (emergencyOn && emergLeft >= (cfg.minDeal || 100)) {
+    if (emergencyOn && emergLeft >= (cfg.minDeal || 100) && (left > 0 || emergOutside)) {
         const names = Object.keys(Game.rooms || {});
         for (const n of names) {
             const r = Game.rooms[n];
@@ -260,7 +263,8 @@ function tryBuyEnergy(cfg, market, countScan) {
             if (cand.mode === 'emergency') {
                 if (emergCeil == null || o.price > emergCeil) continue;
             }
-            let amount = Math.min(o.amount, maxAmt, Math.floor(Math.min(cfg.maxOrderCredits, left) / o.price));
+            const creditRoom = cand.mode === 'emergency' && emergOutside ? cfg.maxOrderCredits : Math.min(cfg.maxOrderCredits, left);
+            let amount = Math.min(o.amount, maxAmt, Math.floor(creditRoom / o.price));
             while (amount >= cfg.minDeal && costOf(amount, o.roomName, room.name) > pay) amount = Math.floor(amount / 2);
             if (amount < cfg.minDeal) continue;
             const cost = costOf(amount, o.roomName, room.name);
@@ -280,7 +284,8 @@ function tryBuyEnergy(cfg, market, countScan) {
     Memory.market.lastBuy = rec;
     if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
         led.bought[ENERGY] = (led.bought[ENERGY] || 0) + best.amount;
-        led.buyCredits = Math.round(led.buyCredits + best.amount * best.o.price);
+        if (!(best.mode === 'emergency' && emergOutside)) led.buyCredits = Math.round(led.buyCredits + best.amount * best.o.price);
+        else led.emergencyCredits = Math.round((Number(led.emergencyCredits) || 0) + best.amount * best.o.price);
         if (best.mode === 'emergency') led.boughtEnergyEmergency = (Number(led.boughtEnergyEmergency) || 0) + best.amount;
         led.deals++;
     }

@@ -914,10 +914,10 @@ module.exports = {
         dailySellUnits: { ZH2O: 2000 },
         creditFloor: 2000000,         // 低于它只卖不买
         maxOrderCredits: 50000,       // 单笔上限（买卖都按它截量）
-        dailyBuyCredits: 500000,      // 每日买入总额（10-15 战略猫：20 万 → 50 万）
+        dailyBuyCredits: 150000,      // 每日买入总额（10-15：20 万 → 50 万；10-16 19:00 战略：能量平衡达标前降到 15 万，lab 恢复后调回 50 万）
         // 分资源份额（10-16）：Z 最多 40%（成交快、曾一个人吃光日额度）；O、X 各预留 20%，Z/U 不得挤占
-        buyShare: { cap: { Z: 0.4 }, reserve: { O: 0.2, X: 0.2 } },
-        buy: { resources: ['Z', 'O', 'X', 'U'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'] },   // 只买 labs 链缺的 Z/X，补到 3000
+        buyShare: { cap: {}, reserve: {} },   // 10-16 19:00：只买 Z，O/X 预留取消（原 { cap: { Z: 0.4 }, reserve: { O: 0.2, X: 0.2 } }，lab 恢复后调回）
+        buy: { resources: ['Z'], target: 3000, orderAmount: 500, rooms: ['W32S4'] },   // 10-16 19:00：只给 W32S4 的 ZK 链补 Z（K 自产）；原 ['Z','O','X','U'] × ['W32S4','W33S3']，lab 恢复后调回   // 只买 labs 链缺的 Z/X，补到 3000
         // 买能量（战略猫 15:49）：只给 terminalNetwork.priorityReceivers 里 storage+terminal < belowEnergy 的房；
         // 到手单价 = 价格×买量 / (买量 − 传送费能量) ≤ maxEffective；计入 dailyBuyCredits。传送费从接收房 terminal 的能量里扣
         // 直接 deal 买能量只在紧急时（storage+terminal < belowEnergy 3000）；平时走自挂买单（ownOrders.energy）
@@ -930,6 +930,7 @@ module.exports = {
             spawnStuckEmergency: true,
             emergencyDailyEnergy: 10000,
             emergencyWaitTicks: 200,
+            emergencyOutsideDaily: true,   // 10-16 19:00：救急买能量不占 dailyBuyCredits（只受 emergencyDailyEnergy 1 万能量/天约束），日额度压低后不被误杀
         },
         dealBuyMinerals: false,       // Z/X 不再直接 deal（自挂买单代替）
         // 自挂单（战略猫 16:01）：对方成交时付传送能量。价格 = 近 historyDays 天均价（卖/买都夹在 ±priceBand 内），

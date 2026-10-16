@@ -10721,6 +10721,17 @@ console.log('== 外矿运输工全局就近卸货：卸货房 = 路程最短的�
     Game.map.findRoute = dpSavedRoute;
 }
 
+console.log('== 10-16 19:00 市场降档：日额度 15 万、只给 W32S4 买 Z、救急买能量不占日额度 ==');
+{
+    // 前面的场景会改写/删掉 config.market 做 mock：读一份新鲜的源配置
+    const cfgPath = require.resolve('../src/config'); const savedCfg = require.cache[cfgPath]; delete require.cache[cfgPath];
+    const mc = require('../src/config').market; require.cache[cfgPath] = savedCfg;
+    assert(mc.dailyBuyCredits === 150000, '每日买入上限 15 万（得 ' + mc.dailyBuyCredits + '）');
+    assert(JSON.stringify(mc.buy.resources) === '["Z"]' && JSON.stringify(mc.buy.rooms) === '["W32S4"]', '只给 W32S4 买 Z，O/X/U 不买（得 ' + JSON.stringify(mc.buy) + '）');
+    assert(!Object.keys(mc.buyShare.reserve || {}).length, 'O/X 不再占预留份额');
+    assert(mc.buyEnergy.spawnStuckEmergency === true && mc.buyEnergy.emergencyOutsideDaily === true, '救急买能量保留、且不占日额度');
+}
+
 console.log('== 10-16 W29S3：lab 等 terminal 建成才恢复；bankRooms 0.6 封顶优先于 storageRich ==');
 {
     world.time++;

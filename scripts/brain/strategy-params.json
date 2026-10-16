@@ -51,6 +51,9 @@
             "spawnEmergency"
         ]
     },
+    "pauseNotes": {
+        "market": "2026-10-16 19:00 战略：能量平衡达标前原料采购降档——market.dailyBuyCredits 50万→15万；market.buy 只买 Z（W32S4 ZK 链，K 自产），O/X/U 与 W33S3 停买；buyShare 的 Z 40% 上限与 O/X 预留取消；救急买能量 buyEnergy.emergencyOutsideDaily=true 不占日额度。lab 恢复后调回：dailyBuyCredits 500000、buy.resources ['Z','O','X','U']、buy.rooms ['W32S4','W33S3']、buyShare { cap:{Z:0.4}, reserve:{O:0.2,X:0.2} }"
+    },
     "next": [
         "deposit：只挖 silicon/mist，3 房间内，近 3000 tick 有他人 pvpFlee 或 pvpThreat 的房跳过",
         "外矿选址和布局规划搬到大脑"
