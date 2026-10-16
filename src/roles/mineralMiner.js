@@ -41,7 +41,10 @@ function ready(room, plan) {
     const extractor = object(plan.extractorId);
     if (!mineral || mineral.mineralAmount <= 0 || !active(extractor)) return false;
     const sinks = destinations(plan);
-    return stock(plan, sinks) < plan.maxStock && sinks.some(({ target }) => target.store.getFreeCapacity() > plan.reserveFree);
+    // config.minerals.maxStock[房]：按房压低库存上限（10-16 战略 W33S8：terminal K ≥ 1 万暂停孵矿工，降到 1 万以下自动恢复）
+    const cap = Number((((require('config').minerals) || {}).maxStock || {})[room.name]);
+    const maxStock = cap > 0 ? Math.min(cap, Number(plan.maxStock) || cap) : plan.maxStock;
+    return stock(plan, sinks) < maxStock && sinks.some(({ target }) => target.store.getFreeCapacity() > plan.reserveFree);
 }
 function move(creep, path, revision) {
     if (creep.fatigue) return;

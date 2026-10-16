@@ -738,7 +738,7 @@ module.exports = {
         // 线上 W34S7/W35S7：storage 0/2–3k 在低档停了两万 tick，但 backlog 0、维修债 0、spawn 空闲能量满，限流让出的能量没人要，
         // 上线后进度 12.3→9.5、13.5→10.9 CP/tick
         // 10-16 战略：攒能房的升级者恒吃本地收入的这个份额（utils.bankingWorkCap），其余攒进 storage（W29S3 攒 12 万建 terminal）
-        bankRooms: { W29S3: 0.6 },
+        bankRooms: { W29S3: 0.6, W33S8: 0.6 },
         competeUnfullTicks: 100,
         // 低于容量的这个份额才算"没补满"（W34S7 部署后停在 1756/1800、spawn 空闲无请求，照样被 unfull 限流）
         competeUnfullShare: 0.8,
@@ -1008,7 +1008,7 @@ module.exports = {
     },
     // 矿物数量、库存门槛和身体由 scripts/brain/minerals.py 决定。
     // 2026-10-15 战略猫：K 矿只开 W31S6、W33S8、W37S7（大脑已停用，冻结指令里是 enabled:false）。见 roles/mineralMiner.forced
-    minerals: { force: { W31S6: true, W33S8: true, W37S7: true } },
+    minerals: { force: { W31S6: true, W33S8: true, W37S7: true }, maxStock: { W33S8: 10000 } },   // maxStock：10-16 战略 W33S8 K 库存 ≥1 万停孵矿物矿工，自动恢复
     // 外部大脑 2026-10-14 停用（晴猫）。retired = true：最后一份指令（issuedAt 10-14 12:00 JST、ttl 7 天）永不过期、不算掉线，
     // 否则 10-21 18:00 JST（ttl + 6h 宽限）起 brain.get 全返回 null：三座 K 矿 + W38S7 的矿全停（mineralMiner 只认指令）、
     // scout 名额从 0 变自治、外矿排序丢失，再过一天 expansion.autoClaim 开始自治占房。游戏内覆盖（remote.assign、minerals.force）照旧优先。
