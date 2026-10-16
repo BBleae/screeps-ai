@@ -1348,7 +1348,7 @@ function targetFor(room, role, mem, sources, backlog) {
     if (role === 'hauler') return estimateHomeHaulerTarget(room, mem, sources);
     // 10-16 节能模式：不孵 builder（升级者照常按收入配）
     if (role === 'upgrader') return upgraderTarget(room, mem);
-    if (role === 'builder') return utils.conserving(room) ? 0 : builderTarget(room, backlog || constructionBacklog(room));
+    if (role === 'builder') return utils.conserving(room) || utils.towerFirstHold(room) ? 0 : builderTarget(room, backlog || constructionBacklog(room));
     if (role === 'feeder') return feederTarget(room, mem);
     if (role === 'operator') return operatorTarget(room, mem);
     if (role === 'mineralMiner') return mineralMinerTarget(room, mem);

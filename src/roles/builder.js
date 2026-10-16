@@ -264,6 +264,16 @@ function run(creep) {
     const room = Game.rooms[creep.memory.home];
     if (!room) { movement.go(creep, new RoomPosition(25, 25, creep.memory.home)); return; }
     const state = (Memory.rooms[room.name] || {}).state || {};
+    // 10-16 战略 W31S5 塔优先（config.towerFirst）：有塔低于门槛时不取能、不修路不建；手里的能量先送进缺能的塔
+    if (require('utils').towerFirstHold(room)) {
+        const key = RESOURCE_ENERGY;
+        const below = Number((require('config').towerFirst || {})[room.name]) || 500;
+        const tower = creep.store[key] > 0 ? creep.pos.findClosestByRange(findCached(room, FIND_MY_STRUCTURES).filter((s) =>
+            s.structureType === STRUCTURE_TOWER && s.store[key] < below)) : null;
+        if (tower) { if (creep.transfer(tower, key) === ERR_NOT_IN_RANGE) movement.go(creep, tower, { reusePath: 15 }); }
+        else if (room.storage && !creep.pos.inRangeTo(room.storage, 3)) movement.go(creep, room.storage, { range: 3, reusePath: 30 });
+        return;
+    }
     // 10-16 节能模式：不建（含 lab 工地）不修；手里的能量先补 spawn/extension，再交回 storage，然后在 storage 旁待命
     if (conserving(room)) {
         if (creep.store[RESOURCE_ENERGY] > 0) {

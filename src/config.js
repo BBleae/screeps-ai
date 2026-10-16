@@ -741,7 +741,7 @@ module.exports = {
         // 线上 W34S7/W35S7：storage 0/2–3k 在低档停了两万 tick，但 backlog 0、维修债 0、spawn 空闲能量满，限流让出的能量没人要，
         // 上线后进度 12.3→9.5、13.5→10.9 CP/tick
         // 10-16 战略：攒能房的升级者恒吃本地收入的这个份额（utils.bankingWorkCap），其余攒进 storage（W29S3 攒 12 万建 terminal）
-        bankRooms: { W29S3: 0.6, W33S8: 0.6 },
+        bankRooms: { W29S3: 0.6, W33S8: 0.6, W31S5: 0.6 },
         competeUnfullTicks: 100,
         // 低于容量的这个份额才算"没补满"（W34S7 部署后停在 1756/1800、spawn 空闲无请求，照样被 unfull 限流）
         competeUnfullShare: 0.8,
@@ -949,6 +949,9 @@ module.exports = {
         },
     },
     // CPU 预留（bucket 健康时 creep 循环的上限 = limit − cpuReserve，超了只跳 broker 分数 < 20 的单位，与过去一致）
+    // 10-16 战略：塔优先（utils.towerFirstHold）——房里有塔能量 < 门槛时 upgrader/builder 不取能、builder 不修路不建（不孵新 builder），
+    // hauler/filler 本来就把 < towerRepairReserve 500 的塔排在 spawn/ext 之前（utils.towerUrgent）。全部到门槛自动恢复；去掉这一项即撤销
+    towerFirst: { W31S5: 500 },
     cpuReserve: 15,
     // 细粒度 CPU 计时的抽样（main.js 的 cpuRoles / cpuDispatch、spawn.js 的 cpuSpawn）：每只 creep 每 tick 两次 getUsed()，
     // 132 只 ≈ 2.4 CPU/tick（上线实测 creeps 31.5 → 33.9），诊断不该占经济这么多。每 sampleEvery tick 量一次，
