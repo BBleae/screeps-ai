@@ -34,6 +34,8 @@ const DEFAULTS = {
     maxSets: 5,
     scout: true,            // 一只 1 MOVE 的巡逻侦察（50 能量）
     scoutRevisit: 1500,     // 同一过道房多久重看一次
+    avoidRooms: [],         // 永久不采（Jumpp 常驻等）
+    preferNorthWest: true,
 };
 
 function settings() {
@@ -117,8 +119,13 @@ function note(room) {
     const cfg = settings();
     const m = mem();
     m.visits[room.name] = Game.time;
-    const armed = room.find(FIND_HOSTILE_CREEPS).some((c) => c.body && c.body.some((p) => p.hits > 0 &&
-        (p.type === ATTACK || p.type === RANGED_ATTACK)));
+    const highThreat = (config.pvp && config.pvp.highThreat) || [];
+    const armed = room.find(FIND_HOSTILE_CREEPS).some((c) => {
+        if (!c || !c.body) return false;
+        const owner = c.owner && c.owner.username;
+        if (owner && highThreat.indexOf(owner) >= 0) return true;   // Jumpp 的矿车也算威胁
+        return c.body.some((p) => p.hits > 0 && (p.type === ATTACK || p.type === RANGED_ATTACK));
+    });
     for (const d of room.find(FIND_DEP)) {
         if (cfg.types.indexOf(d.depositType) < 0) continue;
         const prev = m.list[d.id] || {};
@@ -138,9 +145,21 @@ function cpuOk(cfg) {
     return recent.reduce((a, b) => a + b, 0) / recent.length <= cfg.cpuAvgMax;
 }
 
+/** 北/西得分越高越优先（W 坐标越小越西，S 坐标越小越北） */
+function northWestScore(roomName) {
+    const p = parseRoom(roomName);
+    if (!p) return 0;
+    const west = roomName[0] === 'W' ? -p.x : p.x;
+    const north = roomName.indexOf('N') >= 0 ? p.y : -p.y;
+    return north * 1000 + west;
+}
+
 /** 这个 deposit 现在值得采（不看分配） */
 function workable(d, cfg) {
-    return d && cfg.types.indexOf(d.type) >= 0 && Game.time - d.at <= cfg.seenTtl && d.cd <= cfg.maxCooldown &&
+    if (!d || cfg.types.indexOf(d.type) < 0) return false;
+    if ((cfg.avoidRooms || []).indexOf(d.room) >= 0) return false;
+    if (require('utils').pvpDangerRoom(d.room)) return false;
+    return Game.time - d.at <= cfg.seenTtl && d.cd <= cfg.maxCooldown &&
         d.decayAt - Game.time >= cfg.minDecay && !(d.hostileUntil > Game.time);
 }
 
@@ -153,7 +172,7 @@ function run() {
     for (const id in m.list) {
         const d = m.list[id];
         if (Game.time - d.at > cfg.cacheTtl || d.decayAt < Game.time) delete m.list[id];
-        else if (d.home && !workable(d, cfg) && Game.time - d.at <= cfg.seenTtl) d.home = null;   // 看得见且已不值得：撤分配
+        else if (d.home && !workable(d, cfg)) d.home = null;   // 不值得采就撤分配（含 avoidRooms；看不见时也清，避免 W30S9 僵尸分配）
     }
     for (const k in m.routes) if (Game.time - m.routes[k].at > cfg.routeTtl) delete m.routes[k];
     for (const r in m.visits) if (Game.time - m.visits[r] > cfg.cacheTtl) delete m.visits[r];
@@ -161,7 +180,8 @@ function run() {
     if (active >= cfg.maxActive || !cpuOk(cfg)) { m.gate = { at: Game.time, active, cpuOk: cpuOk(cfg) }; return; }
     const hs = homes(cfg);
     const candidates = Object.keys(m.list).filter((id) => !m.list[id].home && workable(m.list[id], cfg))
-        .sort((a, b) => m.list[a].cd - m.list[b].cd);
+        .sort((a, b) => (m.list[a].cd - m.list[b].cd) ||
+            (cfg.preferNorthWest ? (northWestScore(m.list[b].room) - northWestScore(m.list[a].room)) : 0));
     for (const id of candidates) {
         if (active >= cfg.maxActive) break;
         const d = m.list[id];
@@ -206,6 +226,7 @@ function patrolTargets(home, cfg) {
         if (x < 0 || y < 0) continue;
         const name = ew + x + ns + y;
         if (!isHighway(name)) continue;
+        if ((cfg.avoidRooms || []).indexOf(name) >= 0) continue;
         if (Game.time - (m.visits[name] || 0) < cfg.scoutRevisit) continue;
         if (hops(home, name, cfg) === Infinity) continue;
         out.push(name);
