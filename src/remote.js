@@ -1723,6 +1723,11 @@ function getDemands(home) {
             record.reserverWeakMiner = { at: Game.time, gain: usable.gain, n: (Number(record.reserverWeakMiner && record.reserverWeakMiner.n) || 0) + 1 };
         } else if (reserveDue && reserverOnHold(home, record)) {
             record.reserverOnHold = Game.time;
+        } else if (reserveDue && creepsHomeRole(home.name, 'reserver').some((creep) => !isRetiring(creep.memory) &&
+                creep.memory.remoteRoom === record.room && (creep.spawning || creep.ticksToLive > reserveLead) &&
+                bodyPartCount(creep.body, CLAIM_PART) >= reserveBody.filter((part) => part === CLAIM_PART).length)) {
+            // 10-16 W29S1：在岗/在路上的 reserver 还没进替补窗口（预定要等它走到控制器才涨），不再出第二只；在岗是缩身的 1 CLAIM 时照旧出双 CLAIM 换代
+            record.reserverEnRoute = Game.time;
         } else if (reserveDue) {
             const slot = 'reserver:' + record.room;
             // Prefer two CLAIM for reserve growth, but a single CLAIM can bridge an expiring incumbent.
