@@ -17,7 +17,10 @@
             "W34S7",
             "W31S5",
             "W37S5"
-        ]
+        ],
+        "noNewConsumersUntilBalanced": true,
+        "policy": "能量平衡达标之前不加任何新的能量消耗；lab 继续按 2 万能量闸运行",
+        "labEnergyGate": 20000
     },
     "remotes": {
         "maxPerRoomDefault": 3,
@@ -27,20 +30,13 @@
             "W35S7": [],
             "W29S3": [
                 "W29S2",
-                "W29S1"
+                "W29S1",
+                "W31S1"
             ]
         },
-        "pauseNotes": {
+        "roomPlans": {
             "W29S3": {
-                "paused": [
-                    "W31S1"
-                ],
-                "kept": [
-                    "W29S2",
-                    "W29S1"
-                ],
-                "reason": "single spawn + forceRichUpgraders RCL7 rush; W31S1 farthest (dist 126)",
-                "restoreAfter": "W29S3 RCL7 with 2nd spawn built; if upgrader still starved also pause W29S1 then restore both",
+                "plan": "外矿全开（W29S2/W29S1/W31S1）攒能量；storage 攒到 terminalMinStorage 12 万再建 terminal，接入能量网络；不再硬冲 RCL7，已移出 forceRichUpgraders",
                 "date": "2026-10-16"
             }
         }
