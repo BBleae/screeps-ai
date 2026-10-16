@@ -3269,6 +3269,21 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
     p = ind.labPlan(lr);
     assert(p.product === 'ZK' && p.drains.some((d) => d.labId === plan0.inputs[0] && d.mineral === 'H'),
         '库存换成 Z/K：选 ZK，装着 10 H 的输入先清（得 ' + JSON.stringify({ p: p.product, d: p.drains }) + '）');
+    // 输入 lab 剩零头（Z 4 < 一次反应 5）且别处没有 Z：不能「接着做」卡死，按库存换下一步（ZK+UL ⇒ G），旧料先清
+    world.time++;
+    for (const id of plan0.inputs) { const lab = Game.getObjectById(id); for (const k of Object.keys(lab.store)) if (k !== 'energy') lab.store[k] = 0; }
+    Game.getObjectById(plan0.inputs[0]).store.K = 1000;
+    Game.getObjectById(plan0.inputs[1]).store.Z = 4;
+    delete lrTerminal.store.Z; delete lrTerminal.store.K;
+    lrTerminal.store.ZK = 3000; lrTerminal.store.UL = 3000;
+    p = ind.labPlan(lr);
+    assert(p.product === 'G' && p.drains.some((d) => d.mineral === 'Z') && p.drains.some((d) => d.mineral === 'K'),
+        '输入只剩零头：不再接着做 ZK，换成 G 并清掉 K/Z（得 ' + JSON.stringify({ p: p.product, d: p.drains }) + '）');
+    world.time++;
+    lrTerminal.store.Z = 500;
+    p = ind.labPlan(lr);
+    assert(p.product === 'ZK', 'terminal 里还有 Z：照旧接着做 ZK（得 ' + p.product + '）');
+    delete lrTerminal.store.Z; delete lrTerminal.store.ZK; delete lrTerminal.store.UL;
     // lab 不足 3 个：没有计划
     world.time++;
     for (const lab of [la, lb, lc, lfar].slice(1)) lr._structs.splice(lr._structs.indexOf(lab), 1);
