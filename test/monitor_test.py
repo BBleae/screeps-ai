@@ -735,6 +735,25 @@ class AlertNoiseTest(unittest.TestCase):
         dropped = monitor.analyze_snapshot(self._room(tick + 100, 500, None, prog + 300), history)
         self.assertTrue(any('升级速率回退' in text for text in dropped['issues']), '3/tick < 7/tick 的 80% 仍要报')
 
+    def test_rate_regression_skips_rooms_capped_on_purpose(self):
+        # 攒能房：基线 20/tick，升级者被封顶到 12 WORK 后速率 12/tick，不算回退；低于封顶的 80% 仍要报
+        history = []
+        prog = 0
+        history.append({'mon': self._room(1000, 500, None, prog)})
+        tick = 1000
+        for _ in range(6):
+            tick += 100
+            prog += 20 * 100
+            history.append({'mon': self._room(tick, 500, None, prog)})
+        capped = self._room(tick + 100, 500, None, prog + 1200)
+        capped['rooms'][0]['upgrade'] = {'cap': 12, 'work': 12}
+        entry = monitor.analyze_snapshot(capped, history)
+        self.assertFalse(any('升级速率回退' in text for text in entry['issues']), '有意封顶的房按封顶判断')
+        low = self._room(tick + 100, 500, None, prog + 500)
+        low['rooms'][0]['upgrade'] = {'cap': 12, 'work': 12}
+        dropped = monitor.analyze_snapshot(low, history)
+        self.assertTrue(any('升级速率回退' in text for text in dropped['issues']), '5/tick < 封顶 12 的 80% 仍要报')
+
 
 class StatusLogTrimTest(unittest.TestCase):
     def _write(self, count, size, max_bytes, keep):

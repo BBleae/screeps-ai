@@ -1054,7 +1054,12 @@ def analyze_room(mon, room, history):
         prior_rates = [x for x in historical_rates([r for r in history if (r.get('mon') or {}).get('scriptV') == mon.get('scriptV')], name, room.get('rcl')) if x > 0]
         # 基线取最近 6 轮的中位数：取最大值时一次尖峰会让后面 6 轮全报"回退"（2026-09-05 W34S7 常年 4–8/tick，一轮 11.7 之后连报）
         baseline = statistics.median(prior_rates[-6:]) if prior_rates else 0
-        if baseline > 0 and rate < baseline * THRESHOLDS['rate_regression_ratio']:
+        # 攒能房（config.upgrading.bankRooms）/WORK 封顶房：升级者被有意封顶在 upgrade.cap WORK，速率达到封顶的 80% 就不算回退
+        # （2026-10-16 bfe2496 后 W29S3/W33S8 按封顶前的基线连报"回退"）
+        upgrade_info = room.get('upgrade') if isinstance(room.get('upgrade'), dict) else {}
+        capped_work = upgrade_info.get('cap') if isinstance(upgrade_info.get('cap'), (int, float)) else None
+        capped_ok = capped_work is not None and capped_work > 0 and rate >= capped_work * THRESHOLDS['rate_regression_ratio']
+        if baseline > 0 and rate < baseline * THRESHOLDS['rate_regression_ratio'] and not capped_ok:
             issues.append(issue(f'升级速率回退: {rate:.2f} prog/tick < 基线 {baseline:.2f} 的 80%', name))
 
     # Successful spawn intents become spawn.spawning only on the next game tick.
