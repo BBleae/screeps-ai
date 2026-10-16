@@ -598,6 +598,8 @@ module.exports = {
         // builder 不建、不计入 builder 编制。这些建筑在当前代码里没有产出（工业要 storage ≥ 10 万才动用），
         // 线上 W33S7 在 storage 0 时把升级限流让出的能量全灌进了 terminal
         luxuryStorageAbove: 10000,
+        // 10-16 战略：W29S3 storage < 3 万时 lab 工地停建（保留不拆）、builder 上限 1（只修路/维护）；回到 3 万自动恢复
+        luxuryStorageAboveByRoom: { W29S3: 30000 },
         // 10-16 战略：RCL8 后先不建 nuker / power spawn（第 3 阶段之前）
         deferNuker: true,
         deferPowerSpawn: true,

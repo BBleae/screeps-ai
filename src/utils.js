@@ -832,7 +832,10 @@ function luxuryStructure(type) {
 }
 
 function luxuryAllowed(room) {
-    const threshold = Number((config.construction || {}).luxuryStorageAbove);
+    const construction = config.construction || {};
+    const byRoom = construction.luxuryStorageAboveByRoom || {};
+    // 按房覆盖（10-16 战略 W29S3：storage ≥ 3 万才接着建 lab），storage 回到线上自动恢复
+    const threshold = Number(room && byRoom[room.name] != null ? byRoom[room.name] : construction.luxuryStorageAbove);
     if (!(threshold > 0)) return true;
     const store = room && room.storage && room.storage.my !== false && room.storage.store;
     const energy = store ? Number(store[typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy'] || 0) : 0;
