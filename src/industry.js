@@ -363,7 +363,10 @@ function chooseReaction(room, mem, roles, labsById, cfg) {
     const stock = mineralStock(room);
     for (const lab of inputs) addStock(stock, lab.store);
     carriedStock(room, stock);
-    if (ta && tb && ta !== tb && typeof REACTIONS !== 'undefined' && REACTIONS && REACTIONS[ta] && REACTIONS[ta][tb]) {
+    // 接着做的前提：两种输入（lab 里 + terminal/storage + 搬运中）都还够一次反应；否则输入 lab 里的零头（比如 4 个 Z）会把 lab 永远卡在这一步
+    const reactAmount = typeof LAB_REACTION_AMOUNT !== 'undefined' ? LAB_REACTION_AMOUNT : 5;
+    if (ta && tb && ta !== tb && num(stock[ta], 0) >= reactAmount && num(stock[tb], 0) >= reactAmount &&
+        typeof REACTIONS !== 'undefined' && REACTIONS && REACTIONS[ta] && REACTIONS[ta][tb]) {
         const product = REACTIONS[ta][tb];
         if ((!outType || outType === product) && (cfg.opportunistic !== false || inChain(product, cfg.boostTargets))) {
             return { a: ta, b: tb, product, target: saved && saved.product === product ? saved.target || null : null, continued: true, stock };
