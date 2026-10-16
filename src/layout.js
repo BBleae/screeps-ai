@@ -951,6 +951,12 @@ function placeSites(room, mem, plan) {
         let oneOffBudget = early && need('extension') > 0 ? budget - 1 : budget;
         for (const [key, type] of [['storage', STRUCTURE_STORAGE], ['terminal', STRUCTURE_TERMINAL]]) {
             if (need(key) <= 0 || oneOffBudget <= 0 || !plan[key]) continue;
+            if (key === 'terminal') {
+                const min = Number((config.construction || {}).terminalMinStorage) || 0;
+                const st = room.storage && room.storage.my !== false && room.storage.store
+                    ? Number(room.storage.store[RESOURCE_ENERGY] || 0) : 0;
+                if (min > 0 && st < min) continue;
+            }
             if (oneOffPlaced.has(key)) {
                 // 遥测：兜底轮还有名额、旧快照里仍缺，旧代码会在这里同格重放（生效断言 layout.oneOffSameTickDedupe）
                 mem.oneOffDeduped = { at: Game.time, type: key, budget: oneOffBudget };

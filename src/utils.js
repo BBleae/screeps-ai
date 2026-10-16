@@ -841,7 +841,18 @@ function luxuryAllowed(room) {
 
 /** 工地现在该不该有人建（奢侈建筑没过经济门槛时不算） */
 function siteWanted(room, site) {
-    return !!site && (!luxuryStructure(site.structureType) || luxuryAllowed(room));
+    if (!site) return false;
+    if (luxuryStructure(site.structureType) && !luxuryAllowed(room)) return false;
+    // terminal 10 万进度：storage 不够时不建，把能量留给升级（战略 W29S3）
+    if (site.structureType === (typeof STRUCTURE_TERMINAL !== 'undefined' ? STRUCTURE_TERMINAL : 'terminal')) {
+        const min = Number((config.construction || {}).terminalMinStorage) || 0;
+        if (min > 0) {
+            const store = room && room.storage && room.storage.my !== false && room.storage.store;
+            const energy = store ? Number(store[typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy'] || 0) : 0;
+            if (energy < min) return false;
+        }
+    }
+    return true;
 }
 
 /** 节能模式（10-16 战略猫）：有 storage 的己方房 storage 能量 < 5000 进入，>= 20000 退出（滞回，状态存 Memory.rooms[n].conserve）。
