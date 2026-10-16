@@ -187,7 +187,8 @@ function planHoardFlush(rooms, cfg, rich) {
     const feeReserve = Math.max(0, Number(cfg.feeReserve) || 0);
     const byName = {};
     for (const room of rooms) byName[room.name] = room;
-    const senders = names.map((n) => byName[n]).filter((room) => room && roomEnergy(room) >= sendAbove &&
+    const senders = names.map((n) => byName[n]).filter((room) => room && room.terminal && room.terminal.my !== false &&
+        roomEnergy(room) >= sendAbove &&
         !(room.terminal.cooldown > 0) && !usedThisTick(room.name) &&
         energyOf(room.terminal.store) > feeReserve && rich(room));
     if (!senders.length) return null;

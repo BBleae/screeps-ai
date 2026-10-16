@@ -1194,7 +1194,8 @@ function upgraderTarget(room, mem) {
     const settings = config.upgrading || {};
     // storage 富余（滞回状态）时上限用 maxUpgradersRich：攒着的能量要花在升级上——但数量只按控制器容器实际到货的 EMA 加，
     // 不按 storage 水位（2026-09-06 A/B：按水位配出 44–48 WORK 站在能量 66–82 的容器旁只升 3.6–6/tick，升级者孵化 9.6 → 11.6/tick 白花）
-    const storageRich = utils.storageRichState(room, mem, settings);
+    const forceRich = (settings.forceRichUpgraders || []).indexOf(room.name) >= 0;
+    const storageRich = forceRich || utils.storageRichState(room, mem, settings);
     const limits = (storageRich && settings.maxUpgradersRich) || settings.maxUpgraders || {};
     const storageEnergy = room.storage && room.storage.my !== false && room.storage.store ? Number(room.storage.store[RESOURCE_ENERGY] || 0) : 0;
     // 控制器由 link 供能（ctrl link 已建成）：容器不由 hauler 喂，供给信号是 storage 水位（hauler 把 storage 的能量送进 link，几格短途，线上 W33S7 10 → 16 CP/tick）

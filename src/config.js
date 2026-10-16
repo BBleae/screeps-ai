@@ -603,6 +603,8 @@ module.exports = {
         deferPowerSpawn: true,
         // RCL8 建造顺序：extension → 第 3 spawn → lab→10 → tower→6（layout.js 按此错峰）
         rcl8BuildOrder: true,
+        // storage 低于此值不建 terminal（10 万进度会抽干升级口粮；W29S3 73k 时工地 0 进度）
+        terminalMinStorage: 120000,
         // 塔射程外的维修债（血）低于它时不为维修孵 builder（spawn.hasBuilderWork）：约 100 能量的活不值一只 builder 的摊销
         outOfReachMinDebt: 10000,
         horizon: 300,
@@ -706,6 +708,8 @@ module.exports = {
         feeders: 1, feederMaxDistance: 15, feederRate: 20, feederMinCarry: 4,
         storageFeedRate: 20,
         maxUpgradersRich: { 1: 1, 2: 4, 3: 4, 4: 4, 5: 3, 6: 3, 7: 3, 8: 1 },
+        // 10-16：无 terminal 的囤能房强制按富余上限孵 upgrader（W29S3 冲 RCL7）
+        forceRichUpgraders: ['W29S3'],
         // 升级者由 storage 供能时没有容器可看：EMA 改用 storage 能量 / storageFullAt（30k 与 builderUpgradeAbove 同口径，视为"有富余"）
         storageFullAt: 30000,
         // storage 分档（向 Kalgen 学，docs/observe/kalgen-learnings.md 第 3 条：他在 storage 低于 ~1.7e5 时把 RCL8 升级者换成 W1 保级，
@@ -847,10 +851,9 @@ module.exports = {
         starveSendAbove: 30000,  // 10-16：spawn 卡死救急，发完留 starveKeep
         starveKeep: 20000,  // 10-16：救急发完至少留 2 万
         starveMaxSend: 10000,
-        // 10-16 战略：RCL6 囤能房（W29S3 storage ~72k）达不到 sendAbove 10 万，能量闲置。
-        // 名单内房间 ≥ sendAbove 就按 starve 规则送给 priorityReceivers，发完留 keep（二选一：调走，不闲着）
+        // 囤能外送：必须已有 terminal（W29S3 工地还在 0/10 万，观察猫 11:00：改走本房升级）
         hoardFlush: {
-            rooms: ['W29S3'],
+            rooms: [],
             sendAbove: 40000,
             keep: 20000,
             maxSend: 10000,
