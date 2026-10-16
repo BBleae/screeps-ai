@@ -343,6 +343,8 @@ module.exports = {
     remote: {
         holdReserver: { W31S9: 20000 },   // 10-16 战略猫：W31S8 storage < 2 万时不派 W31S9 reserver（矿工/hauler 照常），首次到 2 万自动恢复
         // 母房 storage+terminal 低于它时外矿 hauler 按 max(energyAvailable, lowStorageHaulMin) 定身体（remote.haulBudget，2026-10-15）
+        // 10-16：饿线（在途 CARRY < 需求一半）的 hauler 需求排到外矿维护档最前（remote.js starvedLine），先只开 W29S3
+        starvedHaulFirst: ['W29S3'],
         lowStorageHaulBelow: 5000,
         lowStorageHaulMin: 800,
         // 外矿分配（remote.remoteWhitelist）：数组优先于外部大脑白名单，[] = 不做外矿；没列的母房照旧听大脑/自治。
@@ -735,6 +737,8 @@ module.exports = {
         // competeUnfullTicks tick 没补满；最近一次看到需求后 competeHoldTicks 内仍限流（防止放开 → 升级者吃空 → 又限流的来回抖）。
         // 线上 W34S7/W35S7：storage 0/2–3k 在低档停了两万 tick，但 backlog 0、维修债 0、spawn 空闲能量满，限流让出的能量没人要，
         // 上线后进度 12.3→9.5、13.5→10.9 CP/tick
+        // 10-16 战略：攒能房的升级者恒吃本地收入的这个份额（utils.bankingWorkCap），其余攒进 storage（W29S3 攒 12 万建 terminal）
+        bankRooms: { W29S3: 0.6 },
         competeUnfullTicks: 100,
         // 低于容量的这个份额才算"没补满"（W34S7 部署后停在 1756/1800、spawn 空闲无请求，照样被 unfull 限流）
         competeUnfullShare: 0.8,

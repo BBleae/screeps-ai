@@ -422,7 +422,17 @@ function upgradeCompeting(room, mem) {
  *  源容器 0/10/0、两只 hauler 空手挂机、builder 走 13 格刮 56 能量、24 个路工地 0 进度。
  *  降额后 link 链会堵满，矿工的"link 满了就送容器"兜底生效，房间其余部分才有能量。
  *  遥测 mem.upgradeSupply.capHeld / capFree（{at, n}）：限流生效 / 吃紧但没有竞争需求而放开的 tick 数 */
+/** 攒能房（config.upgrading.bankRooms：{ 房: 份额 }，10-16 战略 W29S3 攒 12 万建 terminal）：升级者总 WORK 恒封顶在
+ *  本地源供给（sourceSupply，按源实际容量/再生算）× 份额，不看吃紧/竞争；null = 不是攒能房 */
+function bankingWorkCap(room) {
+    const share = Number(((config.upgrading || {}).bankRooms || {})[room && room.name]);
+    if (!(share > 0 && share < 1)) return null;
+    return Math.max(1, Math.floor(sourceSupply(room) * share));
+}
+
 function upgraderWorkCap(room, mem) {
+    const bank = bankingWorkCap(room);
+    if (bank != null) return bank;
     if (!upgradeBudgetLow(room, mem)) return Infinity;
     const settings = config.upgrading || {};
     const share = Number(settings.incomeShare);
@@ -453,6 +463,8 @@ function upgraderSupplyWork(room, mem) {
     const surplus = Math.max(0, Number(storage.store[RESOURCE_ENERGY] || 0) - floor) / drainTicks;
     let cap = Math.max(1, Math.ceil(sourceSupply(room)) + Math.floor(surplus));
     if (room.controller && room.controller.level >= 8) cap = Math.min(cap, 15);
+    const bank = bankingWorkCap(room);
+    if (bank != null) cap = Math.min(cap, bank);
     return cap;
 }
 
@@ -958,6 +970,7 @@ module.exports = {
     sourceSupply,
     upgradeBudgetLow,
     upgraderWorkCap,
+    bankingWorkCap,
     upgraderSupplyWork,
     planPath,
     unpackPath,
