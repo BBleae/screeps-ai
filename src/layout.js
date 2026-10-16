@@ -524,8 +524,8 @@ function allowance(room) {
         lab: seq([0, 0, 0, 0, 0, 0, 3, 6, 10]),
         extractor: L >= 6 ? 1 : 0,
         observer: L >= 8 ? 1 : 0,
-        powerSpawn: L >= 8 ? 1 : 0,
-        nuker: L >= 8 ? 1 : 0,
+        powerSpawn: (L >= 8 && !(config.construction || {}).deferPowerSpawn) ? 1 : 0,
+        nuker: (L >= 8 && !(config.construction || {}).deferNuker) ? 1 : 0,
         factory: L >= 7 ? 1 : 0,
         container: 5,
         road: 2500,
@@ -985,13 +985,27 @@ function placeSites(room, mem, plan) {
             if (trySite(room, spot, STRUCTURE_EXTENSION)) { missing--; budget--; }
         }
     }
-    if (need('tower') > 0 && budget > 0) {
+    // 10-16 战略：RCL8 建造顺序 extension → 第 3 spawn → lab→10 → tower→6；更低 RCL 仍塔优先（防御）
+    const rcl8Order = room.controller.level >= 8 && (config.construction || {}).rcl8BuildOrder !== false;
+    const placeSpawns = () => {
+        if (!(need('spawn') > 0 && budget > 0)) return;
+        const first = (plan.wheel || !room.find(FIND_MY_SPAWNS).length) && plan.spawns ? plan.spawns : [];
+        const spawnPositions = first.concat(plan.spawn2 || [], plan.spawn3 || []);
+        for (const spot of spawnPositions) {
+            if (need('spawn') <= 0 || budget <= 0) break;
+            if (trySite(room, spot, STRUCTURE_SPAWN)) budget--;
+        }
+    };
+    const placeTowers = () => {
+        if (!(need('tower') > 0 && budget > 0)) return;
         let missing = need('tower');
         for (const spot of plan.towers || []) {
             if (missing <= 0 || budget <= 0) break;
             if (trySite(room, spot, STRUCTURE_TOWER)) { missing--; budget--; }
         }
-    }
+    };
+    if (rcl8Order) placeSpawns();
+    else placeTowers();
     // 兜底轮（提前开着也要跑）：提前那一轮给 extension 留的 1 个名额，若 extension 方案位放不出（被挡等拆迁 / 方案位不够）、
     // 塔也不缺，就在这里给 storage/terminal——旧顺序本来就把塔之后剩下的名额给它们，提前只该更早、不能更晚（2026-10-13 复审）
     placeOneOffs(false);
@@ -1013,15 +1027,8 @@ function placeSites(room, mem, plan) {
             if (trySite(room, spot, STRUCTURE_LAB)) { missing--; budget--; }
         }
     }
-    if (need('spawn') > 0 && budget > 0) {
-        // 没有任何 spawn（刚占下的房）时先放蓝图/规划指定的 spawn1；wheel 布局的 spawns 也在这里
-        const first = (plan.wheel || !room.find(FIND_MY_SPAWNS).length) && plan.spawns ? plan.spawns : [];
-        const spawnPositions = first.concat(plan.spawn2 || [], plan.spawn3 || []);
-        for (const spot of spawnPositions) {
-            if (need('spawn') <= 0 || budget <= 0) break;
-            if (trySite(room, spot, STRUCTURE_SPAWN)) budget--;
-        }
-    }
+    if (rcl8Order) placeTowers();
+    else placeSpawns();
     if (room.controller.level >= 7 && budget > 0) {
         const miscTypes = [STRUCTURE_FACTORY, STRUCTURE_OBSERVER, STRUCTURE_NUKER, STRUCTURE_POWER_SPAWN];
         const structureKeys = {};

@@ -9,6 +9,9 @@
     "energy": {
         "starvingBelow": 10000,
         "priorityReceivers": [
+            "W33S7",
+            "W32S4",
+            "W33S8",
             "W31S8",
             "W35S7",
             "W34S7",
@@ -19,7 +22,7 @@
     "remotes": {
         "maxPerRoomDefault": 3,
         "maxHops": 2,
-        "policy": "\u603b\u6570\u4e0d\u589e\uff0c\u53ea\u5728\u623f\u95f4\u95f4\u632a",
+        "policy": "总数不增，只在房间间挪",
         "targets": {
             "W35S7": []
         }
@@ -35,7 +38,7 @@
         ]
     },
     "next": [
-        "deposit\uff1a\u53ea\u6316 silicon/mist\uff0c3 \u623f\u95f4\u5185",
-        "\u5916\u77ff\u9009\u5740\u548c\u5e03\u5c40\u89c4\u5212\u642c\u5230\u5927\u8111"
+        "deposit：只挖 silicon/mist，3 房间内，近 3000 tick 有他人 pvpFlee 或 pvpThreat 的房跳过",
+        "外矿选址和布局规划搬到大脑"
     ]
 }
