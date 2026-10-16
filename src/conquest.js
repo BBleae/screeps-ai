@@ -315,6 +315,60 @@ function runOne(d) {
     d.phase = breached ? 'downgrade' : 'breach';
 }
 
+/** 10-17 战略硬规则：出发前逐只检查 target 的每只 dismantler/guard，conquest.boosts 里的每种化合物都要已装在对应 body 部件上。
+ *  任一只没装好 → 整队（含 skReaper/lootHauler）留在家里等待，Memory.conquest[该指令].waitReason 记原因。
+ *  指令没写 boosts → 不设门（返回 ready）。 */
+/** 需要 lab 预留/装载的军事化合物集合（有 boosts 的 strongholdLoot 指令，默认空 = 零影响） */
+function militaryCompounds() {
+    const set = [];
+    for (const d of directives()) {
+        if (d.type !== 'strongholdLoot') continue;
+        for (const c of boostsFor('siegeDismantler', d).concat(boostsFor('siegeGuard', d))) if (set.indexOf(c) < 0) set.push(c);
+    }
+    return set;
+}
+function directiveFor(targetRoom) {
+    for (const d of directives()) if (d.target === targetRoom) return d;
+    return null;
+}
+function appliedCompounds(creep) {
+    return new Set((creep.body || []).map((p) => p.boost).filter(Boolean));
+}
+function squadBoostReady(targetRoom) {
+    const d = directiveFor(targetRoom);
+    if (!d) return { ready: true };
+    const want = { siegeDismantler: boostsFor('siegeDismantler', d), siegeGuard: boostsFor('siegeGuard', d) };
+    if (!want.siegeDismantler.length && !want.siegeGuard.length) return { ready: true };
+    let units = 0;
+    for (const name in Game.creeps) {
+        const c = Game.creeps[name];
+        if (!c.memory || c.memory.targetRoom !== targetRoom) continue;
+        const need = want[c.memory.role];
+        if (!need || !need.length) continue;
+        units++;
+        if (c.spawning) return { ready: false, reason: 'boosting:spawning:' + name };
+        const have = appliedCompounds(c);
+        for (const compound of need) if (!have.has(compound)) return { ready: false, reason: 'boosting:' + name + ':' + compound };
+    }
+    // 还没孵够预期的攻击单位：继续等（避免先到的几只提前出发）
+    const expect = (Math.max(0, Number(d.dismantlers) || 0) * (want.siegeDismantler.length ? 1 : 0)) +
+        (Math.max(0, Number(d.guards) || 0) * (want.siegeGuard.length ? 1 : 0));
+    if (expect > 0 && units < expect) return { ready: false, reason: 'boosting:assembling:' + units + '/' + expect };
+    return { ready: true };
+}
+/** 角色用：这个目标的部队是否该因 boost 未装齐而留在家里等待（默认关：无 boosts 指令时恒 false） */
+function boostGateHold(targetRoom) {
+    const r = squadBoostReady(targetRoom);
+    if (!r.ready) {
+        const d = directiveFor(targetRoom);
+        if (d) d.waitReason = r.reason;
+    } else {
+        const d = directiveFor(targetRoom);
+        if (d && d.waitReason && String(d.waitReason).indexOf('boosting') === 0) delete d.waitReason;
+    }
+    return !r.ready;
+}
+
 /** 10-17 strongholdLoot：战利品容器所在的格子。显式 d.lootTiles（[[x,y],...]）优先；否则按视野里"有非能量资源的容器"自动算。 */
 function lootTilesOf(d, room) {
     if (Array.isArray(d.lootTiles) && d.lootTiles.length) return d.lootTiles.map((p) => [p[0], p[1]]);
@@ -542,4 +596,4 @@ function strongholdLootDemands(d, home, sponsors) {
     return demands;
 }
 
-module.exports = { run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount };
+module.exports = { run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds };

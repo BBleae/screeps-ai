@@ -376,11 +376,20 @@ function terminalDrainKeepBase(room, storageRich) {
 function labEnergyWant(room, lab, storageRich, roomMemory) {
     const cfg = config.industry || {};
     const target = Math.max(0, Number(cfg.labEnergyTarget) || 0);
-    if (!storageRich || !(target > 0) || !lab || lab.my === false || !lab.store) return 0;
-    const labsState = roomMemory && roomMemory.industryState && roomMemory.industryState.labs;
-    if (!labsState || labsState.boostLab !== lab.id) return 0;
+    if (!(target > 0) || !lab || lab.my === false || !lab.store) return 0;
     const storage = room.storage && room.storage.my !== false && room.storage.store ? room.storage : null;
     if (!storage) return 0;
+    // 10-17 军事 boost lab（Memory.rooms[房].militaryLabs，默认空）：不受 storageRich 门限，storage 能量 > terminal.energyFloorMinStorage 就补——
+    // 已花 credits 买的化合物装进 lab 却没能量，boostCreep 会断粮
+    const military = roomMemory && roomMemory.militaryLabs && typeof roomMemory.militaryLabs === 'object' && Object.values(roomMemory.militaryLabs).indexOf(lab.id) >= 0;
+    if (military) {
+        const min = Math.max(0, Number((config.terminal || {}).energyFloorMinStorage) || 0);
+        if (energyOf(storage.store) < min) return 0;
+        return Math.max(0, Math.min(target - energyOf(lab.store), energyOf(storage.store) - min));
+    }
+    if (!storageRich) return 0;
+    const labsState = roomMemory && roomMemory.industryState && roomMemory.industryState.labs;
+    if (!labsState || labsState.boostLab !== lab.id) return 0;
     const surplus = energyOf(storage.store) - Math.max(0, Number(cfg.terminalFillStorageAbove) || 0);
     return Math.max(0, Math.min(target - energyOf(lab.store), surplus));
 }
@@ -1360,7 +1369,7 @@ function flush() {
     }
 }
 
-module.exports = { terminalFloorWant, terminalFillWant, feeReserveFillAllowed,
+module.exports = { terminalFloorWant, terminalFillWant, feeReserveFillAllowed, labEnergyWant,
     forceReplan,
     controllerFeedLink,
     controllerFeedMode,

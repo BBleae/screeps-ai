@@ -26,6 +26,12 @@ function run(creep) {
     const full = creep.store.getFreeCapacity ? creep.store.getFreeCapacity() <= 0 : false;
     const carrying = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
     const retreat = conquest.retreatFor(target);
+    // 10-17 硬规则：全队 boost 未装齐前，搬运兵也留在母房等待（不去目标房）
+    if (conquest.boostGateHold(target)) {
+        const carrying0 = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
+        if (!carrying0 && creep.room.name !== home) { goRoom(creep, home); return; }
+        if (!carrying0) return;
+    }
 
     // 卸货：满仓 / 撤退 / 目标已取空 → 回母房 storage
     if (full || retreat || creep.memory.state === 'deliver') {
