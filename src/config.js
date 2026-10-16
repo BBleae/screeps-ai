@@ -953,6 +953,9 @@ module.exports = {
     // 10-16 战略：塔优先（utils.towerFirstHold）——房里有塔能量 < 门槛时 upgrader/builder 不取能、builder 不修路不建（不孵新 builder），
     // hauler/filler 本来就把 < towerRepairReserve 500 的塔排在 spawn/ext 之前（utils.towerUrgent）。全部到门槛自动恢复；去掉这一项即撤销
     towerFirst: { W31S5: 500 },
+    // 10-16 战略全局底线（utils.towerFloorHold）：任何房有塔 < 500 时 upgrader 不取能、控制器供能捷径让位给塔；降级 < 5000 tick 例外
+    towerFloor: 500,
+    towerFloorDowngrade: 5000,
     // 10-16 战略：房里有敌对 creep（NPC invader 或带战斗部件的）时该房 spawn 什么都不孵（utils.spawnPausedByHostile），
     // 也不从任何房为它派 defender；敌人走了/死了自动恢复。去掉房名即撤销
     spawn: { pauseWhileHostile: ['W31S5'] },

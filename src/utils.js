@@ -901,6 +901,19 @@ function conserving(room) {
 
 /** 塔优先（config.towerFirst：{ 房: 门槛 }，10-16 战略 W31S5）：房里有己方塔能量低于门槛时为 true——
  *  upgrader/builder 不取能量（手里有的 builder 先送塔）、builder 不修路不建；全部塔到门槛后自动恢复。每 tick 每房算一次 */
+/** 10-16 战略全局底线（config.towerFloor，默认 500）：任何房有塔低于底线 → upgrader 不取能、控制器供能捷径让位给塔；
+ *  towerFirst 名单房按各自门槛。控制器离降级 < towerFloorDowngrade（5000）tick 时例外，保等级 */
+function towerFloorHold(room) {
+    if (!room || typeof room.find !== 'function') return false;
+    if (room.controller && Number(room.controller.ticksToDowngrade) < (Number(config.towerFloorDowngrade) || 5000)) return false;
+    if (towerFirstHold(room)) return true;
+    const floor = config.towerFloor == null ? 500 : Number(config.towerFloor);
+    if (!(floor > 0)) return false;
+    const kind = typeof FIND_MY_STRUCTURES === 'undefined' ? 'myStructures' : FIND_MY_STRUCTURES;
+    const towerType = typeof STRUCTURE_TOWER === 'undefined' ? 'tower' : STRUCTURE_TOWER;
+    const key = typeof RESOURCE_ENERGY === 'undefined' ? 'energy' : RESOURCE_ENERGY;
+    return (room.find(kind) || []).some((s) => s.structureType === towerType && s.store && Number(s.store[key] || 0) < floor);
+}
 /** 10-16 战略（config.spawn.pauseWhileHostile）：列表里的房可见且有敌对 creep（owner Invader，或带 ATTACK/RANGED_ATTACK/HEAL/WORK/CLAIM）时返回敌人数，否则 0 */
 function pausedRoom(roomName) {
     const list = ((config.spawn || {}).pauseWhileHostile) || [];
@@ -1033,6 +1046,7 @@ module.exports = {
     conserving,
     conserveUpgradeAllowed,
     towerFirstHold,
+    towerFloorHold,
     spawnPausedByHostile,
     pausedRoom,
     isRetiring,

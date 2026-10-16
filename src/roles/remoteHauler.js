@@ -262,7 +262,7 @@ function homeTarget(room, creep, opts) {
     const feedFirst = ctrlFeedContainer(room);
     if (feedFirst && allowed(feedFirst) && feedFirst.store[RESOURCE_ENERGY] < feedFirst.store.getCapacity(RESOURCE_ENERGY) * (Number(config.controllerFeedStarvedBelow) || 0.1) &&
         room.energyAvailable >= room.energyCapacityAvailable * (Number(config.controllerFeedSpawnShare) || 0.5) &&
-        !utils.spawnWaitingFor(room) && !utils.towerFirstHold(room)) { info.urgent = true; return feedFirst; }
+        !utils.spawnWaitingFor(room) && !utils.towerFloorHold(room)) { info.urgent = true; return feedFirst; }
     // 升级者由 storage 供能：storage 见底时同样先送 storage（公平规则在 controllerFeedStorage 里）
     const storageFeed = taskBroker.controllerFeedStorage(room);
     if (storageFeed && storageFeed.starved && allowed(storageFeed.target)) { info.urgent = true; return storageFeed.target; }
