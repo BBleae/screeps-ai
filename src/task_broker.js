@@ -46,7 +46,7 @@ const ACTION_RANGE = {
     repair: 3,
     upgrade: 3,
 };
-const REPLAN_INTERVAL = 3;
+const REPLAN_INTERVAL = 5;  // 10-16：削 broker.begin 单 tick 峰值（相位仍错开）
 const LEASE_TICKS = 5;
 // 卡住检测：持有租约却连续 STUCK_TICKS tick 位置与能量都没变化，视为目标不可达/无效，屏蔽该任务 BLOCK_TICKS
 const STUCK_TICKS = 6;
@@ -1006,26 +1006,35 @@ function beginTick() {
         }
     }
     const owned = {};
+    const replanBudget = 8;
+    const replanT0 = Game.cpu.getUsed();
+    let deferredReplan = 0;
     for (const room of Object.values(Game.rooms || {})) {
         if (!room.controller || !room.controller.my) continue;
         owned[room.name] = true;
         const last = planned[room.name];
         const due = !(last >= 0) || !runtime.tasks[room.name] || Game.time - last >= REPLAN_INTERVAL ||
             Game.time < last || (Game.time + roomPhase(room.name)) % REPLAN_INTERVAL === 0;
-        if (due) {
+        if (due && (Game.cpu.getUsed() - replanT0) < replanBudget) {
             planned[room.name] = Game.time;
             runtime.tasks[room.name] = roomTasks(room);
-            const metric = runtime.metrics[room.name] || { assigned: 0, idle: 0, deferred: 0, skippedCpu: 0, acted: 0 };
+            const metric = runtime.metrics[room.name] || { assigned: 0, idle: 0, deferred: 0, skippedCpu: 0, expired: 0 };
             metric.backlog = runtime.tasks[room.name].reduce((sum, task) => sum + task.backlog, 0);
             runtime.metrics[room.name] = metric;
         } else {
+            if (due) deferredReplan++;
             const tasks = runtime.tasks[room.name];
             runtime.tasks[room.name] = refreshTasks(tasks);
             if (!runtime.metrics[room.name]) {
-                runtime.metrics[room.name] = { backlog: tasks.reduce((sum, task) => sum + task.backlog, 0),
-                    assigned: 0, idle: 0, deferred: 0, skippedCpu: 0, acted: 0 };
+                runtime.metrics[room.name] = { backlog: (tasks || []).reduce((sum, task) => sum + task.backlog, 0),
+                    assigned: 0, idle: 0, deferred: 0, skippedCpu: 0, expired: 0 };
             }
         }
+    }
+    if (deferredReplan > 0) {
+        const mem = Memory.cpuDiag || (Memory.cpuDiag = {});
+        mem.brokerDefer = (Number(mem.brokerDefer) || 0) + deferredReplan;
+        mem.brokerDeferAt = Game.time;
     }
     for (const name of Object.keys(runtime.tasks)) if (!owned[name]) { delete runtime.tasks[name]; delete planned[name]; }
 }

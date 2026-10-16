@@ -867,6 +867,7 @@ module.exports = {
         // bucket 低于它不做（cpu_shed 降载中也不做）：一轮最多 maxScans 次 getAllOrders，每次 CPU 3 档
         minBucket: 5000,
         maxScans: 3,
+        tickCpuBudget: 5,             // 10-16：市场单 tick CPU 预算（超了停扫）
         // ---- 2026-10-15 P0 护栏（industry_audit.md，战略猫拍板）----
         priceBand: 0.15,              // 只在近 historyDays 天均价 ±15% 内成交（取代 priceFloorShare）
         anyRoom: true,                // 任何有 terminal 的房都卖富余（不再要求 storageRich；传送费仍须 terminal 付得起）
@@ -952,6 +953,16 @@ module.exports = {
         // 离硬停线还有 ≥ hardStopArm 时循环里不逐只读 getUsed：bucket 满时 tickLimit 500、线 470，循环开始时 getUsed 一般 < 100，
         // 而整个 creep 循环线上最大尖峰也就 ~140（整 tick 236）；bucket 见底时 tickLimit 收到 limit（150）、线 120，必然 armed
         hardStopArm: 250,
+    },
+    // 10-16 战略：模块窗口均值 > ema×factor 时降频跳过（bucket 满时也启用；creeps/spawn/move 永不熔）
+    cpuFuse: {
+        enabled: true,
+        factor: 3,
+        emaAlpha: 0.25,
+        minEma: 1.0,            // ema 太小不触发，避免噪声
+        skipTicks: 20,          // 熔断后跳过这么多 tick
+        // 可熔断的 cpuBy 键 → 主循环里对应的跳过点
+        modules: ['terminal', 'deposit', 'demolition', 'expansion', 'wheel', 'conquest'],
     },
     // 产 pixel 的 CPU 闸门（main.js pixelGate）：generatePixel 把 bucket 从 10000 一次花到 ≈0，cpu_shed 当场进紧急模式
     // （creep 循环上限 limit − criticalReserve）。线上 2026-10-08 用量 145–166/150 时产 pixel 等于立刻开始跳 creep、也没有缓冲接尖峰。

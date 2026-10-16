@@ -36,6 +36,7 @@ function settings() {
         energyPrice: 0.02,
         minBucket: 5000,
         maxScans: 3,
+        tickCpuBudget: 5,         // 10-16：一轮 getAllOrders/挂单合计超过这么多 CPU 就停（单 tick 预算）
         priceBand: null,          // 设了就取代 priceFloorShare：卖 ≥ 均价×(1−band)、买 ≤ 均价×(1+band)
         keepBy: {},               // 按资源的保留量（覆盖 keep）；Infinity = 永不卖
         dailySellUnits: {},       // 按资源每日最多卖多少
@@ -476,6 +477,9 @@ function run(shed) {
     try { const dep = require('deposit'); if (!dep.cpuOk(dep.settings())) return null; } catch (error) { /* 闸本身出错不挡市场 */ }
     const market = marketApi();
     if (!market || typeof market.deal !== 'function' || typeof market.getAllOrders !== 'function') return null;
+    const tickBudget = Number(cfg.tickCpuBudget) || 0;
+    const tickT0 = Game.cpu.getUsed();
+    const overBudget = () => tickBudget > 0 && (Game.cpu.getUsed() - tickT0) >= tickBudget;
     const ordersBy = {};   // 一轮之内同一资源只查一次
     let scans = 0;
     let hold = null;
@@ -483,8 +487,10 @@ function run(shed) {
     let posted = null;
     try { posted = runOwnOrders(cfg, market); } catch (error) { utils.logErr('market.ownOrders', error); }
     if (posted && posted.result === (typeof OK !== 'undefined' ? OK : 0)) return posted;
+    if (overBudget()) return posted;
     const bought = tryBuy(cfg, market, () => scans++);
     if (bought) return bought;
+    if (overBudget()) return bought;
     const ownSell = new Set(((ownSettings(cfg) && ownSettings(cfg).enabled && ownSettings(cfg).sell) || []).map((s) => s.room + ':' + s.resource));
     for (const room of sellerRooms(cfg)) {
         for (const entry of sellable(room, cfg, hold)) {
@@ -493,7 +499,7 @@ function run(shed) {
             const avg = recentAvgPrice(entry.resource, cfg);
             if (avg == null) continue;
             if (!ordersBy[entry.resource]) {
-                if (scans >= cfg.maxScans) continue;
+                if (scans >= cfg.maxScans || overBudget()) continue;
                 scans++;
                 try { ordersBy[entry.resource] = market.getAllOrders({ type: BUY(), resourceType: entry.resource }) || []; }
                 catch (error) { utils.logErr('market.getAllOrders', error); ordersBy[entry.resource] = []; }

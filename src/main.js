@@ -180,6 +180,12 @@ module.exports.loop = function () {
     const spkT0 = Game.cpu.getUsed();
     spkTick = {}; spkRoom = {};
     reuseParsedMemory();
+    // segment 90 = 外部大脑；91 = cpuSpikes 等遥测（不进 Memory，避免每 tick 解析）
+    try {
+        if (typeof RawMemory !== 'undefined' && RawMemory && typeof RawMemory.setActiveSegments === 'function') {
+            RawMemory.setActiveSegments([90, 91]);
+        }
+    } catch (e) { /* segment 激活失败不挡主循环 */ }
     // Memory 结构兜底（respawn/手动清空后 Memory 为空对象，缺一崩全 tick）
     Memory.creeps = Memory.creeps || {};
     Memory.rooms = Memory.rooms || {};
@@ -196,9 +202,13 @@ module.exports.loop = function () {
         cpuLap(cpuProf.mod, 'broker.begin');
         try { brain.run(); } catch (e) { logErr('brain.run', e); }
         cpuLap(cpuProf.mod, 'brain');
-        try { conquest.run(); } catch (e) { logErr('conquest.run', e); }
+        if (!cpuFused('conquest')) {
+            try { conquest.run(); } catch (e) { logErr('conquest.run', e); }
+        }
         cpuLap(cpuProf.mod, 'conquest');
-        try { wheelLayout.autoPlannerByFlag(); } catch (e) { logErr('wheel layout flags', e); }
+        if (!cpuFused('wheel')) {
+            try { wheelLayout.autoPlannerByFlag(); } catch (e) { logErr('wheel layout flags', e); }
+        }
         cpuLap(cpuProf.mod, 'wheel');
 
         if (Game.time % 501 === 0) gcMemory();
@@ -339,13 +349,19 @@ module.exports.loop = function () {
         // 市场与终端网络：卖富余矿物、跨房能量均衡（内部按 config.market / config.terminalNetwork 的 interval 降频、bucket < minBucket 不做）；
         // bucket 降载 / 硬停过的 tick 连调用和打点都省掉（降载时这一段的每次 getUsed 都是从 creep 那里抢来的）。
         // 市场在前：同一 terminal 一 tick 只能发一个意图，市场用过的 terminal 终端网络这 tick 不再用
-        if (!(shed && (shed.active || shed.stopped))) {
+        if (!(shed && (shed.active || shed.stopped)) && !cpuFused('terminal')) {
             try { market.run(shed); } catch (e) { logErr('market.run', e); }
             try { terminalNetwork.run(shed); } catch (e) { logErr('terminal.run', e); }
-            try { depositMod.run(); } catch (e) { logErr('deposit.run', e); }
+            if (!cpuFused('deposit')) {
+                try { depositMod.run(); } catch (e) { logErr('deposit.run', e); }
+            }
             cpuLap(cpuProf.mod, 'terminal');
         }
         sampleStats();
+        // 只在抽样 tick 更新熔断 EMA（与 sampleStats 同相位），避免同一窗口反复 trip
+        if (Game.time % 30 === 0) {
+            try { updateCpuFuse(); } catch (e) { logErr('updateCpuFuse', e); }
+        }
         try { taskBroker.flush(); } catch (e) { logErr('taskBroker.flush', e); }
         try { haulStats.flush(); } catch (e) { logErr('haulStats.flush', e); }
         cpuLap(cpuProf.mod, 'broker.flush');
@@ -373,7 +389,20 @@ module.exports.loop = function () {
         cpuLap(cpuProf.mod, 'move.end');
         if (shed && shed.stopped) { try { cpuShed.noteHardStopEnd(shed); } catch (e) { logErr('cpuShed.noteHardStopEnd', e); } }
         // cpu 字段过去在 sampleStats 里取，漏掉了 flush + endTick；改为整个 tick 收尾时回填
-        if (pendingStat) { pendingStat.cpu = Math.round(Game.cpu.getUsed() * 10) / 10; pendingStat = null; }
+        if (pendingStat) {
+            pendingStat.cpu = Math.round(Game.cpu.getUsed() * 10) / 10;
+            // 未记账 = 整 tick − cpuBy 之和（Memory 解析/序列化、GC、模块外开销）；观察猫：模块差~7 总差~30
+            let accounted = 0;
+            const by = pendingStat.cpuBy || {};
+            for (const k in by) accounted += Number(by[k]) || 0;
+            pendingStat.unaccounted = Math.round((pendingStat.cpu - accounted) * 10) / 10;
+            pendingStat.t0 = Math.round(spkT0 * 1000) / 1000;
+            const diag = Memory.cpuDiag || (Memory.cpuDiag = {});
+            diag.unaccounted = pendingStat.unaccounted;
+            diag.cpu = pendingStat.cpu;
+            diag.at = Game.time;
+            pendingStat = null;
+        }
         try { noteSpike(spkT0); } catch (e) { /* 诊断失败不影响主循环 */ }
     }
 };
@@ -384,14 +413,41 @@ let spkTick = {}, spkRoom = {}, spkRoles = {}, spkArm = null;
 // creep 循环里每 SPK_PROBE 只探一次用量；越过 SPK_ARM 起逐只计时（尖峰线 150 往下留余量，抓到尖峰前的那段爬升）
 const SPK_PROBE = 16, SPK_ARM = 100, SPK_MIN_BUCKET = 5000; // 降载中 / bucket 吃紧不计时：那时每次读数都是从 creep 那里抢的
 const spkBoot = Game.time;
+const SPIKE_SEG = 91;
+const SPIKE_KEEP_MEM = 8;
+
 function noteSpike(t0) {
     const used = Game.cpu.getUsed();
     if (used <= SPIKE_LINE) return;
     const r1 = (o, min) => { const out = {}; for (const k in o) if (o[k] >= min) out[k] = Math.round(o[k] * 10) / 10; return out; };
+    const row = { t: Game.time, cpu: Math.round(used * 10) / 10, t0: Math.round(t0 * 10) / 10, age: Game.time - spkBoot,
+        b: Game.cpu.bucket, n: Object.keys(Game.creeps).length, m: r1(spkTick, 1), r: r1(spkRoom, 3), arm: spkArm, roles: spkRoleDigest() };
     const arr = Memory.cpuSpikes || (Memory.cpuSpikes = []);
-    arr.push({ t: Game.time, cpu: Math.round(used * 10) / 10, t0: Math.round(t0 * 10) / 10, age: Game.time - spkBoot,
-        b: Game.cpu.bucket, n: Object.keys(Game.creeps).length, m: r1(spkTick, 1), r: r1(spkRoom, 3), arm: spkArm, roles: spkRoleDigest() });
-    if (arr.length > 30) arr.splice(0, arr.length - 30);
+    arr.push(row);
+    // 热数据只留 SPIKE_KEEP_MEM 条在 Memory；溢出写 RawMemory segment 91（观察猫/外置脚本按需读）
+    if (arr.length > SPIKE_KEEP_MEM) {
+        const overflow = arr.splice(0, arr.length - SPIKE_KEEP_MEM);
+        try { flushSpikesToSegment(overflow); } catch (e) { /* 遥测失败不挡 */ }
+    }
+}
+
+function flushSpikesToSegment(overflow) {
+    if (typeof RawMemory === 'undefined' || !RawMemory) return;
+    if (typeof RawMemory.setActiveSegments === 'function') RawMemory.setActiveSegments([90, SPIKE_SEG]);
+    let prev = [];
+    try {
+        const raw = RawMemory.segments && RawMemory.segments[SPIKE_SEG];
+        if (typeof raw === 'string' && raw.length) {
+            const parsed = JSON.parse(raw);
+            if (parsed && Array.isArray(parsed.spikes)) prev = parsed.spikes;
+        }
+    } catch (e) { prev = []; }
+    const spikes = prev.concat(overflow || []).slice(-40);
+    RawMemory.segments[SPIKE_SEG] = JSON.stringify({ spikes, at: Game.time });
+    const diag = Memory.cpuDiag || (Memory.cpuDiag = {});
+    diag.spikesSeg = SPIKE_SEG;
+    diag.spikesAt = Game.time;
+    diag.spikesN = spikes.length;
 }
 
 // 只留 ≥0.5 CPU 的角色：{ role: [cpu, 只数] }，按 CPU 降序
@@ -409,13 +465,17 @@ function runRoom(room) {
     cpuLap(cpuProf.mod, 'assess');
     remote.run(room);
     cpuLap(cpuProf.mod, 'remote');
-    try { expansion.run(room); } catch (e) { logErr('expansion.run ' + room.name, e); }
+    if (!cpuFused('expansion')) {
+        try { expansion.run(room); } catch (e) { logErr('expansion.run ' + room.name, e); }
+    }
     cpuLap(cpuProf.mod, 'expansion');
     spawnMgr.run(room);
     cpuLap(cpuProf.mod, 'spawn');
     // 布局错峰执行（按房名 hash 取相位；曾用 charCodeAt(3)，那一位对所有房恒为 'S'/'N'，等于没错峰）
     if (utils.isRoomPhaseTick(room.name, config.layoutInterval)) { layout.run(room); cpuLap(cpuProf.mod, 'layout'); }
-    try { demolition.run(room); } catch (e) { logErr('demolition.run ' + room.name, e); }
+    if (!cpuFused('demolition')) {
+        try { demolition.run(room); } catch (e) { logErr('demolition.run ' + room.name, e); }
+    }
     cpuLap(cpuProf.mod, 'demolition');
     tower.run(room);
     links.run(room);
@@ -461,8 +521,9 @@ function sampleStats() {
         cpu: Math.round(Game.cpu.getUsed() * 10) / 10,   // tick 收尾时会回填成含 flush/endTick 的完整值
         bucket: Game.cpu.bucket,
         cpuBy: cpuDigest(cpuProf.mod, cpuProf.ticks),
-        cpuRooms: cpuDigest(cpuProf.room, cpuProf.ticks),
-        cpuRoles: cpuDigest(cpuProf.role, cpuProf.roleTicks),
+        // 每 4 条才带房/角色分解，平时省掉 ~一半 stats 体积（stats 曾 ~116KB/80 条）
+        cpuRooms: (Memory.stats.length % 4 === 0) ? cpuDigest(cpuProf.room, cpuProf.ticks) : undefined,
+        cpuRoles: (Memory.stats.length % 4 === 0) ? cpuDigest(cpuProf.role, cpuProf.roleTicks) : undefined,
         // creep 分发（cpuBy.creeps）按阶段拆开：order 排序/降载重排、retire 退役与让路检查+能不能跳、start/finish broker 起止、run 角色本身。
         // 单项常常不到 cpuDigest 的 0.05 门槛，这里留到 0.001
         cpuDispatch: cpuDigest(cpuProf.disp, cpuProf.dispTicks, 0.001, 1000),
@@ -476,6 +537,15 @@ function sampleStats() {
         // workTile = movement.isWorkTile 的每 creep 每 tick 工位 spec（轮子堵车解算与 broker 反复问）
         cache: cacheDigest(),
     };
+    // Memory 体积（RawMemory.get 是本 tick 开头的快照，便宜）；对照未记账开销
+    try {
+        if (typeof RawMemory !== 'undefined' && RawMemory && typeof RawMemory.get === 'function') {
+            entry.memBytes = RawMemory.get().length;
+            const diag = Memory.cpuDiag || (Memory.cpuDiag = {});
+            diag.memBytes = entry.memBytes;
+            diag.memAt = Game.time;
+        }
+    } catch (e) { /* ignore */ }
     cpuProf.mod = {};
     cpuProf.room = {};
     cpuProf.role = {};
@@ -485,7 +555,8 @@ function sampleStats() {
     cpuProf.ticks = 0;
     Memory.stats.push(entry);
     pendingStat = entry;
-    if (Memory.stats.length > 80) Memory.stats.splice(0, Memory.stats.length - 80);
+    // 10-16：80→40，配合稀疏 cpuRooms/cpuRoles，目标把 stats 从 ~116KB 压到一半以下
+    if (Memory.stats.length > 40) Memory.stats.splice(0, Memory.stats.length - 40);
 }
 
 function spawnDigest() {
@@ -580,4 +651,67 @@ function gcMemory() {
         }
     }
     gcProbeKeys();
+    try { pruneRoomLogs(); } catch (e) { logErr('pruneRoomLogs', e); }
+    try { prunePvpFlee(); } catch (e) { logErr('prunePvpFlee', e); }
+}
+
+/** 房内诊断日志环形截断：spawnStallLog 等曾单房就 1KB+，全图合计可观 */
+const ROOM_LOG_KEYS = ['spawnStallLog', 'spawnLog', 'crippledLog', 'defenseLog', 'reserveLog', 'minerUpgradeLog'];
+const ROOM_LOG_KEEP = 8;
+function pruneRoomLogs() {
+    const rooms = Memory.rooms || {};
+    for (const name in rooms) {
+        const mem = rooms[name];
+        if (!mem || typeof mem !== 'object') continue;
+        for (const key of ROOM_LOG_KEYS) {
+            const arr = mem[key];
+            if (Array.isArray(arr) && arr.length > ROOM_LOG_KEEP) arr.splice(0, arr.length - ROOM_LOG_KEEP);
+        }
+    }
+}
+
+/** pvpFlee 只保留近期目击（3000 tick）；过期条目每 tick 跟着 Memory 解析纯浪费 */
+function prunePvpFlee() {
+    const mem = Memory.pvpFlee;
+    if (!mem) return;
+    for (const name of Object.keys(mem)) {
+        const at = mem[name] && mem[name].at;
+        if (!(at > 0) || Game.time - at > 3000) delete mem[name];
+    }
+}
+
+/** 模块 CPU 熔断：窗口均值 > ema×factor 则 skipTicks 内跳过该模块（creeps/spawn/move/broker 不在名单） */
+function cpuFused(mod) {
+    const cfg = config.cpuFuse;
+    if (!cfg || !cfg.enabled) return false;
+    const fuse = Memory.cpuFuse;
+    if (!fuse || !fuse.skipUntil) return false;
+    return (Number(fuse.skipUntil[mod]) || 0) > Game.time;
+}
+
+function updateCpuFuse() {
+    const cfg = config.cpuFuse;
+    if (!cfg || !cfg.enabled) return;
+    const entry = pendingStat || (Memory.stats && Memory.stats[Memory.stats.length - 1]);
+    if (!entry || !entry.cpuBy || entry.t !== Game.time) return;
+    const fuse = Memory.cpuFuse || (Memory.cpuFuse = { ema: {}, skipUntil: {} });
+    fuse.ema = fuse.ema || {};
+    fuse.skipUntil = fuse.skipUntil || {};
+    const alpha = Number(cfg.emaAlpha) || 0.25;
+    const factor = Number(cfg.factor) || 3;
+    const minEma = Number(cfg.minEma) || 1;
+    const skipTicks = Number(cfg.skipTicks) || 20;
+    const allow = cfg.modules || [];
+    for (const mod of allow) {
+        const v = Number(entry.cpuBy[mod]);
+        if (!(v > 0)) continue;
+        const prev = fuse.ema[mod];
+        const ema = prev != null ? prev : v;
+        if (ema >= minEma && v > factor * ema) {
+            fuse.skipUntil[mod] = Game.time + skipTicks;
+            fuse.lastTrip = { mod, v, ema: Math.round(ema * 10) / 10, at: Game.time };
+        }
+        fuse.ema[mod] = Math.round((ema * (1 - alpha) + v * alpha) * 100) / 100;
+    }
+    fuse.at = Game.time;
 }
