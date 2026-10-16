@@ -120,7 +120,8 @@ function planStarving(rooms, cfg, rich) {
     for (const name of order) {
         const to = byName[name];
         const until = Math.max(below, Number(cfg.starvingUntil && cfg.starvingUntil[name]) || 0);
-        if (!to || roomEnergy(to) >= until || freeOf(to.terminal.store) <= 0) continue;
+        // RCL8 升级上限 15/tick，不再当冲级接收方（战略：升 8 后不要加进名单）
+        if (!to || (to.controller && to.controller.level >= 8) || roomEnergy(to) >= until || freeOf(to.terminal.store) <= 0) continue;
         for (const from of senders) {
             const spare = roomEnergy(from) - keep - feeReserveOf(from);
             const budget = energyOf(from.terminal.store) - Math.max(feeReserve, feeReserveOf(from));
@@ -173,12 +174,63 @@ function planFeeReserve(rooms, cfg, rich) {
     return null;
 }
 
+
+/** 10-16 战略：名单内囤能房（达不到 sendAbove 10 万）把超额送给 priorityReceivers，发完留 keep */
+function planHoardFlush(rooms, cfg, rich) {
+    const hf = cfg.hoardFlush || {};
+    const names = Array.isArray(hf.rooms) ? hf.rooms : [];
+    const order = Array.isArray(cfg.priorityReceivers) ? cfg.priorityReceivers : [];
+    if (!names.length || !order.length) return null;
+    const sendAbove = Number(hf.sendAbove) || 40000;
+    const keep = Number(hf.keep) || 20000;
+    const maxSend = Number(hf.maxSend) || Number(cfg.starveMaxSend) || cfg.maxSend;
+    const feeReserve = Math.max(0, Number(cfg.feeReserve) || 0);
+    const byName = {};
+    for (const room of rooms) byName[room.name] = room;
+    const senders = names.map((n) => byName[n]).filter((room) => room && roomEnergy(room) >= sendAbove &&
+        !(room.terminal.cooldown > 0) && !usedThisTick(room.name) &&
+        energyOf(room.terminal.store) > feeReserve && rich(room));
+    if (!senders.length) return null;
+    // 接收：优先名单里还没到 RCL8、且能量低于 sendAbove 的房（冲升级）；再退到 receiveBelow
+    const want = [];
+    for (const name of order) {
+        const to = byName[name];
+        if (!to || freeOf(to.terminal.store) <= 0) continue;
+        if (to.controller && to.controller.level >= 8) continue;   // RCL8 不加进接收优先
+        want.push(to);
+    }
+    for (const to of rooms) {
+        if (want.indexOf(to) >= 0) continue;
+        if (roomEnergy(to) <= (Number(cfg.receiveBelow) || 0) && freeOf(to.terminal.store) > 0) want.push(to);
+    }
+    for (const from of senders) {
+        for (const to of want) {
+            if (to.name === from.name) continue;
+            const spare = roomEnergy(from) - keep - feeReserveOf(from);
+            if (spare <= 0) continue;
+            const budget = energyOf(from.terminal.store) - Math.max(feeReserve, feeReserveOf(from));
+            let amount = Math.min(spare, maxSend, freeOf(to.terminal.store), budget);
+            let cost = transactionCost(amount, from.name, to.name);
+            while (amount > 0 && amount + cost > budget) {
+                amount = Math.floor((budget - cost) * 0.98);
+                if (amount <= 0) break;
+                cost = transactionCost(amount, from.name, to.name);
+            }
+            if (amount < (Number(cfg.minSend) || 5000)) continue;
+            return { from, to, amount, cost, hoard: true };
+        }
+    }
+    return null;
+}
+
 function planTransfer(rooms, cfg, isRich) {
     const rich = typeof isRich === 'function' ? isRich : () => true;
     const urgent = planStarving(rooms, cfg, rich);
     if (urgent) return urgent;
     const fee = planFeeReserve(rooms, cfg, rich);
     if (fee) return fee;
+    const hoard = planHoardFlush(rooms, cfg, rich);
+    if (hoard) return hoard;
     const ranked = rooms.slice().sort((a, b) => roomEnergy(b) - roomEnergy(a));
     const feeReserve = Math.max(0, Number(cfg.feeReserve) || 0);
     const senders = ranked.filter((room) => roomEnergy(room) >= cfg.sendAbove && !(room.terminal.cooldown > 0) &&
@@ -313,4 +365,4 @@ function runMineral(rooms, cfg) {
     return record;
 }
 
-module.exports = { run, planTransfer, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };
+module.exports = { run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };

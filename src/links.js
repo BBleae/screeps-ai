@@ -166,6 +166,8 @@ function storageEnergy(room) {
 function reverseCtrlFeedWanted(room, plan) {
     const floor = reverseCtrlFeedAbove();
     if (!(floor > 0) || !room || !room.storage || room.storage.my === false) return false;
+    // 10-16 战略：RCL8 升级上限 15/tick，超额应走 terminal 给 priorityReceivers，不再反向灌 ctrl
+    if (room.controller && room.controller.my && room.controller.level >= 8) return false;
     if (storageEnergy(room) <= floor) return false;
     const resolved = planOf(room, plan);
     const store = storeLinkReady(room, resolved);

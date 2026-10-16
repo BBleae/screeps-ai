@@ -596,6 +596,11 @@ module.exports = {
         // builder 不建、不计入 builder 编制。这些建筑在当前代码里没有产出（工业要 storage ≥ 10 万才动用），
         // 线上 W33S7 在 storage 0 时把升级限流让出的能量全灌进了 terminal
         luxuryStorageAbove: 10000,
+        // 10-16 战略：RCL8 后先不建 nuker / power spawn（第 3 阶段之前）
+        deferNuker: true,
+        deferPowerSpawn: true,
+        // RCL8 建造顺序：extension → 第 3 spawn → lab→10 → tower→6（layout.js 按此错峰）
+        rcl8BuildOrder: true,
         // 塔射程外的维修债（血）低于它时不为维修孵 builder（spawn.hasBuilderWork）：约 100 能量的活不值一只 builder 的摊销
         outOfReachMinDebt: 10000,
         horizon: 300,
@@ -813,6 +818,10 @@ module.exports = {
         minBucket: 3000,
         // 10-16：Jumpp 常驻采 deposit 的房，放弃直到护矿小队就绪；hostileUntil 过期后也不再分配
         avoidRooms: ['W30S9'],
+        // 10-16 战略：近 pvpSkipTicks 内有他人 pvpFlee/pvpThreat 的 deposit 房一律不派
+        pvpSkipTicks: 3000,
+        // 10-16 战略：眼下只挖 W30S6（Jumpp 南边避让期）；空数组 = 不限制
+        allowRooms: ['W30S6'],
         // 选房偏好：北/西优先（护矿前避开南边 S10 高速路邻居）
         preferNorthWest: true,
     },
@@ -825,19 +834,29 @@ module.exports = {
         minSend: 5000,       // 太小的单不值得（传送本身要烧能量）
         // 救急（terminal.planStarving，2026-10-15 战略猫）：名单里的房 storage+terminal < starvingBelow 时按顺序先救，
         // 发送方只要 ≥ starveSendAbove（且 storageRich）、发完留 starveKeep，一笔最多 starveMaxSend
-        priorityReceivers: ['W31S8', 'W35S7', 'W34S7', 'W31S5', 'W37S5'],
+        // 10-16 战略：W33S7 冲线时排第一（升到 8 后 planStarving/hoard 自动跳过 RCL8）；
+        // 随后能量倾斜 W32S4/W33S8；勿把已 RCL8 的房加进名单
+        priorityReceivers: ['W33S7', 'W32S4', 'W33S8', 'W31S8', 'W35S7', 'W34S7', 'W31S5', 'W37S5'],
         starvingBelow: 10000,
-        starvingUntil: { W31S8: 20000 },
+        starvingUntil: { W31S8: 20000, W33S7: 25000, W32S4: 25000, W33S8: 25000 },
         starveMinSend: 2000,          // 10-16：starvingUntil 房救急期间单笔下限（平时 minSend 5000）
         senderTerminalExtra: 10000,   // 10-16：发送房 terminal 常备 储备 + 1 万 可发能量（task_broker.senderFillWant）
         senderStorageFloor: 30000,    // 补 terminal 时 storage 不低于 3 万   // 10-16 战略猫：W31S8 排第一、每轮都送，直到 storage+terminal ≥ 2 万（只按 storage 算的话 terminal 送来的能量被直接取用，会无限送）
         starveSendAbove: 30000,  // 10-16：spawn 卡死救急，发完留 starveKeep
         starveKeep: 20000,  // 10-16：救急发完至少留 2 万
         starveMaxSend: 10000,
+        // 10-16 战略：RCL6 囤能房（W29S3 storage ~72k）达不到 sendAbove 10 万，能量闲置。
+        // 名单内房间 ≥ sendAbove 就按 starve 规则送给 priorityReceivers，发完留 keep（二选一：调走，不闲着）
+        hoardFlush: {
+            rooms: ['W29S3'],
+            sendAbove: 40000,
+            keep: 20000,
+            maxSend: 10000,
+        },
         // 传送费储备（2026-10-15）：这些房的 terminal 常备这么多能量给市场/调剂付传送费。
         // 先由本房 hauler 从 storage 补（storage 高于 feeReserveStorageFloor 时，不看 storageRich）；storage 也没有就排在救急房之后
         // 用同样的发送方规则从别房送；这份储备不算发送方的富余、也不被 hauler 取回 storage
-        terminalFeeReserve: { W34S7: 3000, W32S4: 3000, W33S3: 3000, W33S7: 1000, W31S6: 1000, W33S8: 1000, W37S7: 1000 },   // W33S7：L 调剂给 lab 房的传送费（2000 L ≈ 200 能量）   // 15:01 战略猫：自挂单后对方付传送费，储备降到 3k
+        terminalFeeReserve: { W34S7: 3000, W32S4: 3000, W33S3: 3000, W33S7: 1000, W31S6: 1000, W33S8: 1000, W37S7: 1000, W29S3: 5000 },   // W33S7：L 调剂给 lab 房的传送费（2000 L ≈ 200 能量）   // 15:01 战略猫：自挂单后对方付传送费，储备降到 3k
         feeReserveStorageFloor: 2000,
         maxSend: 50000,
         // terminal 里留给市场传送费的底（src/market.js 的 deal 从 terminal 扣能量）：5000 矿物发到 10 房外约 1500 能量

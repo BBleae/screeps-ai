@@ -35,6 +35,8 @@ const DEFAULTS = {
     scout: true,            // 一只 1 MOVE 的巡逻侦察（50 能量）
     scoutRevisit: 1500,     // 同一过道房多久重看一次
     avoidRooms: [],         // 永久不采（Jumpp 常驻等）
+    pvpSkipTicks: 3000,     // 近这么多 tick 有 pvpFlee/pvpThreat 则不派
+    allowRooms: [],         // 非空时只采这些房（战略临时白名单）
     preferNorthWest: true,
 };
 
@@ -154,11 +156,27 @@ function northWestScore(roomName) {
     return north * 1000 + west;
 }
 
+/** 近 pvpSkipTicks 内该房有他人威胁记录（pvpFlee 或 pvpThreat）则跳过 */
+function recentlyPvpDeposit(roomName, cfg) {
+    const ticks = Number(cfg.pvpSkipTicks) || 0;
+    if (!(ticks > 0) || !roomName) return false;
+    const flee = Memory.pvpFlee && Memory.pvpFlee[roomName];
+    if (flee && Number(flee.at) > 0 && Game.time - flee.at <= ticks) return true;
+    const threat = Memory.pvpThreat && Memory.pvpThreat[roomName];
+    if (!threat) return false;
+    if (Number(threat.until) > Game.time) return true;
+    if (Number(threat.at) > 0 && Game.time - threat.at <= ticks) return true;
+    return false;
+}
+
 /** 这个 deposit 现在值得采（不看分配） */
 function workable(d, cfg) {
     if (!d || cfg.types.indexOf(d.type) < 0) return false;
     if ((cfg.avoidRooms || []).indexOf(d.room) >= 0) return false;
+    const allow = cfg.allowRooms || [];
+    if (allow.length && allow.indexOf(d.room) < 0) return false;
     if (require('utils').pvpDangerRoom(d.room)) return false;
+    if (recentlyPvpDeposit(d.room, cfg)) return false;
     return Game.time - d.at <= cfg.seenTtl && d.cd <= cfg.maxCooldown &&
         d.decayAt - Game.time >= cfg.minDecay && !(d.hostileUntil > Game.time);
 }
@@ -259,4 +277,5 @@ function getDemands(home) {
     return out;
 }
 
-module.exports = { settings, run, note, hops, workable, cpuOk, minerBody, patrolTargets, getDemands, isHighway, isKeeperRoom, scoutHome };
+module.exports = {
+    recentlyPvpDeposit, settings, run, note, hops, workable, cpuOk, minerBody, patrolTargets, getDemands, isHighway, isKeeperRoom, scoutHome };
