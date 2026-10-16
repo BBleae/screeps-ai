@@ -31,7 +31,7 @@ function load(creep) {
     // 10-16 一次性放行（Memory.aidOneShot）：总量封顶，取满后放行标记已删——空车回 spawn 回收，不再取
     if (creep.memory.oneShot) {
         const o = Memory.aidOneShot;
-        const left = o && o.from === creep.memory.from && o.to === creep.memory.home ? Math.max(0, Number(o.amount) - (Number(o.withdrawn) || 0)) : 0;
+        const left = o && !o.paused && o.from === creep.memory.from && o.to === creep.memory.home ? Math.max(0, Number(o.amount) - (Number(o.withdrawn) || 0)) : 0;
         if (left <= 0) {
             if ((Number(creep.store[RESOURCE_ENERGY]) || 0) > 0) { creep.memory.state = 'deliver'; goToRoom(creep, creep.memory.home); return; }
             retireMod.retireAtSpawn(creep); return;
@@ -109,6 +109,12 @@ function oneShotTarget(home, creep) {
 
 function run(creep) {
     if (!creep.memory.home || !creep.memory.from) return;
+    // 10-16 战略：oneShot courier 真掉血 → 暂停放行（不删标记），等 W29S3 terminal 建成改用 terminal 送
+    if (creep.memory.oneShot && Memory.aidOneShot && !Memory.aidOneShot.paused && creep.hits < creep.hitsMax) {
+        Memory.aidOneShot.paused = { reason: 'courierDamaged', at: Game.time, name: creep.name, room: creep.room && creep.room.name,
+            hits: creep.hits, hitsMax: creep.hitsMax, resume: 'W29S3 terminal 建成后用 terminal 送剩余量' };
+        console.log('[aid] oneShot 暂停：' + creep.name + ' 在 ' + (creep.room && creep.room.name) + ' 掉血 ' + creep.hits + '/' + creep.hitsMax);
+    }
     if (creep.store[RESOURCE_ENERGY] <= 0) creep.memory.state = 'load';
     else if (creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) creep.memory.state = 'deliver';
     else if (!creep.memory.state) creep.memory.state = 'deliver';

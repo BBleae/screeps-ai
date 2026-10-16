@@ -977,6 +977,15 @@ function notePvpThreat(room) {
  *  只在有视野、房里同时有我方 creep 和非 NPC 玩家 creep 时读 room.getEventLog()（引擎按房缓存，事件只含上一 tick）。
  *  EVENT_ATTACK 的目标是我方 creep/建筑 → 反查攻击者 owner。aggressorTtl（默认 20000）tick 没再动手自动移除。不改 config.pvp.highThreat */
 const AGGRESSOR_NPC = ['Invader', 'Source Keeper', 'Power Bank'];
+const hitsSeen = (typeof global !== 'undefined' ? (global.__pvpHitsSeen || (global.__pvpHitsSeen = {})) : {});
+function targetLostHits(target) {
+    const prev = hitsSeen[target.id];
+    if (prev && prev.t === Game.time - 1) return Number(target.hits) < prev.hits;
+    return Number(target.hits) < Number(target.hitsMax);
+}
+function sampleMyHits(room) {
+    for (const c of room.find(FIND_MY_CREEPS) || []) hitsSeen[c.id] = { t: Game.time, hits: Number(c.hits) };
+}
 function noteAggressors(room) {
     if (!room || typeof room.find !== 'function' || typeof room.getEventLog !== 'function') return 0;
     const hostiles = (room.find(FIND_HOSTILE_CREEPS) || []).filter((c) => c.owner && AGGRESSOR_NPC.indexOf(c.owner.username) < 0);
@@ -992,6 +1001,8 @@ function noteAggressors(room) {
         if (!user) continue;
         const target = Game.getObjectById(ev.data.targetId);
         if (!target || !(target.my === true)) continue;
+        // 10-16：目标这一 tick 确实比上一 tick 掉了血才算（建筑/没有上一 tick 样本时退回 hits < hitsMax）
+        if (!targetLostHits(target)) continue;
         const m = Memory.pvpAggressors || (Memory.pvpAggressors = {});
         const rec = m[user];
         if (!rec) {
@@ -1006,6 +1017,7 @@ function noteAggressors(room) {
             if (rec.rooms.indexOf(room.name) < 0) { rec.rooms.push(room.name); if (rec.rooms.length > 10) rec.rooms.shift(); }
         }
     }
+    sampleMyHits(room);
     return added;
 }
 /** 当前有效的攻击者名单（过期的顺手删） */

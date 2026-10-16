@@ -222,6 +222,8 @@ function highwayBlocks() {
     // 光是在房里出现不续期
     const aggMem = typeof Memory !== 'undefined' && Memory && Memory.pvpAggressors || {};
     const aggressors = new Set(utils.pvpAggressors());
+    // 10-16 战略：blockExclude 里的玩家只记攻击、不触发封路（查清前的临时豁免）
+    for (const u of pvpCfg.blockExclude || []) { aggressors.delete(u); hostileUsers.delete(u); }
     const detect = pvpCfg.highwayBlockDetect !== false;
     for (const name of Object.keys(gameRooms)) {
         if (!detect || !isHighwayRoom(name)) continue;
