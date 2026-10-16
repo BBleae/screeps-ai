@@ -2613,7 +2613,7 @@ function runQueue(room) {
         // 援建只在弱房经济还没起来时是 strategic（aid.js shortHanded）；弱房能自转后排在母房自己的 builder/hauler 之后
         for (const item of aidDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'aid', settings, { strategic: item.strategic !== false }));
         // 容器已建成的外矿的替补（remote.js 标 maintain）是在维持收入，排在发展档与援建之前；新外矿的开路仍在最后
-        for (const item of remoteOnly) if (unmet(item)) requests.push(demandRequest(room, item, item.maintain ? 'remoteMaintain' : 'remote', settings, { jumpable: true }));
+        for (const item of remoteOnly.filter((d) => d.starvedLine).concat(remoteOnly.filter((d) => !d.starvedLine))) if (unmet(item)) requests.push(demandRequest(room, item, item.maintain ? 'remoteMaintain' : 'remote', settings, { jumpable: true }));
         // 攻占需求（破防 dismantler / 围降 downgrader / 占领 claimer）：一次性战略操作。jumpable 不挡同级；
         // blocking:false 关键——攻占档位（2）在生存之上、经济之下，若买不起的攻城身体还 blocking 就会把 blockBelow 压到 2、
         // 冻住优先级 >2 的全部经济（reserver=remoteMaintain 4 首当其冲），线上实测把 reserver 打到 0/8。攻城仍靠优先级先拿能量，

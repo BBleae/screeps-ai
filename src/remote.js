@@ -1764,6 +1764,17 @@ function getDemands(home) {
             if (lost) record.containerLostHaul = { at: Game.time, source: source.id, lostAt: source.containerLostAt };
             source.haulNeed = requiredCarryFor(source, distance, dropName);   // 遥测：这条运输线需要同时在途的 CARRY
             source.haulStops = deliveryStops(dropName);                        // 遥测：编制按的投递停靠（实测或回退值）
+            // 10-16 W31S1：单 spawn 母房里排在最后的远外矿，2250 的槽 0 永远被前面外矿的替补插队，在途 CARRY 不到需求一半、容器满仓。
+            // config.remote.starvedHaulFirst 点名的母房：这类"饿线"的 hauler 需求标 starvedLine，spawn 把它排到外矿维护档的最前面
+            const starvedRooms = (config.remote || {}).starvedHaulFirst || [];
+            let starvedLine = false;
+            if (starvedRooms.indexOf(home.name) >= 0) {
+                const liveCarry = creepsHomeRole(home.name, 'remoteHauler').filter((creep) => !isRetiring(creep.memory) &&
+                    creep.memory.remoteRoom === record.room && creep.memory.sourceId === source.id)
+                    .reduce((sum, creep) => sum + bodyPartCount(creep.body, 'carry'), 0);
+                starvedLine = liveCarry * 2 < source.haulNeed;
+                if (starvedLine) record.starvedHaul = { at: Game.time, live: liveCarry, need: source.haulNeed };
+            }
             for (const plan of slots) {
                 const { slotIndex, body, carry: bodyCarry } = plan;
                 const slot = 'remoteHauler:' + record.room + ':' + source.id + ':' + slotIndex;
@@ -1777,6 +1788,7 @@ function getDemands(home) {
                 }, lead, priority++, (budget) => remoteHaulerBody(budget, source.roadComplete, slotIndex === 0, bodyCarry));
                 capHaulBody(home, capacity, haulDemand, (b) => remoteHaulerBody(b, source.roadComplete, slotIndex === 0, bodyCarry));
                 haulDemand.maintain = true;   // 有容器才会出 hauler 需求
+                if (starvedLine) haulDemand.starvedLine = true;
                 // 这具身体每 tick 能运回多少（CARRY×50 / 往返），封顶源产出：spawn 用它判断缩身 hauler 值不值得换代
                 haulDemand.throughput = (body) => Math.min(rate, carryParts(body.map((part) => (part && part.type) || part)) * 50 / roundTripTicks(source, distance, dropName));
                 demands.push(haulDemand);
