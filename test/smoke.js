@@ -10871,6 +10871,25 @@ console.log('== 10-16 22:20 自动记攻击者（Memory.pvpAggressors）==');
     for (const [k, v] of [['pvpAggressors', saved.agg], ['pvpAggressorLog', saved.log], ['highwayBlock', saved.hb], ['pvpThreat', saved.pt]]) { if (v === undefined) delete Memory[k]; else Memory[k] = v; }
 }
 
+console.log('== 10-16 23:07 非战斗 creep 离玩家远程 creep ≥ 3 格 ==');
+{
+    world.time++;
+    const mv = require('../src/movement');
+    const savedRooms = Game.rooms;
+    const rng = { owner: { username: 'Kasami' }, pos: { x: 42, y: 15 }, body: [{ type: 'ranged_attack' }, { type: 'heal' }] };
+    const inv = { owner: { username: 'Invader' }, pos: { x: 10, y: 10 }, body: [{ type: 'ranged_attack' }] };
+    Game.rooms = { W30S4: { name: 'W30S4', find: (k) => (k === C.FIND_HOSTILE_CREEPS ? [rng, inv] : []) } };
+    const th = mv.rangedThreats();
+    assert(th.W30S4 && th.W30S4.length === 1, '只记玩家远程 creep（NPC 不算）');
+    const cm = { d: {}, get(x, y) { return this.d[x + ',' + y] || 0; }, set(x, y, v) { this.d[x + ',' + y] = v; } };
+    mv.rangedAvoidCallback(th)('W30S4', cm);
+    assert(cm.get(45, 15) === 250 && cm.get(39, 18) === 250 && cm.get(46, 15) === 0, '对方 3 格内抬高 cost，4 格外不变');
+    const cm2 = { d: {}, get() { return 0; }, set(x, y, v) { this.d[x + ',' + y] = v; } };
+    mv.rangedAvoidCallback(th)('W30S3', cm2);
+    assert(!Object.keys(cm2.d).length, '没有对方 creep 的房不改');
+    Game.rooms = savedRooms;
+}
+
 console.log('== 10-16 23:03 全局塔底线 500（towerFloor）==');
 {
     world.time++;
