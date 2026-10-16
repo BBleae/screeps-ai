@@ -10401,6 +10401,19 @@ console.log('== 死房裁工地：连续 deadRoom.afterTicks 没有 builder/pion
     layout.run(drRoom);
     assert(drRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length > drCfg.deadRoom.keep && Memory.rooms.W33S7.builderSeenAt === Game.time,
         '没有工地时不算死房：正常放工地并重置计时（得 ' + drRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length + '）');
+    // 只剩被经济门槛挡住的工地（builder 编制为 0）也不算死房：否则 place() 提前 return，terminal 工地永远放不出（W29S3 10-17）
+    {
+        const drUtils = require('../src/utils');
+        const drOrig = drUtils.siteWanted;
+        drUtils.siteWanted = () => false;
+        try {
+            Memory.rooms.W33S7.builderSeenAt = Game.time - 2 * drCfg.deadRoom.afterTicks;
+            world.time += 11;
+            layout.run(drRoom);
+            assert(Memory.rooms.W33S7.builderSeenAt === Game.time,
+                '只有不想建的工地时不计死房、重置计时（得 builderSeenAt=' + Memory.rooms.W33S7.builderSeenAt + ' 现在=' + Game.time + '）');
+        } finally { drUtils.siteWanted = drOrig; }
+    }
 }
 
 console.log('== 外矿工地：停用的外矿其工地全部清掉（不需要视野）；路工地按母房限量 roadSitesPerHome ==');
