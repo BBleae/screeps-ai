@@ -213,11 +213,17 @@ function highwayBlocks() {
     const ttl = Number((require('config').pvp || {}).highwayBlockTtl) || 1500;
     const gameRooms = typeof Game !== 'undefined' && Game.rooms || {};
     const hostileKind = typeof FIND_HOSTILE_CREEPS === 'undefined' ? 'hostileCreeps' : FIND_HOSTILE_CREEPS;
+    // 10-16 收窄：只封"有前科"的玩家——config.pvp.highThreat 名单（Jumpp）∪ Memory.pvpThreat 记录里出现过的玩家；其他玩家照常通行
+    const pvpCfg = require('config').pvp || {};
+    const hostileUsers = new Set(pvpCfg.highThreat || []);
+    const pvpMem = typeof Memory !== 'undefined' && Memory && Memory.pvpThreat || {};
+    for (const k of Object.keys(pvpMem)) if (pvpMem[k] && pvpMem[k].user) hostileUsers.add(pvpMem[k].user);
+    const detect = pvpCfg.highwayBlockDetect !== false;
     for (const name of Object.keys(gameRooms)) {
-        if (!isHighwayRoom(name)) continue;
+        if (!detect || !isHighwayRoom(name)) continue;
         const room = gameRooms[name];
         if (!room || typeof room.find !== 'function') continue;
-        const armed = (room.find(hostileKind) || []).filter((c) => c.owner && NPC_OWNERS.indexOf(c.owner.username) < 0 && isCombatCreep(c));
+        const armed = (room.find(hostileKind) || []).filter((c) => c.owner && NPC_OWNERS.indexOf(c.owner.username) < 0 && hostileUsers.has(c.owner.username) && isCombatCreep(c));
         if (armed.length) mem[name] = { at: tick, until: tick + ttl, n: armed.length, user: armed[0].owner.username };
         else if (mem[name]) delete mem[name];
     }
