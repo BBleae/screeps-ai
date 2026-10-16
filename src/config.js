@@ -573,6 +573,8 @@ module.exports = {
     // link：发送方攒到这个数就传
     linkSendAt: 700,
     linkKeepAt: 400,
+    // 10-16 战略猫：storage 超过 reverseCtrlFeedAbove 的部分经 store link 反向送给 ctrl link（冲 RCL8）；底线留给救急发送
+    reverseCtrlFeedAbove: 30000,
     // builder 可以从控制器/仓库 link 借能，但只在 link 存量 ≥ linkKeepAt + 这个余量时（缓冲留给升级者）。
     // RCL6 没有 store link 时，升级者吃不满的源收入会全部堵在 link 里：线上 W33S7 三座 link 常年 800/800，
     // 而 builder 走 20 格去源容器取 170 能量——那部分能量只有升级者能动，而升级者只要 10/tick。
