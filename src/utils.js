@@ -960,6 +960,59 @@ function notePvpThreat(room) {
     pvpCache.rooms[room.name] = list;
     return list;
 }
+/** 10-16 战略：自动记"打过我们的玩家" → Memory.pvpAggressors[user] = { first, last, n, rooms }。
+ *  只在有视野、房里同时有我方 creep 和非 NPC 玩家 creep 时读 room.getEventLog()（引擎按房缓存，事件只含上一 tick）。
+ *  EVENT_ATTACK 的目标是我方 creep/建筑 → 反查攻击者 owner。aggressorTtl（默认 20000）tick 没再动手自动移除。不改 config.pvp.highThreat */
+const AGGRESSOR_NPC = ['Invader', 'Source Keeper', 'Power Bank'];
+function noteAggressors(room) {
+    if (!room || typeof room.find !== 'function' || typeof room.getEventLog !== 'function') return 0;
+    const hostiles = (room.find(FIND_HOSTILE_CREEPS) || []).filter((c) => c.owner && AGGRESSOR_NPC.indexOf(c.owner.username) < 0);
+    if (!hostiles.length) return 0;
+    if (!(room.find(FIND_MY_CREEPS) || []).length) return 0;
+    const byId = {};
+    for (const c of hostiles) byId[c.id] = c.owner.username;
+    let added = 0;
+    const attackEv = typeof EVENT_ATTACK === 'undefined' ? 1 : EVENT_ATTACK;
+    for (const ev of room.getEventLog() || []) {
+        if (ev.event !== attackEv || !ev.data) continue;
+        const user = byId[ev.objectId];
+        if (!user) continue;
+        const target = Game.getObjectById(ev.data.targetId);
+        if (!target || !(target.my === true)) continue;
+        const m = Memory.pvpAggressors || (Memory.pvpAggressors = {});
+        const rec = m[user];
+        if (!rec) {
+            m[user] = { first: Game.time, last: Game.time, n: 1, rooms: [room.name] };
+            const note = '[pvp] 新攻击者 ' + user + ' 在 ' + room.name + ' 攻击了 ' + (target.name || target.structureType || ev.data.targetId);
+            console.log(note);
+            (Memory.pvpAggressorLog || (Memory.pvpAggressorLog = [])).push({ at: Game.time, user, room: room.name, target: target.name || target.structureType || ev.data.targetId });
+            if (Memory.pvpAggressorLog.length > 20) Memory.pvpAggressorLog.splice(0, Memory.pvpAggressorLog.length - 20);
+            added++;
+        } else {
+            rec.last = Game.time; rec.n = (Number(rec.n) || 0) + 1;
+            if (rec.rooms.indexOf(room.name) < 0) { rec.rooms.push(room.name); if (rec.rooms.length > 10) rec.rooms.shift(); }
+        }
+    }
+    return added;
+}
+/** 当前有效的攻击者名单（过期的顺手删） */
+function pvpAggressors() {
+    const m = Memory.pvpAggressors;
+    if (!m) return [];
+    const ttl = Number((config.pvp || {}).aggressorTtl) || 20000;
+    const out = [];
+    for (const user of Object.keys(m)) {
+        if (!m[user] || !(Game.time - Number(m[user].last) < ttl)) { delete m[user]; continue; }
+        out.push(user);
+    }
+    return out;
+}
+function noteAggressorsAll() {
+    for (const room of Object.values(Game.rooms || {})) {
+        try { noteAggressors(room); } catch (e) { logErr('pvp.noteAggressors ' + room.name, e); }
+    }
+}
+
 /** 这个房现在要回避：手动 dangerRooms，或 armedMemory 内见过玩家威胁 */
 function pvpDangerRoom(name) {
     const cfg = config.pvp || {};
@@ -973,6 +1026,9 @@ function pvpDangerRoom(name) {
 module.exports = {
     pvpHostile,
     notePvpThreat,
+    noteAggressors,
+    noteAggressorsAll,
+    pvpAggressors,
     pvpDangerRoom,
     conserving,
     conserveUpgradeAllowed,
