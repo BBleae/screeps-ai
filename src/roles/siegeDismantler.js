@@ -84,6 +84,11 @@ function run(creep) {
         // 出发前先强化（src/boost.js，config.conquest.boosts 默认空 = 关闭）：只在母房做，做不到的项跳过、等满 boostMaxWait 放弃，绝不让整队卡在家里
         if (boost.run(creep)) return;
         const avoid = avoidSet(creep, target);
+        // 10-17 硬规则：conquest.boosts 未在全队每只身上装齐前，留在母房等待（含本只已装好的也等队友），不去集结点
+        if (creep.memory.strongholdLoot && conquest.boostGateHold(target)) {
+            if (creep.room.name !== (creep.memory.home || target)) movement.go(creep, new RoomPosition(25, 25, creep.memory.home || target), { range: 20, reusePath: 15 });
+            return;
+        }
         // 集结：在集结点面向目标的一侧等全组到齐再一起走（未发起时绕开目标房，绝不误入）
         if (squad > 1 && creep.room.name === staging && !creep.memory.launched) {
             if (creep.memory.stagedAt == null) creep.memory.stagedAt = Game.time;

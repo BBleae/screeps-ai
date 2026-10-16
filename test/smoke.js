@@ -10973,7 +10973,40 @@ console.log('== 10-17 02:00 W36S6 strongholdLoot 取货（默认关）==');
     cfg.sk.validate = { enabled: true, home: 'W33S3', room: 'W36S6', units: 9 };
     const vd = cq.getDemands(home);
     assert(vd.length === 1 && vd[0].role === 'skReaper' && vd[0].memory.validate && vd[0].memory.remoteRoom === 'W36S6', 'validate 开：W33S3 出 1 只验证 reaper');
+    // 10-17 硬规则：boosts 未装齐 → 整队等待，waitReason 记录
+    cfg.sk.validate = { enabled: false, home: null, room: null };
+    const dB = { type: 'strongholdLoot', target: 'W36S6', sponsors: ['W33S3'], dismantlers: 1, guards: 0, boosts: { dismantler: ['XZH2O'] } };
+    Memory.conquest = dB; Game.rooms = {};
+    Game.creeps = { d1: { name: 'd1', memory: { role: 'siegeDismantler', targetRoom: 'W36S6' }, spawning: false, body: [{ type: 'work' }, { type: 'move' }] } };
+    assert(cq.boostGateHold('W36S6') === true && dB.waitReason && String(dB.waitReason).indexOf('boosting') === 0, 'boosts 未装齐：整队等待，waitReason 记录');
+    Game.creeps.d1.body = [{ type: 'work', boost: 'XZH2O' }, { type: 'move' }];
+    assert(cq.boostGateHold('W36S6') === false && !dB.waitReason, '全队装齐：放行，清 waitReason');
+    const dNo = { type: 'strongholdLoot', target: 'W36S6', sponsors: ['W33S3'], dismantlers: 1 };
+    Memory.conquest = dNo;
+    assert(cq.boostGateHold('W36S6') === false, '指令没写 boosts：不设门');
+    assert(cq.militaryCompounds().length === 0, '没 boosts 指令：militaryCompounds 空（零影响）');
+    Memory.conquest = dB;
+    assert(cq.militaryCompounds().join(',') === 'XZH2O', '有 boosts 指令：militaryCompounds 含 XZH2O');
+    Game.creeps = {};
     cfg.sk.validate = savedSk; Game.rooms = savedRooms; Memory.conquest = savedConq;
+}
+
+console.log('== 10-17 02:08 军事 boost lab 补能量链路（默认关）==');
+{
+    const tb = require('../src/task_broker');
+    const savedMemR = Memory.rooms;
+    const lab = (id) => ({ id, my: true, store: { energy: 0 } });
+    const room = { name: 'W33S3', storage: { my: true, store: { energy: 30000, [C.RESOURCE_ENERGY]: 30000 } } };
+    Memory.rooms = Object.assign({}, Memory.rooms, { W33S3: {} });
+    const l = lab('m1');
+    // 默认：militaryLabs 空 → 非 boostLab 的 lab 不补（零影响）
+    assert(tb.labEnergyWant(room, l, false, Memory.rooms.W33S3) === 0, '默认关：普通 lab storageRich=false 不补能量');
+    // militaryLabs 标了这个 lab → 即便 storageRich=false 也补（storage > energyFloorMinStorage）
+    Memory.rooms.W33S3.militaryLabs = { XZH2O: 'm1' };
+    assert(tb.labEnergyWant(room, l, false, Memory.rooms.W33S3) > 0, '军事 lab：storageRich=false 也补能量，boostCreep 不断粮');
+    const poor = { name: 'W33S3', storage: { my: true, store: { energy: 500, [C.RESOURCE_ENERGY]: 500 } } };
+    assert(tb.labEnergyWant(poor, l, false, Memory.rooms.W33S3) === 0, 'storage < energyFloorMinStorage：军事 lab 也不补（不抽干穷房）');
+    Memory.rooms = savedMemR;
 }
 
 console.log('== 10-17 02:00 军事 boost 买入（默认关，不占日额度）==');

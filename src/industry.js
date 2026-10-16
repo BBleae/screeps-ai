@@ -440,6 +440,7 @@ function computeLabPlan(room) {
         if (amount >= cfg.minBatch || !reaction || held !== reaction.product) drains.push({ labId: id, mineral: held, amount });
     }
     const boostWant = boostLabJob(room, roles, labsById, cfg, reaction, wants, drains);
+    const militaryLabs = militaryBoostStaging(room, roles, labsById, cfg, wants, drains);
     return {
         product: reaction ? reaction.product : null,
         target: reaction ? reaction.target : null,
@@ -454,7 +455,38 @@ function computeLabPlan(room) {
         wants,
         drains,
         drain: drains[0] || null,
+        militaryLabs,
     };
+}
+/** 10-17 军事 boost 装载（conquest.militaryCompounds，默认空 = 零影响）：给每种军事化合物预留一个三连之外的 spare lab，
+ *  从 terminal/storage 装到 labBoostStock；装着别的东西先清掉。记 Memory.rooms[房].militaryLabs = {化合物: labId}。
+ *  只在有带 boosts 的 strongholdLoot 指令时才动——默认它返回 null，labPlan 不受影响。 */
+function militaryBoostStaging(room, roles, labsById, cfg, wants, drains) {
+    let compounds = [];
+    try { compounds = require('conquest').militaryCompounds(); } catch (e) { compounds = []; }
+    if (!compounds.length) return null;
+    const used = roles.inputs.concat(roles.outputs, roles.boost ? [roles.boost] : []);
+    const spare = Object.keys(labsById).filter((id) => used.indexOf(id) < 0);
+    const stock = (() => { const out = mineralStock(room); carriedStock(room, out); return out; })();
+    const map = {};
+    const mem = roomMem(room);
+    const prev = (mem.militaryLabs && typeof mem.militaryLabs === 'object') ? mem.militaryLabs : {};
+    const assigned = new Set();
+    // 先沿用上次的分配（稳定），再给没分到的化合物挑新的 spare lab
+    for (const compound of compounds) {
+        let labId = prev[compound] && labsById[prev[compound]] && spare.indexOf(prev[compound]) >= 0 ? prev[compound] : null;
+        if (!labId) { labId = spare.find((id) => !assigned.has(id)); }
+        if (!labId) continue;
+        assigned.add(labId);
+        map[compound] = labId;
+        const lab = labsById[labId];
+        const held = labMineral(lab);
+        if (held && held !== compound) { drains.push({ labId, mineral: held, amount: storeOf(lab, held) }); continue; }
+        const have = storeOf(lab, compound);
+        if (have < cfg.boostStock && num(stock[compound], 0) > 0) wants.push({ labId, mineral: compound, amount: cfg.boostStock - have, boost: true });
+    }
+    mem.militaryLabs = map;
+    return map;
 }
 
 /** boost lab（移植 overmind-absorb 019c5b1）：产物做出来后被收回 terminal，而强化要的是「已经装着这个化合物的 lab」——

@@ -130,6 +130,12 @@ function run(creep) {
     if (creep.room.name !== target) {
         // 出发前先强化（与 siegeDismantler 同逻辑，src/boost.js）：只在母房做，做不到就跳过
         if (boost.run(creep)) return;
+        // 10-17 硬规则：全队 boost 未装齐前留在母房等待（含本只已装好的）
+        if (conquest.boostGateHold(target)) {
+            if (creep.room.name !== (creep.memory.home || target)) movement.go(creep, new RoomPosition(25, 25, creep.memory.home || target), { range: 20, reusePath: 15 });
+            healSupport(creep);
+            return;
+        }
         const avoid = avoidSet(creep, target);
         if (squad > 1 && creep.room.name === staging && !creep.memory.launched) {
             if (creep.memory.stagedAt == null) creep.memory.stagedAt = Game.time;

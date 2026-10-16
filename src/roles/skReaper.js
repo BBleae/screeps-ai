@@ -99,6 +99,11 @@ function run(creep) {
         rec.keepers = creep.room.name === targetRoom ? keepersIn(creep.room).length : null;
     }
 
+    // 10-17 硬规则：若同房有带 boosts 的 strongholdLoot 指令且全队未装齐，skReaper 也留在母房等待
+    if (require('conquest').boostGateHold(targetRoom) && creep.room.name !== targetRoom) {
+        if (homeName && creep.room.name !== homeName) movement.go(creep, new RoomPosition(25, 25, homeName), { range: 20, reusePath: 20 });
+        return;
+    }
     if (creep.room.name !== targetRoom) {
         if (remote.noteTravel(creep)) return;
         movement.go(creep, new RoomPosition(25, 25, targetRoom), { range: 20, reusePath: 40 });
