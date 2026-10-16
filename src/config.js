@@ -745,7 +745,7 @@ module.exports = {
         // 线上 W34S7/W35S7：storage 0/2–3k 在低档停了两万 tick，但 backlog 0、维修债 0、spawn 空闲能量满，限流让出的能量没人要，
         // 上线后进度 12.3→9.5、13.5→10.9 CP/tick
         // 10-16 战略：攒能房的升级者恒吃本地收入的这个份额（utils.bankingWorkCap），其余攒进 storage（W29S3 攒 12 万建 terminal）
-        bankRooms: { W29S3: 0.6, W33S8: 0.6, W31S5: 0.6 },
+        bankRooms: { W29S3: 0.6, W33S8: 0.6, W31S5: 0.6, W32S4: 0.6 },   // 10-17 07:00 战略：W32S4 升级者为主要耗能（20 WORK=20/tick），攒能档让升级封顶本地源供给×0.6（~12 WORK），其余进 storage
         competeUnfullTicks: 100,
         // 低于容量的这个份额才算"没补满"（W34S7 部署后停在 1756/1800、spawn 空闲无请求，照样被 unfull 限流）
         competeUnfullShare: 0.8,
