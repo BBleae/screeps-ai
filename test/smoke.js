@@ -10721,6 +10721,32 @@ console.log('== 外矿运输工全局就近卸货：卸货房 = 路程最短的�
     Game.map.findRoute = dpSavedRoute;
 }
 
+console.log('== 10-16 21:20 塔优先房：不孵 reserver，外矿 hauler 按缺口 CARRY（源按 1500 档）孵 ==');
+{
+    resetWorld(7400);
+    const savedTF = config.towerFirst;
+    config.towerFirst = { W33S7: 500 };
+    const tfHome = makeRoom('W33S7', { rcl: 7, energy: 5600, cap: 5600, owner: 'me', ctrl: { x: 34, y: 24 } });
+    tfHome._sources = [makeSource(tfHome, 14, 6, 'tf0'), makeSource(tfHome, 31, 12, 'tf1')];
+    makeSpawn(tfHome, 23, 21);
+    const tfTower = makeStructure(tfHome, C.STRUCTURE_TOWER, 20, 20, { store: mkStore(5, 1000) });
+    const tfRemote = { room: 'W33S6', enabled: true, lastSeen: Game.time, controllerDistance: 60, controllerPos: { x: 20, y: 20 },
+        sources: [{ id: 'ts0', pos: { x: 25, y: 25 }, spot: { x: 25, y: 26 }, distance: 160, containerId: 'tc0', energyCapacity: 3000, road: '', roadComplete: false }] };
+    Memory.rooms.W33S7 = { sources: ['tf0', 'tf1'], plan: {}, remotes: { W33S6: tfRemote } };
+    world.creeps.tfMiner = makeCreep(tfHome, 'tfMiner', ['work', 'work', 'work', 'work', 'work', 'work', 'move', 'move', 'move'], { home: 'W33S7', role: 'remoteMiner', remoteRoom: 'W33S6', sourceId: 'ts0' });
+    const carryOf = (d) => d.body.filter((p) => p === 'carry').length;
+    let tfDemands = remoteMod.getDemands(tfHome);
+    assert(!tfDemands.some((d) => d.role === 'reserver'), '塔 < 500：不出 reserver 需求（得 ' + tfDemands.map((d) => d.slot).join(',') + '）');
+    const tfHaul = tfDemands.filter((d) => d.role === 'remoteHauler');
+    const halfNeed = remoteMod.requiredCarryFor(Object.assign({}, tfRemote.sources[0], { energyCapacity: 1500 }), 160, 'W33S7');
+    assert(tfHaul.length && tfHaul.reduce((n, d) => n + carryOf(d), 0) <= halfNeed + 4, '外矿 hauler 总 CARRY 按 1500 档的需求（≤ ' + halfNeed + '+4，得 ' + tfHaul.map(carryOf).join('+') + '）');
+    tfTower.store[C.RESOURCE_ENERGY] = 600;
+    world.time++;
+    tfDemands = remoteMod.getDemands(tfHome);
+    assert(tfDemands.some((d) => d.role === 'reserver'), '塔都到 500：reserver 自动恢复');
+    config.towerFirst = savedTF;
+}
+
 console.log('== 10-16 21:00 W31S5 塔优先（towerFirst 500）+ bankRooms 0.6 ==');
 {
     world.time++;
