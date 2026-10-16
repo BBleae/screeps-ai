@@ -37,6 +37,8 @@ function settings() {
         towerAvoidWeight: 6,      // 过境避塔权重：越靠近塔加得越多（(半径-距离+1)×权重），把塔火杀人窗口从必经拉到可绕
         boosts: { dismantler: [], guard: [] },   // 出发前强化的化合物（src/boost.js），默认空 = 关闭
         boostMaxWait: 100,        // 强化最多在家耗这么多 tick，超时放弃整份清单直接出发
+        lootBudget: 1600,         // strongholdLoot 搬运兵理想身体成本（[carry,move]）
+        lootRetreatBelowHalf: true,   // 拆墙队总血量 < 满血一半 → 全员撤退
     }, config.conquest || {});
 }
 
@@ -276,6 +278,7 @@ function run() {
     for (const d of directives()) runOne(d);
 }
 function runOne(d) {
+    if (d.type === 'strongholdLoot') return runStrongholdLoot(d);
     const room = Game.rooms[d.target];
     if (!room || !room.controller) return;
     const ctrl = room.controller;
@@ -312,10 +315,76 @@ function runOne(d) {
     d.phase = breached ? 'downgrade' : 'breach';
 }
 
+/** 10-17 strongholdLoot：战利品容器所在的格子。显式 d.lootTiles（[[x,y],...]）优先；否则按视野里"有非能量资源的容器"自动算。 */
+function lootTilesOf(d, room) {
+    if (Array.isArray(d.lootTiles) && d.lootTiles.length) return d.lootTiles.map((p) => [p[0], p[1]]);
+    if (!room || typeof room.find !== 'function') return [];
+    const type = typeof STRUCTURE_CONTAINER === 'undefined' ? 'container' : STRUCTURE_CONTAINER;
+    return (room.find(FIND_STRUCTURES) || [])
+        .filter((s) => s.structureType === type && s.store && nonEnergyAmount(s.store) > 0)
+        .map((s) => [s.pos.x, s.pos.y]);
+}
+function nonEnergyAmount(store) {
+    if (!store) return 0;
+    let n = 0;
+    for (const k in store) if (k !== (typeof RESOURCE_ENERGY === 'undefined' ? 'energy' : RESOURCE_ENERGY)) n += Number(store[k]) || 0;
+    return n;
+}
+function tileKey(x, y) { return x + ',' + y; }
+/** 盖在战利品格子上的敌方 rampart（strongholdLoot 只拆这些，核心和其它 rampart 不碰） */
+function lootRampartTargets(room, tiles) {
+    if (!room || typeof room.find !== 'function' || !tiles || !tiles.length) return [];
+    const set = new Set(tiles.map((p) => tileKey(p[0], p[1])));
+    const type = typeof STRUCTURE_RAMPART === 'undefined' ? 'rampart' : STRUCTURE_RAMPART;
+    return (room.find(FIND_STRUCTURES) || []).filter((s) => s.structureType === type && s.owner && !s.my && set.has(tileKey(s.pos.x, s.pos.y)));
+}
+/** 战利品格子上还有东西可取的敌方容器 */
+function lootContainersOf(room, tiles) {
+    if (!room || typeof room.find !== 'function' || !tiles || !tiles.length) return [];
+    const set = new Set(tiles.map((p) => tileKey(p[0], p[1])));
+    const type = typeof STRUCTURE_CONTAINER === 'undefined' ? 'container' : STRUCTURE_CONTAINER;
+    return (room.find(FIND_STRUCTURES) || []).filter((s) => s.structureType === type && set.has(tileKey(s.pos.x, s.pos.y)) && s.store && nonEnergyAmount(s.store) > 0);
+}
+/** 本波拆墙队（siegeDismantler）总血量 < 满血一半 → 撤退 */
+function squadBelowHalf(targetRoom) {
+    let hits = 0, max = 0, n = 0;
+    for (const name in Game.creeps) {
+        const c = Game.creeps[name];
+        if (!c.memory || c.memory.targetRoom !== targetRoom || c.memory.role !== 'siegeDismantler' || c.spawning) continue;
+        hits += Number(c.hits) || 0; max += Number(c.hitsMax) || 0; n++;
+    }
+    return n > 0 && max > 0 && hits < max / 2;
+}
+/** 角色读取：这个目标的 strongholdLoot 指令是否处于撤退态 */
+function retreatFor(targetRoom) {
+    for (const d of directives()) if (d.type === 'strongholdLoot' && d.target === targetRoom && d.retreat) return true;
+    return false;
+}
+function runStrongholdLoot(d) {
+    const room = Game.rooms[d.target];
+    const cfg = settings();
+    if (cfg.lootRetreatBelowHalf !== false) d.retreat = squadBelowHalf(d.target);
+    if (!room || typeof room.find !== 'function') return;   // 无视野：保持当前阶段
+    const tiles = lootTilesOf(d, room);
+    if (tiles.length) d.lootTiles = tiles;
+    const use = (Array.isArray(d.lootTiles) && d.lootTiles.length) ? d.lootTiles : tiles;
+    const ramparts = lootRampartTargets(room, use);
+    const containers = lootContainersOf(room, use);
+    d.rampartsLeft = ramparts.length;
+    d.lootLeft = containers.reduce((sum, c) => sum + nonEnergyAmount(c.store), 0);
+    if (!use.length || (ramparts.length === 0 && containers.length === 0)) {
+        d.phase = 'done';
+        if (!d.completed) { d.completed = true; d.completedAt = Game.time; }
+        return;
+    }
+    d.phase = ramparts.length ? 'breach' : 'loot';
+}
+
 /** 母房为所有攻占指令产生的孵化需求（跨目标聚合） */
 function getDemands(home) {
     if (!home || !home.controller || !home.controller.my) return [];
     const out = [];
+    for (const item of skValidateDemands(home)) out.push(item);
     for (const d of directives()) {
         for (const item of demandsFor(d, home)) out.push(item);
     }
@@ -327,6 +396,7 @@ function demandsFor(d, home) {
     const sponsors = sponsorRooms(d);
     if (sponsors.indexOf(home.name) < 0) return [];
     if (d.phase === 'done') return [];
+    if (d.type === 'strongholdLoot') return strongholdLootDemands(d, home, sponsors);
     const cfg = settings();
     if (home.energyCapacityAvailable < cfg.minCapacity) return [];
     // storageFloor：母房 storage 能量低于底线就不出破防/护卫（保住本房经济与外矿 reserver，防止一波集结把资助战争的经济抽干）
@@ -416,4 +486,60 @@ function demandsFor(d, home) {
     return demands;
 }
 
-module.exports = { run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers };
+/** 10-17 skReaper 单只验证模式（config.sk.validate，默认关）：指定 home 出 1 只 reaper 去 room，验证血量/击杀 */
+function skValidateDemands(home) {
+    const v = (config.sk || {}).validate;
+    if (!v || !v.enabled || v.home !== home.name || typeof v.room !== 'string') return [];
+    const n = Math.max(1, Number(v.units) || 9);
+    const body = [];
+    for (let i = 0; i < n; i++) body.push('ranged_attack');
+    for (let i = 0; i < n; i++) body.push('heal');
+    for (let i = 0; i < 2 * n; i++) body.push('move');
+    if (body.length > 50) body.length = 50;
+    return [{ role: 'skReaper', slot: 'skValidate:' + v.room, body,
+        memory: { role: 'skReaper', slotKey: 'skValidate:' + v.room, home: home.name, remoteRoom: v.room, validate: true },
+        lead: body.length * 3 + 40, priority: 0, cls: 'conquest' }];
+}
+
+/** strongholdLoot 的孵化需求：拆墙队（只拆战利品格上的 rampart）+ 护卫 + 搬运兵。撤退态不出新兵。 */
+function strongholdLootDemands(d, home, sponsors) {
+    const cfg = settings();
+    if (home.energyCapacityAvailable < cfg.minCapacity) return [];
+    if (d.retreat) return [];   // 撤退：不再孵新兵
+    const storeEnergy = (home.storage && home.storage.store) ? (home.storage.store.energy || 0) : 0;
+    const floor = d.storageFloor != null ? Number(d.storageFloor) : cfg.storageFloor;
+    if (floor && home.storage && storeEnergy < floor) return [];
+    const demands = [];
+    const nSponsors = sponsors.length || 1;
+    const staging = d.staging || null;
+    const totalDismantlers = Math.max(0, Number(d.dismantlers) || 0);
+    const totalGuards = Math.max(0, Number(d.guards) || 0);
+    const totalHaulers = Math.max(0, Number(d.haulers) || 0);
+    const squad = Math.max(1, totalDismantlers + totalGuards);
+    const lootTiles = Array.isArray(d.lootTiles) ? d.lootTiles : null;
+    const phase = d.phase || 'breach';
+    // 破防：拆墙队 + 护卫（同波集结）。lootTiles 带进 memory，角色据此只拆战利品格上的 rampart
+    if (phase === 'breach') {
+        const mem = attachAvoidance({ home: home.name, targetRoom: d.target, staging, squad, lootTiles, strongholdLoot: true }, d);
+        const dPer = Math.ceil(totalDismantlers / nSponsors);
+        const body = repeatBody(['work', 'move'], Math.min(home.energyCapacityAvailable, cfg.dismantlerBudget));
+        for (let i = 0; i < dPer; i++) demands.push(demand('siegeDismantler', 'siegeLoot:' + d.target + ':' + home.name + ':' + i, body, mem, 80, i, d));
+        const gPer = Math.ceil(totalGuards / nSponsors);
+        if (gPer > 0) {
+            const gbody = repeatBody(['ranged_attack', 'heal', 'move', 'move'], Math.min(home.energyCapacityAvailable, cfg.guardBudget));
+            for (let i = 0; i < gPer; i++) demands.push(demand('siegeGuard', 'guardLoot:' + d.target + ':' + home.name + ':' + i, gbody, mem, 85, i, d));
+        }
+    }
+    // 搬运兵：破防后（loot 阶段）从离目标最近的 sponsor 出，取货回 home storage
+    if ((phase === 'loot' || phase === 'breach') && totalHaulers > 0) {
+        const closest = sponsors.slice().sort((a, b) => roomDistance(a, d.target) - roomDistance(b, d.target))[0];
+        if (home.name === closest) {
+            const hbody = repeatBody(['carry', 'move'], Math.min(home.energyCapacityAvailable, cfg.lootBudget));
+            const hmem = attachAvoidance({ home: home.name, targetRoom: d.target, lootTiles, staging }, d);
+            for (let i = 0; i < totalHaulers; i++) demands.push(demand('lootHauler', 'loot:' + d.target + ':' + i, hbody, hmem, 90, i, d));
+        }
+    }
+    return demands;
+}
+
+module.exports = { run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount };

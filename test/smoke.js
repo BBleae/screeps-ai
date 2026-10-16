@@ -19,7 +19,7 @@ const MODULE_MAP = {
     defense: 'defense.js', roles_defender: 'roles/defender.js', retire: 'retire.js',
     cpu_shed: 'cpu_shed.js', spawn_exit: 'spawn_exit.js', pvp: 'pvp.js',
     deposit: 'deposit.js', roles_depositMiner: 'roles/depositMiner.js', roles_depositScout: 'roles/depositScout.js',
-    conquest: 'conquest.js', roles_siegeDismantler: 'roles/siegeDismantler.js', roles_siegeGuard: 'roles/siegeGuard.js', roles_downgrader: 'roles/downgrader.js',
+    conquest: 'conquest.js', roles_siegeDismantler: 'roles/siegeDismantler.js', roles_siegeGuard: 'roles/siegeGuard.js', roles_downgrader: 'roles/downgrader.js', roles_lootHauler: 'roles/lootHauler.js',
 };
 const origResolve = Module._resolveFilename;
 const origLoad = Module._load;
@@ -10931,6 +10931,67 @@ console.log('== 10-16 23:03 全局塔底线 500（towerFloor）==');
     assert(utils.towerFloorHold(r('W35S7', [100], 4000)) === false, '控制器离降级 < 5000：例外');
     const ub = require('fs').readFileSync(require.resolve('../src/roles/upgrader.js'), 'utf8') + require('fs').readFileSync(require.resolve('../src/task_broker.js'), 'utf8');
     assert(/towerFloorHold\(room\)/.test(ub) && !/towerFirstHold\(room\)/.test(ub), 'upgrader 取能与控制器供能捷径都看全局底线');
+}
+
+console.log('== 10-17 02:00 W36S6 strongholdLoot 取货（默认关）==');
+{
+    const cq = require('../src/conquest');
+    const savedRooms = Game.rooms, savedConq = Memory.conquest, savedSk = require('../src/config').sk.validate;
+    // 默认关：无 Memory.conquest → 零需求
+    Memory.conquest = undefined; Game.rooms = {};
+    assert(cq.getDemands({ name: 'W33S3', controller: { my: true }, energyCapacityAvailable: 5600, storage: { store: { energy: 30000 } }, find: () => [] }).length === 0, '默认无指令：conquest 零需求');
+    // 构造 W36S6：两个战利品容器各压一个敌方 rampart，核心有 rampart（不拆）
+    const cont = (x, y, store) => ({ structureType: C.STRUCTURE_CONTAINER, pos: { x, y }, store });
+    const ramp = (x, y) => ({ structureType: C.STRUCTURE_RAMPART, pos: { x, y }, owner: { username: 'Invader' }, my: false, hits: 200000, hitsMax: 300000000 });
+    const w36 = { name: 'W36S6', controller: {}, find: () => [
+        cont(40, 14, { purifier: 648, oxidant: 110 }), cont(38, 14, { crystal: 398 }),
+        ramp(40, 14), ramp(38, 14), ramp(39, 14) ] };
+    Game.rooms = { W36S6: w36 };
+    const d = { type: 'strongholdLoot', target: 'W36S6', sponsors: ['W33S3'], dismantlers: 6, guards: 3, haulers: 2 };
+    Memory.conquest = d;
+    cq.run();
+    assert(d.phase === 'breach' && d.rampartsLeft === 2, '只盯战利品格上的 2 个 rampart，核心 rampart 不算（得 ' + d.rampartsLeft + '）');
+    const tiles = cq.lootTilesOf(d, w36).map((p) => p.join(','));
+    assert(tiles.length === 2 && tiles.indexOf('40,14') >= 0 && tiles.indexOf('38,14') >= 0, '战利品格自动识别为 (40,14)(38,14)');
+    assert(cq.lootRampartTargets(w36, d.lootTiles).length === 2, '拆墙目标 = 2 个 rampart');
+    const home = { name: 'W33S3', controller: { my: true }, energyCapacityAvailable: 5600, storage: { store: { energy: 30000 } }, find: () => [] };
+    let ds = cq.getDemands(home);
+    assert(ds.some((x) => x.role === 'siegeDismantler' && x.memory.lootTiles) && ds.some((x) => x.role === 'siegeGuard') && ds.some((x) => x.role === 'lootHauler'), '破防阶段出拆墙队+护卫+搬运兵');
+    // 显式坐标覆盖
+    const d2 = Object.assign({}, d, { lootTiles: [[1, 1]] });
+    Memory.conquest = d2; Game.rooms = { W36S6: w36 };
+    assert(cq.lootTilesOf(d2, w36)[0].join(',') === '1,1', '配置显式坐标覆盖自动识别');
+    // 撤退：拆墙队总血 < 一半 → 不出新兵
+    Game.creeps = { a: { memory: { targetRoom: 'W36S6', role: 'siegeDismantler' }, hits: 100, hitsMax: 1000, spawning: false } };
+    Memory.conquest = d; cq.run();
+    assert(d.retreat === true && cq.retreatFor('W36S6') === true && cq.getDemands(home).length === 0, '拆墙队总血 < 一半：撤退，不出新兵');
+    Game.creeps = {};
+    // skReaper 验证模式（默认关）
+    const cfg = require('../src/config'); cfg.sk.validate = { enabled: false, home: 'W33S3', room: 'W36S6', units: 9 };
+    Memory.conquest = undefined;
+    assert(cq.getDemands(home).length === 0, 'validate 关：无 reaper 需求');
+    cfg.sk.validate = { enabled: true, home: 'W33S3', room: 'W36S6', units: 9 };
+    const vd = cq.getDemands(home);
+    assert(vd.length === 1 && vd[0].role === 'skReaper' && vd[0].memory.validate && vd[0].memory.remoteRoom === 'W36S6', 'validate 开：W33S3 出 1 只验证 reaper');
+    cfg.sk.validate = savedSk; Game.rooms = savedRooms; Memory.conquest = savedConq;
+}
+
+console.log('== 10-17 02:00 军事 boost 买入（默认关，不占日额度）==');
+{
+    const mk = require('../src/market');
+    const cfg = Object.assign({}, mk.settings(), { militaryBoost: { enabled: true, room: 'W33S3', compounds: ['XZH2O'], amountEach: 3000, budgetEach: 500000 }, creditFloor: 0, priceBand: 1, minDeal: 500, maxOrderCredits: 500000 });
+    const savedRooms = Game.rooms, savedMem = Memory.market;
+    Memory.market = { ledger: { day: 1, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 } };
+    let dealt = null;
+    const term = { my: true, cooldown: 0, store: { XZH2O: 0, getFreeCapacity: () => 50000 } };
+    Game.rooms = { W33S3: { name: 'W33S3', terminal: term, storage: { store: {} } } };
+    const market = { credits: 9999999, getAllOrders: () => [{ id: 'o1', price: 800, amount: 2000 }], deal: (id, amt, room) => { dealt = { id, amt, room }; return C.OK != null ? C.OK : 0; } };
+    const off = Object.assign({}, cfg, { militaryBoost: Object.assign({}, cfg.militaryBoost, { enabled: false }) });
+    assert(mk.buyMilitaryBoosts(off, market) === null, '默认关：不买军事 boost');
+    const r = mk.buyMilitaryBoosts(cfg, market);
+    assert(r && dealt && dealt.room === 'W33S3', '开启后向 W33S3 买 XZH2O');
+    assert(Memory.market.ledger.militaryCredits > 0 && Memory.market.ledger.buyCredits === 0, '花费记 ledger.militaryCredits，不占日买额度 buyCredits');
+    Game.rooms = savedRooms; Memory.market = savedMem;
 }
 
 console.log('== 10-16 19:00 市场降档：日额度 15 万、只给 W32S4 买 Z、救急买能量不占日额度 ==');

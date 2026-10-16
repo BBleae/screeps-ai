@@ -71,6 +71,12 @@ function run(creep) {
     conquest.recordHostileTowers(creep.room, creep);
     // 破防完成、房里没可拆结构了：退役回收（走到最近 spawn recycle，退回部分能量），不占编制不挂机
     if (creep.memory.retired) { retire.retireAtSpawn(creep); return; }
+    // 10-17 strongholdLoot：撤退态（拆墙队总血量 < 一半）→ 全员回集结点/母房，不再拆墙
+    if (creep.memory.strongholdLoot && conquest.retreatFor(target)) {
+        const back = creep.memory.staging || creep.memory.home || target;
+        if (creep.room.name !== back) movement.go(creep, new RoomPosition(25, 25, back), { range: 20, reusePath: 15 });
+        return;
+    }
     const staging = creep.memory.staging || target;
     const squad = Math.max(1, Number(creep.memory.squad) || 1);
 
@@ -139,6 +145,14 @@ function run(creep) {
             return;
         }
         creep.memory.pushed = true;
+    }
+    // 10-17 strongholdLoot：只拆盖在战利品格上的 rampart，核心和其它 rampart 不碰；拆光即退役
+    if (creep.memory.lootTiles) {
+        const rr = conquest.lootRampartTargets(creep.room, creep.memory.lootTiles);
+        if (!rr.length) { creep.memory.retired = true; retire.retireAtSpawn(creep); return; }
+        const lt = rr.reduce((low, t) => (t.hits < low.hits ? t : low), rr[0]);
+        if (creep.dismantle(lt) === ERR_NOT_IN_RANGE) movement.go(creep, lt, { range: 1, reusePath: 5 });
+        return;
     }
     // 目标优先级：有能量的塔（真威胁）→ spawn（掐断敌方 defender 补充）→ 哑塔 → extension
     const towers = hostileStructures(creep.room, STRUCTURE_TOWER);

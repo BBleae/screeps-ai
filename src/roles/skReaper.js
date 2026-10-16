@@ -90,6 +90,14 @@ function run(creep) {
     }
     // 自愈永远先发
     heal(creep);
+    // 10-17 验证模式：把本 tick 的血量/所在房/视野内 keeper 数记到 Memory.skReaperValidate（默认关，不改作战逻辑）
+    if (creep.memory.validate) {
+        const m = Memory.skReaperValidate || (Memory.skReaperValidate = {});
+        const rec = m[targetRoom] || (m[targetRoom] = { name: creep.name, spawnedSeen: Game.time, minHits: creep.hits, kills: 0, shots: 0 });
+        rec.at = Game.time; rec.room = creep.room.name; rec.hits = creep.hits; rec.hitsMax = creep.hitsMax;
+        if (creep.hits < rec.minHits) rec.minHits = creep.hits;
+        rec.keepers = creep.room.name === targetRoom ? keepersIn(creep.room).length : null;
+    }
 
     if (creep.room.name !== targetRoom) {
         if (remote.noteTravel(creep)) return;
@@ -114,6 +122,7 @@ function run(creep) {
             fired = creep.rangedAttack(target) === OK;
             actions.note(creep, 'rangedAttack');
         }
+        if (creep.memory.validate && fired) { const rec = Memory.skReaperValidate && Memory.skReaperValidate[targetRoom]; if (rec) rec.shots = (rec.shots || 0) + 1; }
         noteCombat(creep, record, target, fired);
         holdStandoff(creep, target.pos, standoff, 5);
         return;
