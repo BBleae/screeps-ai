@@ -811,6 +811,10 @@ module.exports = {
         maxActive: 2,
         cpuAvgMax: 145,
         minBucket: 3000,
+        // 10-16：Jumpp 常驻采 deposit 的房，放弃直到护矿小队就绪；hostileUntil 过期后也不再分配
+        avoidRooms: ['W30S9'],
+        // 选房偏好：北/西优先（护矿前避开南边 S10 高速路邻居）
+        preferNorthWest: true,
     },
     terminalNetwork: {
         enabled: true,
