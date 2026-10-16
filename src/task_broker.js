@@ -280,9 +280,23 @@ function feeReserveOf(roomName) {
     return Math.max(0, Number(map && map[roomName]) || 0);
 }
 
+/** 10-16 战略：传送费储备只在 storage ≥ terminal.energyFloorMinStorage 时补；例外：本房在 market.buy.rooms 里且某个要买的资源还没买够（买单待执行） */
+function pendingBuy(room, terminal) {
+    const b = (config.market || {}).buy;
+    if (!b || !Array.isArray(b.rooms) || b.rooms.indexOf(room.name) < 0 || !Array.isArray(b.resources)) return false;
+    const target = Number(b.target || 3000);
+    return b.resources.some((res) => Number(terminal.store[res] || 0) + Number((room.storage && room.storage.store && room.storage.store[res]) || 0) < target);
+}
+function feeReserveFillAllowed(room, terminal) {
+    const min = Math.max(0, Number((config.terminal || {}).energyFloorMinStorage) || 0);
+    const st = room.storage && room.storage.my !== false && room.storage.store ? room.storage : null;
+    if (st && energyOf(st.store) >= min) return true;
+    return pendingBuy(room, terminal);
+}
+
 function terminalFillWant(room, terminal, storageRich) {
     const fee = feeReserveOf(room.name);
-    if (fee > 0 && terminal && terminal.my !== false && terminal.store) {
+    if (fee > 0 && terminal && terminal.my !== false && terminal.store && feeReserveFillAllowed(room, terminal)) {
         // 传送费储备：不看 storageRich，storage 里高于 feeReserveStorageFloor 的部分都可以补进来
         const st = room.storage && room.storage.my !== false && room.storage.store ? room.storage : null;
         const floor = Math.max(0, Number((config.terminalNetwork || {}).feeReserveStorageFloor) || 0);
@@ -1346,7 +1360,7 @@ function flush() {
     }
 }
 
-module.exports = { terminalFloorWant,
+module.exports = { terminalFloorWant, terminalFillWant, feeReserveFillAllowed,
     forceReplan,
     controllerFeedLink,
     controllerFeedMode,
