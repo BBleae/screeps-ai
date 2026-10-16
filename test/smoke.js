@@ -10802,6 +10802,9 @@ console.log('== 10-16 22:01 一次性放行：W29S3 → W31S5 共 1 万能量（
     Memory.aidOneShot.withdrawn = 10000;
     assert(aidM.getDemands(w29).length === 0 && aidM.oneShotRemaining() === 0, '送满 1 万：不再出 courier');
     const csrc = require('fs').readFileSync(require.resolve('../src/roles/courier.js'), 'utf8');
+    Memory.aidOneShot = { from: 'W29S3', to: 'W31S5', amount: 10000, withdrawn: 4500, paused: { reason: 'courierDamaged' } };
+    assert(aidM.getDemands(w29).length === 0 && Memory.aidOneShot, 'courier 掉血暂停：不再出 courier，标记保留');
+    assert(/paused = \{ reason: 'courierDamaged'/.test(csrc) && /o && !o\.paused/.test(csrc), 'courier hits < hitsMax 自动暂停、暂停后不再取货');
     assert(/delete Memory\.aidOneShot/.test(csrc) && /spare = Math\.min\(spare, left\)/.test(csrc), 'courier 取货按剩余量封顶、取满后删放行标记');
     Memory.aidOneShot = savedOS; if (savedOS === undefined) delete Memory.aidOneShot;
     Game.rooms = savedG.rooms; Game.creeps = savedG.creeps;
@@ -10809,6 +10812,7 @@ console.log('== 10-16 22:01 一次性放行：W29S3 → W31S5 共 1 万能量（
 
 console.log('== 10-16 22:05 高速路玩家战斗部队对非战斗 creep 封路（Memory.highwayBlock）==');
 {
+    const pvpCfgT = require('../src/config').pvp; const savedEx = pvpCfgT.blockExclude; pvpCfgT.blockExclude = [];
     world.time++;
     const mv = require('../src/movement');
     const savedRooms = Game.rooms, savedMap = Game.map, savedHB = Memory.highwayBlock;
@@ -10835,14 +10839,16 @@ console.log('== 10-16 22:05 高速路玩家战斗部队对非战斗 creep 封路
     Game.rooms = {}; Memory.highwayBlock = { W30S4: { at: 1, until: Game.time - 1 } };
     assert(!mv.highwayBlocks().has('W30S4'), '无视野的过期记录自动删除');
     Game.rooms = savedRooms; Game.map = savedMap; Memory.highwayBlock = savedHB; if (savedHB === undefined) delete Memory.highwayBlock;
+    pvpCfgT.blockExclude = savedEx;
 }
 
 console.log('== 10-16 22:20 自动记攻击者（Memory.pvpAggressors）==');
 {
+    const pvpCfgT = require('../src/config').pvp; const savedEx = pvpCfgT.blockExclude; pvpCfgT.blockExclude = [];
     world.time++;
     const mv = require('../src/movement');
     const saved = { rooms: Game.rooms, gobi: Game.getObjectById, agg: Memory.pvpAggressors, log: Memory.pvpAggressorLog, hb: Memory.highwayBlock, pt: Memory.pvpThreat };
-    const mine = { id: 'm1', my: true, name: '铃仙' };
+    const mine = { id: 'm1', my: true, name: '铃仙', hits: 4440, hitsMax: 4600 };
     const inv = { id: 'i1', owner: { username: 'Invader' }, body: [{ type: 'attack' }] };
     const kas = { id: 'k1', owner: { username: 'Kasami' }, body: [{ type: 'attack' }, { type: 'heal' }] };
     const room = { name: 'W30S4', hostiles: [inv], events: [{ event: C.EVENT_ATTACK || 1, objectId: 'i1', data: { targetId: 'm1' } }],
@@ -10854,12 +10860,17 @@ console.log('== 10-16 22:20 自动记攻击者（Memory.pvpAggressors）==');
     room.hostiles = [kas]; room.events = [{ event: C.EVENT_ATTACK || 1, objectId: 'k1', data: { targetId: 'm1', damage: 0 } }];
     utils.noteAggressors(room);
     assert(!Memory.pvpAggressors.Kasami, '伤害为 0 的攻击（范围攻击溅射）不记');
+    { const full = { id: 'm2', my: true, name: 'x', hits: 4600, hitsMax: 4600 }; const g = Game.getObjectById; Game.getObjectById = (id) => (id === 'm2' ? full : g(id));
+      room.events = [{ event: C.EVENT_ATTACK || 1, objectId: 'k1', data: { targetId: 'm2', damage: 160 } }];
+      utils.noteAggressors(room); assert(!Memory.pvpAggressors.Kasami, '目标没有真的掉血：不记'); Game.getObjectById = g; }
     room.events = [{ event: C.EVENT_ATTACK || 1, objectId: 'k1', data: { targetId: 'm1', damage: 120 } }];
     assert(utils.noteAggressors(room) === 1 && Memory.pvpAggressors.Kasami && Memory.pvpAggressors.Kasami.n === 1, '玩家攻击我方 creep：记入 pvpAggressors');
     assert((Memory.pvpAggressorLog || []).some((e) => e.user === 'Kasami'), '新攻击者留提示');
     Game.rooms = { W30S4: room };
     world.time++;
     assert(mv.highwayBlocks().has('W30S4'), '记入后：他的战斗部队所在高速路房封路');
+    { const cfgP = require('../src/config').pvp; const ex = cfgP.blockExclude; cfgP.blockExclude = ['Kasami']; Memory.highwayBlock = {}; world.time++;
+      assert(!mv.highwayBlocks().has('W30S4') && Memory.pvpAggressors.Kasami, 'blockExclude：照常记攻击，但不封路'); cfgP.blockExclude = []; world.time++; mv.highwayBlocks(); cfgP.blockExclude = ex; }
     assert(Memory.highwayBlock.W30S4.until === Memory.pvpAggressors.Kasami.last + 1500, '只因攻击者封的房：到期 = 最后一次动手 + 1500，不按看到续期');
     world.time += 1501;
     assert(!mv.highwayBlocks().has('W30S4') && Memory.pvpAggressors.Kasami, '他还在房里但 1500 tick 没再动手：解封（攻击者记录仍保留）');
@@ -10867,7 +10878,7 @@ console.log('== 10-16 22:20 自动记攻击者（Memory.pvpAggressors）==');
     world.time += 20001;
     assert(utils.pvpAggressors().length === 0 && !Memory.pvpAggressors.Kasami, '2 万 tick 没再动手：移除');
     assert(require('../src/config').pvp.highThreat.indexOf('Kasami') < 0, '不改 highThreat 名单');
-    Game.rooms = saved.rooms; Game.getObjectById = saved.gobi;
+    Game.rooms = saved.rooms; Game.getObjectById = saved.gobi; pvpCfgT.blockExclude = savedEx;
     for (const [k, v] of [['pvpAggressors', saved.agg], ['pvpAggressorLog', saved.log], ['highwayBlock', saved.hb], ['pvpThreat', saved.pt]]) { if (v === undefined) delete Memory[k]; else Memory[k] = v; }
 }
 

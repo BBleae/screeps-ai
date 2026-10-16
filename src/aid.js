@@ -172,11 +172,27 @@ function oneShotRemaining() {
     const o = oneShot();
     return o ? Math.max(0, Number(o.amount) - (Number(o.withdrawn) || 0)) : 0;
 }
+function oneShotByTerminal(home, o, remaining) {
+    const t = home.terminal, dest = Game.rooms[o.to], dt = dest && dest.terminal;
+    if (!t || t.my === false || !dt || t.cooldown > 0) return;
+    const have = Number(t.store[RESOURCE_ENERGY] || 0);
+    let amount = Math.min(remaining, 5000);
+    const cost = (a) => (typeof Game.market !== 'undefined' && Game.market.calcTransactionCost ? Game.market.calcTransactionCost(a, home.name, o.to) : 0);
+    while (amount > 0 && amount + cost(amount) > have) amount -= 500;
+    if (amount <= 0) return;
+    if (t.send(RESOURCE_ENERGY, amount, o.to, 'aidOneShot') === OK) {
+        o.withdrawn = (Number(o.withdrawn) || 0) + amount;
+        (o.trips || (o.trips = [])).push([Game.time, 'terminal', amount]);
+        if (o.withdrawn >= Number(o.amount)) { Memory.aidOneShotDone = Object.assign({}, o, { doneAt: Game.time }); delete Memory.aidOneShot; }
+    }
+}
 function oneShotDemands(home, demands, priority) {
     const o = oneShot();
     if (!o || o.from !== home.name) return;
     const remaining = oneShotRemaining();
     if (remaining <= 0) return;
+    // 10-16 战略：courier 掉血 → 自动暂停（标记保留，o.paused 写原因）；W29S3 terminal 建成后改用 terminal 送剩余量
+    if (o.paused) { oneShotByTerminal(home, o, remaining); return; }
     const c = cfg();
     const maxCouriers = Math.max(1, Number(o.couriers) || 2);
     const budget = Math.min(home.energyCapacityAvailable, Number(o.budget) || 2500);
