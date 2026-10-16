@@ -10864,6 +10864,18 @@ console.log('== 10-16 22:20 自动记攻击者（Memory.pvpAggressors）==');
     for (const [k, v] of [['pvpAggressors', saved.agg], ['pvpAggressorLog', saved.log], ['highwayBlock', saved.hb], ['pvpThreat', saved.pt]]) { if (v === undefined) delete Memory[k]; else Memory[k] = v; }
 }
 
+console.log('== 10-16 23:03 全局塔底线 500（towerFloor）==');
+{
+    world.time++;
+    const tw = (e) => ({ structureType: C.STRUCTURE_TOWER, store: { [C.RESOURCE_ENERGY]: e, energy: e } });
+    const r = (name, es, ttd) => ({ name, controller: { ticksToDowngrade: ttd == null ? 100000 : ttd }, find: () => es.map(tw) });
+    assert(utils.towerFloorHold(r('W35S7', [461, 466, 463])) === true, '非 towerFirst 房（W35S7）有塔 < 500：upgrader 不取能');
+    assert(utils.towerFloorHold(r('W32S4', [500, 500, 500])) === false, '塔都 ≥ 500：不受影响');
+    assert(utils.towerFloorHold(r('W35S7', [100], 4000)) === false, '控制器离降级 < 5000：例外');
+    const ub = require('fs').readFileSync(require.resolve('../src/roles/upgrader.js'), 'utf8') + require('fs').readFileSync(require.resolve('../src/task_broker.js'), 'utf8');
+    assert(/towerFloorHold\(room\)/.test(ub) && !/towerFirstHold\(room\)/.test(ub), 'upgrader 取能与控制器供能捷径都看全局底线');
+}
+
 console.log('== 10-16 19:00 市场降档：日额度 15 万、只给 W32S4 买 Z、救急买能量不占日额度 ==');
 {
     // 前面的场景会改写/删掉 config.market 做 mock：读一份新鲜的源配置

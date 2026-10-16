@@ -391,7 +391,7 @@ function run(creep) {
     const station = ctrlStation(room, plan);
     // 10-16 节能模式：降级计时 > 一半时不取能，手里有的照常用完
     // 10-16 战略 W31S5：塔优先（config.towerFirst）——有塔低于门槛时不取能，手里有的照常用完
-    const conserveHold = !!utils.towerFirstHold(room);
+    const conserveHold = !!utils.towerFloorHold(room);   // 10-16 全局塔底线 500（含 towerFirst）
     if (creep.store[RESOURCE_ENERGY] > 0) {
         // 常驻站位：站在供能容器/工作位 1 格内即可（多个 upgrader 共用一个容器，不必抢同一格）；storage 站位时 ctrl link 旁也算
         if (station && !atStation(creep, station, ctrl) && !(station.storageFed && atLinkSide(room, plan, creep.pos, ctrl))) {
