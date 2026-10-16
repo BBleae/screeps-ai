@@ -728,7 +728,10 @@ function deadRoom(room, mem) {
     const settings = config.deadRoom || {};
     const after = Math.max(0, Number(settings.afterTicks) || 0);
     if (!after) return false;
-    if (hasBuilder(room) || mem.builderSeenAt == null || room.find(FIND_MY_CONSTRUCTION_SITES).length === 0) mem.builderSeenAt = Game.time;
+    // 只算 builder 真会建的工地（utils.siteWanted）：只剩被经济门槛挡住的工地（W29S3 3 个 lab 等 terminal）时 builder 编制为 0，
+    // 按全部工地计时会把房判死、place() 提前 return，terminal 工地永远放不出来——lab 又等 terminal，死锁（10-17）
+    const wanted = room.find(FIND_MY_CONSTRUCTION_SITES).filter((site) => utils.siteWanted(room, site));
+    if (hasBuilder(room) || mem.builderSeenAt == null || wanted.length === 0) mem.builderSeenAt = Game.time;
     return Game.time - mem.builderSeenAt >= after;
 }
 
