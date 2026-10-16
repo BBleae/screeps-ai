@@ -10901,6 +10901,17 @@ console.log('== 10-16 23:07 非战斗 creep 离玩家远程 creep ≥ 3 格 ==')
     Game.rooms = savedRooms;
 }
 
+console.log('== 10-17 01:06 terminal 能量底线 1000（storage ≥ 1 万）==');
+{
+    const tb = require('../src/task_broker');
+    const mk = (se, te) => ({ name: 'W38S7', storage: { my: true, store: { energy: se, [C.RESOURCE_ENERGY]: se } } , _t: { my: true, store: { energy: te, [C.RESOURCE_ENERGY]: te } } });
+    let r = mk(28772, 931); assert(tb.terminalFloorWant(r, r._t) === 69, 'W38S7 storage 2.9 万、terminal 931：补 69 到 1000（得 ' + tb.terminalFloorWant(r, r._t) + '）');
+    r = mk(9000, 0); assert(tb.terminalFloorWant(r, r._t) === 0, '穷房（storage < 1 万）不往 terminal 放能量');
+    r = mk(10400, 0); assert(tb.terminalFloorWant(r, r._t) === 400, '补完 storage 不跌破 1 万');
+    r = mk(50000, 1500); assert(tb.terminalFloorWant(r, r._t) === 0, '已 ≥ 1000 不补');
+    const cfgT = require('../src/config').terminal; assert(cfgT.energyFloor === 1000 && cfgT.energyFloorMinStorage === 10000, '两个数字是配置项');
+}
+
 console.log('== 10-16 23:03 全局塔底线 500（towerFloor）==');
 {
     world.time++;

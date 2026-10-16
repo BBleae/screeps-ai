@@ -956,6 +956,8 @@ module.exports = {
     towerFirst: { W31S5: 500 },
     // 10-16 战略全局底线（utils.towerFloorHold）：任何房有塔 < 500 时 upgrader 不取能、控制器供能捷径让位给塔；降级 < 5000 tick 例外
     towerFloor: 500,
+    // 10-16 战略：terminal 能量底线（task_broker.terminalFloorWant）——storage ≥ 1 万的房 hauler 把 terminal 补到 1000 付传送费，穷房不补
+    terminal: { energyFloor: 1000, energyFloorMinStorage: 10000 },
     towerFloorDowngrade: 5000,
     // 10-16 战略：房里有敌对 creep（NPC invader 或带战斗部件的）时该房 spawn 什么都不孵（utils.spawnPausedByHostile），
     // 也不从任何房为它派 defender；敌人走了/死了自动恢复。去掉房名即撤销
