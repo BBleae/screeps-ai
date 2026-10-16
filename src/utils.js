@@ -901,6 +901,18 @@ function conserving(room) {
 
 /** 塔优先（config.towerFirst：{ 房: 门槛 }，10-16 战略 W31S5）：房里有己方塔能量低于门槛时为 true——
  *  upgrader/builder 不取能量（手里有的 builder 先送塔）、builder 不修路不建；全部塔到门槛后自动恢复。每 tick 每房算一次 */
+/** 10-16 战略（config.spawn.pauseWhileHostile）：列表里的房可见且有敌对 creep（owner Invader，或带 ATTACK/RANGED_ATTACK/HEAL/WORK/CLAIM）时返回敌人数，否则 0 */
+function pausedRoom(roomName) {
+    const list = ((config.spawn || {}).pauseWhileHostile) || [];
+    return Array.isArray(list) && list.includes(roomName);
+}
+function spawnPausedByHostile(room) {
+    if (!room || !pausedRoom(room.name) || typeof room.find !== 'function') return 0;
+    const kind = typeof FIND_HOSTILE_CREEPS === 'undefined' ? 'hostileCreeps' : FIND_HOSTILE_CREEPS;
+    const combat = ['attack', 'ranged_attack', 'heal', 'work', 'claim'];
+    return (room.find(kind) || []).filter((c) => (c.owner && c.owner.username === 'Invader') ||
+        (c.body || []).some((p) => combat.includes(p.type))).length;
+}
 const towerFirstCache = { time: -1, rooms: {} };
 function towerFirstHold(room) {
     const below = Number(((config.towerFirst) || {})[room && room.name]);
@@ -965,6 +977,8 @@ module.exports = {
     conserving,
     conserveUpgradeAllowed,
     towerFirstHold,
+    spawnPausedByHostile,
+    pausedRoom,
     isRetiring,
     luxuryStructure,
     luxuryAllowed,

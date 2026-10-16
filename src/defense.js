@@ -393,6 +393,8 @@ function getDemands(home) {
     const consider = (roomName, record) => {
         if (seen.has(roomName)) return;
         seen.add(roomName);
+        // 10-16 战略：pauseWhileHostile 房不派 defender（本房不孵、邻房也不援）
+        if (require('utils').pausedRoom(roomName)) return;
         // 10-16 战略猫：不为玩家威胁房（W30S9 / Jumpp）出兵；己方房照常防守
         { const t = Game.rooms[roomName]; if (!(t && t.controller && t.controller.my) && require('utils').pvpDangerRoom(roomName)) return; }
         // 己方无 spawn 的房（没有外矿记录）每个母房都会考虑一遍：只让最近的那个出兵。外矿只由拥有记录的母房考虑，不套这道门——
