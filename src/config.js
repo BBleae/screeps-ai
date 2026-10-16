@@ -459,6 +459,7 @@ module.exports = {
     // 母房单 spawn 的时间才是瓶颈（W33S7 常年 100% 忙），所以 courier/builder 仍是非 strategic，排在母房自己的需求之后
     aid: { untilCapacity: 1300, storageBelow: 10000, minHomeCapacity: 800, maxRange: 2, haulerCarry: 16, builderWork: 5, lead: 200,
         couriers: 1, exportAbove: 10000, exportKeep: 5000, courierBudget: 1600,
+        exportAfterTerminal: ['W29S3'],   // 10-16 战略：W29S3 terminal 建成前不派 courier 导出 storage，建成后自动恢复
         // 援建前查"母房到弱房有没有不穿 SK/他人房的路线"（movement.safeRouteExists，aid.needsAid / aid.markStranded）的缓存 tick：
         // 危险房集合随情报慢变、变了缓存立即失效，所以不必每 tick 跑 findRoute；1000 tick ≈ 一只援建 creep 寿命的 2/3，
         // 地形本身不会让一条路"慢慢"断掉，过期重算只是兜底（2026-09-15 W35S7 → W37S5 只能穿 SK 房，援建矿工原地寻路 18 小时）

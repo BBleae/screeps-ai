@@ -145,7 +145,9 @@ function getDemands(home) {
         //    新房却靠 20/tick 的自产爬 extension；只多付一只 hauler 的 spawn 时间
         const storage = home.storage;
         const levels = utils.aidExportLevels(c, config.upgrading);
-        const exportable = storage && storage.my !== false && storage.store && Number(storage.store[RESOURCE_ENERGY] || 0) >= levels.above;
+        // 10-16 战略：exportAfterTerminal 名单里的母房（W29S3）自己的 terminal 建成前不导出，攒 storage 建 terminal；建成后自动恢复
+        const holdExport = (c.exportAfterTerminal || []).indexOf(home.name) >= 0 && !(home.terminal && home.terminal.my !== false);
+        const exportable = !holdExport && storage && storage.my !== false && storage.store && Number(storage.store[RESOURCE_ENERGY] || 0) >= levels.above;
         const couriers = creeps.filter((creep) => creep.memory.role === 'courier' && alive(creep, c.lead)).length;
         const weakSpawns = typeof room.find === 'function' ? (room.find(FIND_MY_SPAWNS) || []).length : 0;
         if (exportable && couriers < c.couriers && weakSpawns > 0) {

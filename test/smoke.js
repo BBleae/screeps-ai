@@ -10761,6 +10761,17 @@ console.log('== 援建加码：容量 < 1300 且 storage 不足的弱房受援�
     const aiCourier = aidMod.getDemands(aiHome).find((d) => d.role === 'courier');
     assert(aiCourier && aiCourier.memory.home === 'W33S8' && aiCourier.memory.from === 'W33S7' && aiCourier.strategic === false && utils.bodyCost(aiCourier.body) <= aidCfg.courierBudget,
         '母房 storage 36000 ≥ exportAbove：出一只非 strategic 的 courier 需求（得 ' + JSON.stringify(aiCourier && [aiCourier.memory, utils.bodyCost(aiCourier.body)]) + '）');
+    {   // 10-16：exportAfterTerminal 名单里的母房 terminal 建成前不导出
+        const keepList = aidCfg.exportAfterTerminal;
+        aidCfg.exportAfterTerminal = ['W33S7'];
+        const savedTerm = aiHome.terminal;
+        aiHome.terminal = null;
+        assert(!aidMod.getDemands(aiHome).some((d) => d.role === 'courier'), '名单母房没有 terminal：不派 courier 导出');
+        aiHome.terminal = { my: true, store: { energy: 0 } };
+        assert(aidMod.getDemands(aiHome).some((d) => d.role === 'courier'), '名单母房 terminal 建成：恢复导出');
+        aiHome.terminal = savedTerm;
+        aidCfg.exportAfterTerminal = keepList;
+    }
     aiStorage.store[C.RESOURCE_ENERGY] = 5000;
     assert(!aidMod.getDemands(aiHome).some((d) => d.role === 'courier'), '母房 storage 5000 < exportAbove 时不派 courier');
     aiStorage.store[C.RESOURCE_ENERGY] = 26000;
