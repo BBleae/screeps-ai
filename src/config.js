@@ -484,6 +484,8 @@ module.exports = {
         starvedStorage: 2000,       // storage 能量低于它算缺能量房：等能量的全量推导间隔拉长到 min(队头 ETA, starvedWaitInterval)
         starvedWaitInterval: 25,   // 队头等能量期间的全量推导间隔（spawn.runQueue）
         minShare: 0.5,
+        // 10-16：storage 能量 ≥ 它且没有 builder 时，第 1 只 builder 排在外矿维护（remoteMaintain）前面；0 = 关
+        richBuilderStorage: 20000,
         // 自带分档身体（bodyFor）的需求（外矿/援建/开荒）缩身下限改按理想身体成本的份额：1600 容量下 650 的 1 CLAIM 档不被容量一半（800）卡住，
         // 但也不再孵 200–500 的外矿 hauler（线上 W33S6 一只 1 CARRY 的 hauler 占着 19 CARRY 的槽位 1285 tick，9.8/tick 的产出运回不到 1）
         minCostShare: 0.5,
