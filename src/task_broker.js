@@ -292,7 +292,23 @@ function terminalFillWant(room, terminal, storageRich) {
             if (give > 0) return Math.max(give, terminalFillWantBase(room, terminal, storageRich));
         }
     }
-    return Math.max(terminalFillWantBase(room, terminal, storageRich), senderFillWant(room, terminal, storageRich));
+    return Math.max(terminalFillWantBase(room, terminal, storageRich), senderFillWant(room, terminal, storageRich), terminalFloorWant(room, terminal));
+}
+
+/** 10-16 战略：terminal 能量底线（config.terminal.energyFloor 1000）——storage ≥ energyFloorMinStorage（1 万）的房把 terminal 补到底线付传送费，
+ *  补完 storage 不跌破门槛；穷房（storage < 门槛）不补。返回还要补多少 */
+function terminalFloorParams(room) {
+    const c = config.terminal || {};
+    const floor = Math.max(0, Number(c.energyFloor) || 0);
+    const min = Math.max(0, Number(c.energyFloorMinStorage) || 0);
+    const st = room && room.storage && room.storage.my !== false && room.storage.store ? room.storage : null;
+    if (!(floor > 0) || !st || energyOf(st.store) < min) return null;
+    return { floor, min, storage: energyOf(st.store) };
+}
+function terminalFloorWant(room, terminal) {
+    const p = terminalFloorParams(room);
+    if (!p || !terminal || terminal.my === false || !terminal.store) return 0;
+    return Math.max(0, Math.min(p.floor - energyOf(terminal.store), p.storage - p.min));
 }
 
 /** 能量发送房（10-16 战略猫）：满足救急发送方规则（storageRich、storage+terminal ≥ starveSendAbove）的房，
@@ -325,6 +341,9 @@ function terminalFillWantBase(room, terminal, storageRich) {
 function terminalDrainKeep(room, storageRich) {
     const fee = feeReserveOf(room.name);
     const keep = terminalDrainKeepBase(room, storageRich);
+    // 底线房：取回时 terminal 至少留 energyFloor（不会补进去又取出来）
+    const fp = terminalFloorParams(room);
+    if (fp && keep != null && keep < fp.floor) return Math.max(fp.floor, fee > 0 ? fee : 0);
     if (fee > 0 && keep != null) return Math.max(keep, fee);   // 传送费储备不取回
     return keep;
 }
@@ -1327,7 +1346,7 @@ function flush() {
     }
 }
 
-module.exports = {
+module.exports = { terminalFloorWant,
     forceReplan,
     controllerFeedLink,
     controllerFeedMode,
