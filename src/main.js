@@ -52,6 +52,7 @@ const ROLES = {
     siegeDismantler: require('roles_siegeDismantler'),
     siegeGuard: require('roles_siegeGuard'),
     downgrader: require('roles_downgrader'),
+    lootHauler: require('roles_lootHauler'),
     depositMiner: require('roles_depositMiner'),
     depositScout: require('roles_depositScout'),
 };

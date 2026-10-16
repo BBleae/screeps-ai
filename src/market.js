@@ -474,6 +474,48 @@ function runOwnOrders(cfg, market) {
     return null;
 }
 
+/** 10-17 军事 boost 买入（cfg.militaryBoost，默认关）：买现成 XZH2O/XGHO2/XLHO2 送进指定房 terminal，
+ *  每种累计花费封顶 budgetEach，记进 ledger.militaryCredits，不占 dailyBuyCredits。一轮最多一笔。 */
+function buyMilitaryBoosts(cfg, market) {
+    const mb = cfg.militaryBoost;
+    if (!mb || !mb.enabled || !Array.isArray(mb.compounds) || !mb.compounds.length) return null;
+    if (!(Number(market.credits) >= cfg.creditFloor)) return null;
+    const room = Game.rooms[mb.room];
+    if (!room || !room.terminal || room.terminal.my === false || room.terminal.cooldown > 0 || terminalNet.usedThisTick(room.name)) return null;
+    const led = ledger();
+    const spentBy = led.militaryBy || (led.militaryBy = {});
+    const amountEach = Math.max(0, Number(mb.amountEach) || 0);
+    const budgetEach = Math.max(0, Number(mb.budgetEach) || 0);
+    for (const res of mb.compounds) {
+        const have = Number(room.terminal.store[res] || 0) + Number((room.storage && room.storage.store && room.storage.store[res]) || 0);
+        if (have >= amountEach) continue;
+        if ((spentBy[res] || 0) >= budgetEach) continue;
+        let orders = [];
+        try { orders = market.getAllOrders({ type: typeof ORDER_SELL !== 'undefined' ? ORDER_SELL : 'sell', resourceType: res }) || []; }
+        catch (error) { utils.logErr('market.militaryBoost getAllOrders', error); continue; }
+        const avg = recentAvgPrice(res, cfg);
+        const ceil = avg != null && cfg.priceBand != null ? avg * (1 + cfg.priceBand) : Infinity;
+        const viable = orders.filter((o) => o.amount > 0 && o.price <= ceil).sort((a, b) => a.price - b.price);
+        if (!viable.length) continue;
+        const o = viable[0];
+        const budgetLeft = budgetEach - (spentBy[res] || 0);
+        const maxByBudget = Math.floor(budgetLeft / o.price);
+        const amount = Math.min(amountEach - have, o.amount, maxByBudget, Math.floor(cfg.maxOrderCredits / o.price));
+        if (amount < cfg.minDeal) continue;
+        const ret = market.deal(o.id, amount, room.name);
+        terminalNet.markUsed(room.name);
+        if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
+            const cost = Math.round(amount * o.price);
+            spentBy[res] = (spentBy[res] || 0) + cost;
+            led.militaryCredits = Math.round((led.militaryCredits || 0) + cost);
+            const mem = Memory.market || (Memory.market = {});
+            mem.lastMilitary = { at: Game.time, resource: res, amount, cost, price: o.price, room: room.name };
+        }
+        return { result: ret, resource: res, amount };
+    }
+    return null;
+}
+
 function run(shed) {
     const cfg = settings();
     if (!cfg.enabled || !(cfg.interval > 0) || Game.time % cfg.interval !== 0) return null;
@@ -489,6 +531,9 @@ function run(shed) {
     let scans = 0;
     let hold = null;
     try { hold = terminalNet.mineralHolds(); } catch (error) { utils.logErr('market.mineralHolds', error); hold = null; }
+    let mil = null;
+    try { mil = buyMilitaryBoosts(cfg, market); } catch (error) { utils.logErr('market.militaryBoost', error); }
+    if (mil && mil.result === (typeof OK !== 'undefined' ? OK : 0)) return mil;
     let posted = null;
     try { posted = runOwnOrders(cfg, market); } catch (error) { utils.logErr('market.ownOrders', error); }
     if (posted && posted.result === (typeof OK !== 'undefined' ? OK : 0)) return posted;
@@ -531,4 +576,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { run, settings, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders };
+module.exports = { run, settings, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };

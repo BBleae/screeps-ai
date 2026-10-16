@@ -283,6 +283,8 @@ module.exports = {
         maxReaperLosses: 2,
         lossWindow: 3000,
         lossCooldown: 5000,
+        // 10-17 单只验证模式（默认关，10:17 由战略拍板）：只派 1 只 reaper 去 room，把血量/击杀记到 Memory.skReaperValidate
+        validate: { enabled: false, home: null, room: null, units: 9 },
     },
     // 防御（只对 NPC）：母房容量 ≥ minCapacity 才派 defender；清场后 idleTicks 无敌情回家退役
     defense: {
@@ -915,6 +917,14 @@ module.exports = {
         },
         dailySellUnits: { ZH2O: 2000 },
         creditFloor: 2000000,         // 低于它只卖不买
+        // 10-17 军事 boost 买入（strongholdLoot，默认关，10:17 拍板）：买现成化合物送进 room 的 terminal，单独记 ledger.militaryCredits，不占日额度
+        militaryBoost: {
+            enabled: false,
+            room: 'W33S3',
+            compounds: ['XZH2O', 'XGHO2', 'XLHO2'],
+            amountEach: 3000,          // 每种买到的目标库存量
+            budgetEach: 500000,        // 每种的 credits 预算上限（累计，记在 ledger.militaryCredits）
+        },
         maxOrderCredits: 50000,       // 单笔上限（买卖都按它截量）
         dailyBuyCredits: 150000,      // 每日买入总额（10-15：20 万 → 50 万；10-16 19:00 战略：能量平衡达标前降到 15 万，lab 恢复后调回 50 万）
         // 分资源份额（10-16）：Z 最多 40%（成交快、曾一个人吃光日额度）；O、X 各预留 20%，Z/U 不得挤占
