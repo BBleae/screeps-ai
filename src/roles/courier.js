@@ -27,7 +27,17 @@ function load(creep) {
     const storage = from && from.storage;
     if (!storage || storage.my === false || !storage.store) { retireMod.retireAtSpawn(creep); return; }
     const keep = require('utils').aidExportLevels(config.aid, config.upgrading).keep;
-    const spare = Number(storage.store[RESOURCE_ENERGY] || 0) - keep;
+    let spare = Number(storage.store[RESOURCE_ENERGY] || 0) - keep;
+    // 10-16 一次性放行（Memory.aidOneShot）：总量封顶，取满后放行标记已删——空车回 spawn 回收，不再取
+    if (creep.memory.oneShot) {
+        const o = Memory.aidOneShot;
+        const left = o && o.from === creep.memory.from && o.to === creep.memory.home ? Math.max(0, Number(o.amount) - (Number(o.withdrawn) || 0)) : 0;
+        if (left <= 0) {
+            if ((Number(creep.store[RESOURCE_ENERGY]) || 0) > 0) { creep.memory.state = 'deliver'; goToRoom(creep, creep.memory.home); return; }
+            retireMod.retireAtSpawn(creep); return;
+        }
+        spare = Math.min(spare, left);
+    }
     if (spare <= 0) {
         haulStats.note(creep, 'wait');
         if (!creep.pos.inRangeTo(storage.pos, 3)) movement.go(creep, storage, { range: 3, reusePath: 25 });
@@ -38,6 +48,16 @@ function load(creep) {
     const range = rangeTo(creep, storage);
     if (range != null && range > 1) { movement.go(creep, storage, { range: 1, reusePath: 20 }); return; }
     const ret = creep.withdraw(storage, RESOURCE_ENERGY, amount);
+    if (ret === OK && creep.memory.oneShot && Memory.aidOneShot) {
+        const o = Memory.aidOneShot;
+        o.withdrawn = (Number(o.withdrawn) || 0) + amount;
+        (o.trips || (o.trips = [])).push([Game.time, creep.name, amount]);
+        if (o.withdrawn >= Number(o.amount)) {
+            Memory.aidOneShotDone = Object.assign({}, o, { doneAt: Game.time });
+            delete Memory.aidOneShot;
+        }
+        if (amount < free) { creep.memory.state = 'deliver'; goToRoom(creep, creep.memory.home); return; }   // 尾批不满也出发
+    }
     if (ret === ERR_NOT_IN_RANGE) { movement.go(creep, storage, { range: 1, reusePath: 20 }); return; }
     // 取满的那一 tick 就出发（下一 tick run() 看到满仓也会转投递）；只取到零头（storage 只剩导出线以上一点）时照旧等
     if (ret === OK && amount >= free) {
@@ -50,7 +70,7 @@ function deliver(creep) {
     const home = Game.rooms[creep.memory.home];
     if (!home || creep.room.name !== creep.memory.home) { goToRoom(creep, creep.memory.home); return; }
     const exclude = new Set();
-    const target = homeTarget(home, creep, { exclude });
+    const target = creep.memory.oneShot ? (oneShotTarget(home, creep) || homeTarget(home, creep, { exclude })) : homeTarget(home, creep, { exclude });
     if (!target) {
         haulStats.note(creep, 'full');
         const anchor = home.storage || home.find(FIND_MY_SPAWNS)[0];
@@ -72,6 +92,19 @@ function deliver(creep) {
     const next = homeTarget(home, creep, { exclude });
     const nextRange = next ? rangeTo(creep, next) : null;
     if (next && nextRange != null && nextRange > 1) movement.go(creep, next, { range: 1, reusePath: 20 });
+}
+
+/** 一次性放行的投递顺序：towerFirst 门槛（默认 500）以下的塔 → spawn/extension → storage */
+function oneShotTarget(home, creep) {
+    const below = Number((config.towerFirst || {})[home.name]) || 500;
+    const mine = home.find(FIND_MY_STRUCTURES) || [];
+    const towers = mine.filter((s) => s.structureType === STRUCTURE_TOWER && s.store && Number(s.store[RESOURCE_ENERGY] || 0) < below);
+    const pick = (list) => list.length ? (creep.pos && creep.pos.findClosestByRange ? creep.pos.findClosestByRange(list) : list[0]) : null;
+    if (towers.length) return pick(towers);
+    const se = mine.filter((s) => (s.structureType === STRUCTURE_SPAWN || s.structureType === STRUCTURE_EXTENSION) && freeOf(s) > 0);
+    if (se.length) return pick(se);
+    if (home.storage && home.storage.my !== false && freeOf(home.storage) > 0) return home.storage;
+    return null;
 }
 
 function run(creep) {
