@@ -10909,6 +10909,15 @@ console.log('== 10-17 01:06 terminal 能量底线 1000（storage ≥ 1 万）=='
     r = mk(9000, 0); assert(tb.terminalFloorWant(r, r._t) === 0, '穷房（storage < 1 万）不往 terminal 放能量');
     r = mk(10400, 0); assert(tb.terminalFloorWant(r, r._t) === 400, '补完 storage 不跌破 1 万');
     r = mk(50000, 1500); assert(tb.terminalFloorWant(r, r._t) === 0, '已 ≥ 1000 不补');
+    { const cfgAll = require('../src/config'); const savedM = cfgAll.market;
+      cfgAll.market = Object.assign({}, savedM, { buy: { resources: ['Z'], target: 3000, rooms: ['W32S4'] } });
+      const room = (name, se, z) => ({ name, storage: { my: true, store: { energy: se, [C.RESOURCE_ENERGY]: se, Z: z } } });
+      const term = (te) => ({ my: true, store: { energy: te, [C.RESOURCE_ENERGY]: te } });
+      assert(!tb.feeReserveFillAllowed(room('W37S7', 4132, 0), term(0)), 'W37S7 storage < 1 万、没有买单：传送费储备不补');
+      assert(tb.feeReserveFillAllowed(room('W32S4', 8064, 0), term(0)), 'W32S4 在 buy.rooms、Z 没买够：照常保留传送费储备');
+      assert(!tb.feeReserveFillAllowed(room('W32S4', 8064, 3000), term(0)), 'Z 买够了：按 storage 规则（< 1 万不补）');
+      assert(tb.feeReserveFillAllowed(room('W33S3', 29716, 0), term(0)), 'storage ≥ 1 万：照常补');
+      cfgAll.market = savedM; }
     const cfgT = require('../src/config').terminal; assert(cfgT.energyFloor === 1000 && cfgT.energyFloorMinStorage === 10000, '两个数字是配置项');
 }
 
