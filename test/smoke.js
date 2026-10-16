@@ -10812,12 +10812,18 @@ console.log('== 10-16 22:05 高速路玩家战斗部队对非战斗 creep 封路
     world.time++;
     const mv = require('../src/movement');
     const savedRooms = Game.rooms, savedMap = Game.map, savedHB = Memory.highwayBlock;
-    const bank = (t) => ({ owner: { username: 'Someone' }, body: [{ type: t }, { type: 'move' }] });
+    const bank = (t, u) => ({ owner: { username: u || 'Jumpp' }, body: [{ type: t }, { type: 'move' }] });
     const hw = { name: 'W30S4', find: (k) => (k === C.FIND_HOSTILE_CREEPS ? hw.hostiles : []), hostiles: [bank('heal'), bank('attack')] };
     Game.rooms = { W30S4: hw }; Memory.highwayBlock = {};
     assert(mv.isHighwayRoom('W30S4') && !mv.isHighwayRoom('W31S5'), 'W30S4 是高速路房，W31S5 不是');
     assert(mv.highwayBlocks().has('W30S4') && Memory.highwayBlock.W30S4.at === Game.time, '看到玩家 HEAL/ATTACK 部队：W30S4 记入封路（带最后看到的 tick）');
     assert(Memory.highwayBlock.W30S4.until === Game.time + 1500, '无视野 1500 tick 后过期');
+    world.time++;
+    { const savedPT = Memory.pvpThreat; Memory.pvpThreat = {}; Memory.highwayBlock = {}; hw.hostiles = [bank('heal', 'Kasami'), bank('attack', 'Kasami')];
+      assert(!mv.highwayBlocks().has('W30S4'), '没前科的玩家（Kasami）的战斗部队：照常通行');
+      world.time++; Memory.pvpThreat = { W30S9: { user: 'Kasami', until: Game.time + 300, at: Game.time } };
+      assert(mv.highwayBlocks().has('W30S4'), 'Kasami 被记进 pvpThreat 后：自动封路');
+      Memory.pvpThreat = savedPT; if (savedPT === undefined) delete Memory.pvpThreat; hw.hostiles = [bank('heal'), bank('attack')]; }
     assert(mv.isCombatCreep({ body: [{ type: 'ranged_attack' }] }) && !mv.isCombatCreep({ body: [{ type: 'carry' }, { type: 'move' }] }), 'courier 等非战斗 creep 才受封路约束');
     Game.map = { findRoute: (f, t, o) => (o.routeCallback('W30S4') === Infinity && o.routeCallback('W29S4') === Infinity ? -2 : [{ room: 'W29S4' }]) };
     assert(mv.civilianRouteOk('W29S3', 'W31S5') === true, '有绕行路线：照常出发');
