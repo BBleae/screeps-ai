@@ -897,6 +897,8 @@ module.exports = {
         // ---- 矿物调剂（移植 overmind-absorb 019c5b1）：一个房只有一种矿脉，反应要两种输入；能量这一轮没有要发的才轮到它 ----
         minerals: ['H', 'O', 'Z', 'K', 'U', 'L', 'X'],   // 只调基础矿：化合物跟着做它的房走
         mineralKeep: 3000,    // 发送方 terminal 里自己留这么多（= market.keep：一次反应批量 / boost 一队的量级）
+        // 10-17 战略：按房自留量——W35S7 没有 lab，O 只用来外发，自留 0（发送门槛降到 want，不自留 O）
+        mineralKeepByRoom: { W35S7: 0 },
         mineralWant: 1000,    // 有 lab 的房（terminal+storage+lab）低于它算缺口 = industry.labFill，够装满一个输入 lab
         // 10-17 14:xx 战略：按矿种覆盖缺口目标——O 送到两个 lab 房（W32S4/W33S3）各 3000（终端网络优先分 W35S7 挖的 O）；其余矿沿用 mineralWant
         mineralWantByResource: { O: 3000 },

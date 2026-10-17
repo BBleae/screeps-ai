@@ -11052,6 +11052,19 @@ console.log('== 10-17 14:xx 战略：W35S7 强开采 O，终端网络把 O 分�
     const spawnSrcM = require('fs').readFileSync(require.resolve('../src/spawn.js'), 'utf8');
     assert(/function mineralMinerTarget[\s\S]*?towerFloorHold\(room\)\) return 0/.test(spawnSrcM),
         'mineralMinerTarget 开头用 towerFloorHold 挡住（塔 < 500 不孵矿工）');
+    // 10-17 17:00 战略：W35S7 自留量（mineralKeep）按房降到 0——纯外发房发送门槛降到 want、能把 O 发到接近 0
+    const keepCfg = Object.assign({}, cfg, { mineralKeepByRoom: { W35S7: 0 } });
+    // 自留 0：W35S7 只有 3500 O（> 0 + want 3000）就外发，一笔 2000；接收方补到位
+    const kp = term.planMineralTransfer([mkRoomM('W35S7', 20000, { O: 3500 }), mkRoomM('W33S3', 20000, { O: 0 }, 3)], keepCfg);
+    assert(kp && kp.resource === 'O' && kp.from.name === 'W35S7' && kp.to.name === 'W33S3' && kp.amount === 2000,
+        'W35S7 自留 0：有 3500 O 即外发一笔 2000 给 W33S3（得 ' + JSON.stringify(kp && { f: kp.from.name, t: kp.to.name, a: kp.amount }) + '）');
+    // 对照：不配 mineralKeepByRoom（全局自留 3000）时，3500 O（< 3000 + want 3000 = 6000）不发
+    const noKeepCfg = Object.assign({}, cfg, { mineralKeepByRoom: {} });
+    assert(term.planMineralTransfer([mkRoomM('W35S7', 20000, { O: 3500 }), mkRoomM('W33S3', 20000, { O: 0 }, 3)], noKeepCfg) === null,
+        '对照：全局自留 3000 时 3500 O 不够发送门槛 6000 ⇒ 不发（证明按房自留 0 生效）');
+    // 自留 0 能把 O 发到接近 0：只有 1500 O（recipientFree 足、maxSend 2000）⇒ 发 1500（store − keep0）
+    const kp2 = term.planMineralTransfer([mkRoomM('W35S7', 20000, { O: 3500 }), mkRoomM('W33S3', 20000, { O: 2600 }, 3)], keepCfg);
+    assert(kp2 && kp2.amount === Math.min(3500, 2000), 'W35S7 自留 0：发送量 = min(store − 0, maxSend)，不为自己留 O');
 }
 
 console.log('== 10-17 02:00 W36S6 strongholdLoot 取货（默认关）==');
