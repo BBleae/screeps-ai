@@ -977,6 +977,7 @@ module.exports = {
                 amount: 4500,
                 dailyBuyCredits: 2000000,
                 creditFloor: 5000000,
+                perRoomDailyCredits: 500000,   // 10-17 13:57 战略：每个房每天最多花 50 万 credits（含手续费，记 ledger.energyBuyByRoom），防止第一个房吃光额度
                 // 10-17 13:01 战略：先从这些房的 terminal 内部发能量（terminalNetwork），它们还能当发送方时本轮不市场买；发完（跌破 sendAbove）再买
                 preferSenders: ['W29S3'],
             },

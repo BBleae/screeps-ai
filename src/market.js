@@ -56,7 +56,7 @@ function ledger() {
     const day = Math.floor(Date.now() / 86400000);
     if (!mem.ledger || mem.ledger.day !== day) {
         if (mem.ledger) mem.ledgerPrev = mem.ledger;
-        mem.ledger = { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 };
+        mem.ledger = { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 };
     }
     return mem.ledger;
 }
@@ -380,8 +380,10 @@ function syncOrders(cfg, market) {
         if (!x || left <= 0 || expired) {
             if (x && left > 0 && typeof market.cancelOrder === 'function') market.cancelOrder(o.id);
             if (o.type === 'buy' && left > 0) {
-                if (o.resource === ENERGY) {   // 10-17：能量买单走单独额度，退款退回 energyBuyCredits
+                if (o.resource === ENERGY) {   // 10-17：能量买单走单独额度，退款退回 energyBuyCredits 和 energyBuyByRoom[房]
                     led.energyBuyCredits = Math.max(0, Math.round((Number(led.energyBuyCredits) || 0) - left * o.price));
+                    const by = led.energyBuyByRoom || (led.energyBuyByRoom = {});
+                    if (by[o.room] != null) by[o.room] = Math.max(0, Math.round((Number(by[o.room]) || 0) - left * o.price));
                 } else {
                     led.buyCredits = Math.max(0, Math.round(led.buyCredits - left * o.price));
                     if (o.day === led.day) noteBuyBy(led, o.resource, -left * o.price);
@@ -406,7 +408,9 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
     if (type === 'buy') {
         const commit = price * amount + fee;
         if (budget) {
-            if (credits - commit < floor || (Number(led[budget.key]) || 0) + commit > Number(budget.cap) || price * amount > cfg.maxOrderCredits) return null;
+            const roomSpent = budget.roomKey ? (Number((led[budget.roomKey] || {})[room]) || 0) : 0;
+            if (credits - commit < floor || (Number(led[budget.key]) || 0) + commit > Number(budget.cap)
+                || (budget.roomCap > 0 && roomSpent + commit > budget.roomCap) || price * amount > cfg.maxOrderCredits) return null;
         } else {
             if (credits - commit < cfg.creditFloor || led.buyCredits + commit > cfg.dailyBuyCredits || price * amount > cfg.maxOrderCredits) return null;
             if (resource !== ENERGY && !buyShareOk(cfg, led, resource, commit)) return null;
@@ -417,7 +421,10 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
     Memory.market.lastOrder = rec;
     if (ret !== (typeof OK !== 'undefined' ? OK : 0)) return rec;
     if (type === 'buy') {
-        if (budget) led[budget.key] = Math.round((Number(led[budget.key]) || 0) + fee + price * amount);
+        if (budget) {
+            led[budget.key] = Math.round((Number(led[budget.key]) || 0) + fee + price * amount);
+            if (budget.roomKey) { const by = led[budget.roomKey] || (led[budget.roomKey] = {}); by[room] = Math.round((Number(by[room]) || 0) + fee + price * amount); }
+        }
         else { led.buyCredits = Math.round(led.buyCredits + fee + price * amount); noteBuyBy(led, resource, fee + price * amount); }
     }
     else led.sellFees = Math.round((led.sellFees || 0) + fee);
@@ -486,11 +493,16 @@ function runOwnOrders(cfg, market) {
                 const avg = recentAvgPrice(ENERGY, cfg);
                 price = Math.min(Number(e.price) || 10, cap, avg != null ? avg * (1 + band) : Infinity);
             }
-            const budget = { key: 'energyBuyCredits', cap: Number(e.dailyBuyCredits) || 0, floor: eFloor };
-            if (price > 0) for (const n of names) {
+            const budget = { key: 'energyBuyCredits', cap: Number(e.dailyBuyCredits) || 0, floor: eFloor,
+                roomKey: 'energyBuyByRoom', roomCap: Number(e.perRoomDailyCredits) || 0 };
+            // 10-17：按最缺能优先（energyHave 升序），不再每轮都挑名单第一个房；每房单日上限 perRoomDailyCredits 由 postOrder 把超额房挡掉
+            const below = Number(e.below || 10000);
+            const candidates = (price > 0 ? names : []).filter((n) => {
                 const room = Game.rooms[n];
-                if (!room || !room.terminal || book['buy:' + n + ':' + ENERGY]) continue;
-                if (energyHave(room) >= Number(e.below || 10000)) continue;
+                return room && room.terminal && !book['buy:' + n + ':' + ENERGY] && energyHave(room) < below;
+            }).sort((a, b) => energyHave(Game.rooms[a]) - energyHave(Game.rooms[b]));
+            for (const n of candidates) {
+                const room = Game.rooms[n];
                 const amount = Math.min(Number(e.amount) || 4500, Math.floor(cfg.maxOrderCredits / price), room.terminal.store.getFreeCapacity ? room.terminal.store.getFreeCapacity() : Infinity);
                 if (amount < cfg.minDeal) continue;
                 const r = postOrder(cfg, market, 'buy', ENERGY, n, price, amount, budget);
