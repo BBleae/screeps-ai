@@ -382,14 +382,22 @@ function directExits(homeName) {
  *  2026-10-14 大脑已停：指令 ~10/21 过期 + 6h 宽限后会退回"只做相邻房"的自治，把二跳外矿全判 tooFar；把分配搬进 config 才能活过过期 */
 function remoteWhitelist(homeName) {
     const assign = config.remote && config.remote.assign;
-    if (assign && Array.isArray(assign[homeName])) return assign[homeName];
+    if (assign && Array.isArray(assign[homeName])) {
+        // 10-17：无主墙拆开、PathFinder 量过步数达标的外矿自动并入（src/wall_breach.js unlockedRemotes）
+        const extra = breachUnlocked(homeName).filter((roomName) => !assign[homeName].includes(roomName));
+        return extra.length ? assign[homeName].concat(extra) : assign[homeName];
+    }
     return brain.get(homeName, 'remotes', null);
 }
 
-/** config.remote.assign 明确把这个房分给了这个母房 */
+function breachUnlocked(homeName) {
+    try { return require('wall_breach').unlockedRemotes(homeName); } catch (error) { return []; }
+}
+
+/** config.remote.assign 明确把这个房分给了这个母房（含墙拆开后解锁的） */
 function assignedRoom(homeName, roomName) {
     const assign = config.remote && config.remote.assign;
-    return !!(assign && Array.isArray(assign[homeName]) && assign[homeName].includes(roomName));
+    return !!(assign && Array.isArray(assign[homeName]) && (assign[homeName].includes(roomName) || breachUnlocked(homeName).includes(roomName)));
 }
 
 /** reserver 可以进房削 Invader 残余预定（核心已不在，见 observe 的 clearReservation）。房里有敌情时不去 */

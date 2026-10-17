@@ -58,5 +58,19 @@
   "next": [
     "deposit：只挖 silicon/mist，3 房间内，近 3000 tick 有他人 pvpFlee 或 pvpThreat 的房跳过",
     "外矿选址和布局规划搬到大脑"
-  ]
+  ],
+  "expansion": {
+    "unlockAtGcl": 15,
+    "eta": "约 2026-10-31",
+    "candidates": [
+      "W36S1",
+      "W37S3"
+    ],
+    "notes": {
+      "W36S1": "首选",
+      "W37S3": "降级：MadDokMike 在房里有前哨 spawn（Outpost-W37S3），ags131 的 scout 常驻附近"
+    },
+    "date": "2026-10-17",
+    "by": "战略猫 22:23"
+  }
 }

@@ -369,11 +369,11 @@ module.exports = {
             // W38S5 x=38 一整列无主 constructedWall（31 段，9.9k hits）、W38S6 (30,21–23) 3 段墙把三个房的源全部封死，
             // 不拆墙只能绕 W38S8/W39S8/W40 公路，426–496 步（W38S5 426/437、W38S6 444/445、W37S4 481/496）——一个都不开（10-14 那次"95–104 步走不到"同因）。
             // 墙若不存在：W38S5 62/69、W38S6 89/90、W37S4 78/93、W38S4 45/57（拆墙=demolition 决策，留给战略猫）
-            W37S5: ['W37S6'],
+            W37S5: [],   // W37S6 → W37S7；W38S4/W38S5 由 wallBreach.unlock 在墙拆开、步数复量达标后自动并入
             // 10-17 战略猫：W36S7 等 Invader 预定结束后抢下。W35S7 西边无出口、W36S7 东边无出口，W35S7 → W36S7 只能穿 W35S6(SK) → W36S6(stronghold)（90–96 步）；
             // W37S7 与 W36S7 直接相邻（storage → 源 55/83 步、控制器 72 步），改挂 W37S7。level-0 core 一直在续订预定，core 随 W36S6 stronghold 在 ~74409432 崩塌，
             // 之后残余预定由现有 clearReservation（reserver 进房削预定）处理；记录在 Memory 里停到崩塌 tick（suspendedUntil），期间零孵化
-            W37S7: ['W39S9', 'W39S6', 'W36S7'],
+            W37S7: ['W39S9', 'W39S6', 'W36S7', 'W37S6'],   // 10-17 22:23：W37S6 从 W37S5 改挂 W37S7（能量本来就卸在 W37S7，挂 W37S5 只有成本）
             W35S7: [],   // 2026-10-15：W36S7 被 Alepoldar 预定，战略猫决定不争；10-17 W36S7 改由 W37S7 接（W35S7 无安全路线）
             W33S7: ['W32S7', 'W33S6'],
             W31S8: ['W31S9', 'W29S9'],
@@ -473,6 +473,23 @@ module.exports = {
         upkeepShare: 0.5,
         // 已在编的外矿按这个系数放宽（收入抖动时不来回停启；新外矿仍按 1 倍预算进）
         upkeepSlack: 1.3,
+    },
+    // 无主墙开口（src/wall_breach.js + roles/wallBreaker.js，10-17 22:23 战略猫拍板）：每条墙线只拆最短路径上的 1 段，只动白名单坐标上无 owner 的 constructedWall。
+    // W38S5 x=38 整列 31 段（6601–9901 hits）把 W38S5 西半和 W38S4 封死；逐段试拆量 storage(19,32) → 源步数，(38,18) 一段（6601 hits）
+    // 就让 W38S4 59/55 步（≤60）、W38S5 70/68 步（≤70）。W38S6 / W37S4 先不开。拆机 W37S5 孵（spawn → 墙 32 步），最多 10 WORK = 500 hits/tick ≈ 14 tick；
+    // W37S5 等 fallbackAfter tick 还没孵出来就让 W37S7（150 步）孵。拆完 PathFinder 复量达标才把 unlock 的房并入 W37S5 外矿白名单。
+    wallBreach: {
+        enabled: true,
+        maxPairs: 10,
+        fallbackAfter: 600,
+        fleeTicks: 300,
+        targets: [{ room: 'W38S5', x: 38, y: 18, home: 'W37S5', fallbackHome: 'W37S7' }],
+        unlock: {
+            W37S5: { after: ['W38S5:38:18'], rooms: [
+                { room: 'W38S4', maxSteps: 60, sources: [{ x: 13, y: 40 }, { x: 27, y: 44 }] },
+                { room: 'W38S5', maxSteps: 70, sources: [{ x: 3, y: 32 }, { x: 5, y: 36 }] },
+            ] },
+        },
     },
     // 援建：容量 ≥ minHomeCapacity 的母房为 maxRange 内、无 storage 且容量 < untilCapacity 的己方房孵满配矿工/hauler/builder（memory.home 指向弱房）
     // untilCapacity 800 → 1300（2026-09-06 用户决定加大援建）：RCL4 的房在 20 个 extension 建完前继续有大 hauler/builder，弱房 storage 能量 < storageBelow 时仍受援；
