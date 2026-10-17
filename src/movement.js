@@ -196,7 +196,7 @@ function dangerRooms() {
 // 非战斗 creep（身上没有 ATTACK/RANGED_ATTACK/HEAL）跨房寻路时把这些房并进 avoidRooms（集合按 tick 一份，路径缓存 key 稳定；
 // 集合变了 key 就变，在途 creep 自动重算路线）。目的地被封或整条路都被封：原地等，不硬闯
 const COMBAT_PARTS = ['attack', 'ranged_attack', 'heal'];
-const NPC_OWNERS = ['Invader', 'Source Keeper', 'Power Bank'];
+const NPC_OWNERS = (config.npcOwners && config.npcOwners.length) ? config.npcOwners : ['Invader', 'Source Keeper', 'Power Bank', 'Screeps'];   // 10-17：统一 owner 名单常量（含官方系统号 Screeps）
 function isHighwayRoom(name) {
     const c = utils.roomCoords(name);
     if (!c) return false;
