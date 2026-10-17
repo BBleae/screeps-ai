@@ -887,7 +887,7 @@ module.exports = {
         // 传送费储备（2026-10-15）：这些房的 terminal 常备这么多能量给市场/调剂付传送费。
         // 先由本房 hauler 从 storage 补（storage 高于 feeReserveStorageFloor 时，不看 storageRich）；storage 也没有就排在救急房之后
         // 用同样的发送方规则从别房送；这份储备不算发送方的富余、也不被 hauler 取回 storage
-        terminalFeeReserve: { W34S7: 3000, W32S4: 3000, W33S3: 3000, W33S7: 1000, W31S6: 1000, W33S8: 1000, W37S7: 1000, W29S3: 5000 },   // W33S7：L 调剂给 lab 房的传送费（2000 L ≈ 200 能量）   // 15:01 战略猫：自挂单后对方付传送费，储备降到 3k
+        terminalFeeReserve: { W34S7: 3000, W32S4: 3000, W33S3: 3000, W33S7: 1000, W31S6: 1000, W33S8: 1000, W37S7: 1000, W29S3: 5000, W35S7: 1000 },   // 10-17 17:00：W35S7 O 调剂给两个 lab 房的传送费（2000 O 到 W33S3 ≈ 250 能量）；穷房 storage≈0，没储备时买来的能量会被 hauler 全取走，O 永远发不出去   // W33S7：L 调剂给 lab 房的传送费（2000 L ≈ 200 能量）   // 15:01 战略猫：自挂单后对方付传送费，储备降到 3k
         feeReserveStorageFloor: 2000,
         maxSend: 50000,
         // terminal 里留给市场传送费的底（src/market.js 的 deal 从 terminal 扣能量）：5000 矿物发到 10 房外约 1500 能量
