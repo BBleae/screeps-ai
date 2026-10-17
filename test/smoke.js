@@ -11151,6 +11151,23 @@ console.log('== 10-17 10:26 能量买单：跟最高买价 ≤45、单独 200 �
       created = null; mk.runOwnOrders(cfg2, mkMarket(9000000, 40));
       assert(created && created.roomName === 'W34S7', 'W29S3 发完跌破 sendAbove：恢复市场买');
       Game.rooms = savedR; }
+    // 10-17 13:57 按最缺能优先（不再每轮都挑名单第一个房）
+    { const cfg3 = Object.assign({}, cfg, { ownOrders: Object.assign({}, cfg.ownOrders, { energy: Object.assign({}, cfg.ownOrders.energy, { perRoomDailyCredits: 500000 }) }) });
+      Game.rooms = { W34S7: { name: 'W34S7', terminal: term(2000), storage: { store: { energy: 3000 } } },
+                     W35S7: { name: 'W35S7', terminal: term(500), storage: { store: { energy: 500 } } } };
+      Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
+      created = null; mk.runOwnOrders(cfg3, mkMarket(9000000, 40));
+      assert(created && created.roomName === 'W35S7', '最缺能的 W35S7（1000 < W34S7 5000）先挂单，不是名单第一个');
+      // 单房 50 万上限：W34S7 已花满，额度留给 W35S7
+      Game.rooms = { W34S7: { name: 'W34S7', terminal: term(1000), storage: { store: { energy: 1000 } } },
+                     W35S7: { name: 'W35S7', terminal: term(2000), storage: { store: { energy: 3000 } } } };
+      Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: { W34S7: 500000 }, deals: 0 }, orders: {} };
+      created = null; mk.runOwnOrders(cfg3, mkMarket(9000000, 40));
+      assert(created && created.roomName === 'W35S7', 'W34S7 单房 50 万已花满：跳过，挂给 W35S7');
+      assert(Memory.market.ledger.energyBuyByRoom.W35S7 > 0 && Memory.market.ledger.energyBuyByRoom.W34S7 === 500000, '消费记进 energyBuyByRoom[房]，含手续费');
+      // 两个房都花满：不挂
+      Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: { W34S7: 500000, W35S7: 500000 }, deals: 0 }, orders: {} };
+      created = null; assert(mk.runOwnOrders(cfg3, mkMarket(9000000, 40)) === null && created === null, '两个房单日上限都用满：不再挂'); }
     Game.rooms = savedRooms; Memory.market = savedMem;
 }
 
