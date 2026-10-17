@@ -13858,6 +13858,14 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
         '装不满：取 150 接着等（得 ' + JSON.stringify(h.calls) + ' 移动 ' + h.moveCalls.length + '）');
 }
 {
+    // 2b) 10-18：外矿房里离容器远、去取货的寻路限定本房（maxRooms 1）——路线不许穿回母房绕路（W38S5 东侧口袋在出口两侧对穿来回弹）
+    const { remoteRoom } = rhWorld(7825);
+    const h = rhCreep(remoteRoom, 'rh.far', 4, { state: 'collect' }, 40, 30, 0);
+    ROLES.remoteHauler.run(h);
+    const mv = (h.moveCalls || []).find((m) => m.target && m.target.roomName === 'W33S6');
+    assert(mv && mv.opts && mv.opts.maxRooms === 1, '房内取货寻路 maxRooms 1（得 ' + JSON.stringify(h.moveCalls) + '）');
+}
+{
     // 3) 掉落 + 容器同 tick：掉落 120 装不满 200 空位，容器补 80——引擎先结算 withdraw 再结算 pickup，withdraw 必须显式只取 80
     const { remoteRoom, container } = rhWorld(7830);
     const pile = makeDropped(remoteRoom, 13, 11, 120);

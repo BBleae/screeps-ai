@@ -780,6 +780,8 @@ function collect(creep, plan) {
     const spot = sourceMemory.spot;
     const container = creep.room.lookForAt(LOOK_STRUCTURES, spot.x, spot.y)
         .find((structure) => structure.structureType === STRUCTURE_CONTAINER);
+    // 房内取货寻路一律 maxRooms 1（10-18）：W38S5 东侧口袋走房内沼泽到破墙口 152，出房穿 W37S5 路网绕回来 149，路线指回母房；
+    // 出口两侧各站一只 hauler 时轮子按对穿把两只每 tick 互换，6 只在 W37S5/W38S5 边界来回弹、两个源容器满 2000 停采
     const energy = energyOf(creep);
     const free = Math.max(0, Number(creep.store.getFreeCapacity(RESOURCE_ENERGY)) || 0);
     const capacity = energy + free;
@@ -845,7 +847,7 @@ function collect(creep, plan) {
         return;
     }
     if (container && !containerNear) {
-        go(creep, plan, container, { range: 1, reusePath: 30 });   // 顺手捡了相邻的掉落也照走
+        go(creep, plan, container, { range: 1, reusePath: 30, maxRooms: 1 });   // 顺手捡了相邻的掉落也照走；maxRooms 1 见下
         return;
     }
     if (gained > 0) {
@@ -855,7 +857,7 @@ function collect(creep, plan) {
     // 容器空了 / 丢了：3 格内还有不相邻的掉落就去捡
     const far = closestOf(creep, drops.filter((item) => !isNear(creep, item)));
     if (far) {
-        go(creep, plan, far, { range: 1, reusePath: 15 });
+        go(creep, plan, far, { range: 1, reusePath: 15, maxRooms: 1 });
         return;
     }
     const worked = nearbyInfrastructureWork(creep);
@@ -864,7 +866,7 @@ function collect(creep, plan) {
     note(creep, 'wait');
     // 等货点：贴着矿位（容器在就是贴着容器），但不站在矿位上
     const wait = new RoomPosition(spot.x, spot.y, remoteRoom);
-    if (!creep.pos.inRangeTo(wait, 1)) go(creep, plan, wait, { range: 1, reusePath: 25 });
+    if (!creep.pos.inRangeTo(wait, 1)) go(creep, plan, wait, { range: 1, reusePath: 25, maxRooms: 1 });
 }
 
 function run(creep) {
