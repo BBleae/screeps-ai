@@ -145,7 +145,10 @@ module.exports = {
         stash: { W34S7: { resource: 'ZH2O', keep: 100000, storageFree: 50000 } },
         // 反向囤货（2026-10-15 战略猫）：W33S7 storage 的 L 由空闲 hauler 搬进 terminal 到 target，供 terminal 调剂给 lab 房；
         // target 8000 < market.keepBy.L 1 万，市场不会把它卖掉
-        unstash: { W33S7: { resource: 'L', target: 8000, terminalFree: 20000 } },
+        unstash: { W33S7: { resource: 'L', target: 8000, terminalFree: 20000 },
+            // 10-17 09:xx：W33S3 做 GH 缺 H（库存 0、矿脉没开采），W32S4 的 4.8 万 H 全在 storage，terminal 调剂只看 terminal → 搬 5000 进 terminal，
+            // 超出 mineralKeep+mineralWant 的部分自动调给 W33S3；5000 < market.keepBy.H 2 万，不会被卖
+            W32S4: { resource: 'H', target: 5000, terminalFree: 20000 } },
         // 溢出：源容器 ≥ spillShare 满、或源旁地上 ≥ spillDrop（每 tick 衰减 ceil(量/1000)），取货权重提到 spillWeight，
         // 同时 storage 的富余回流退回兜底（线上 2026-09-12 W33S3：22 格外的源容器 57% 采样满仓、脚下 3.4k–8.7k 在烂，
         // hauler 被 storage → ctrl link 的回流任务（权重 8）整场吸走，187 tick 没去过一次）
