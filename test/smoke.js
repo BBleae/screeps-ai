@@ -15474,6 +15474,23 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     }
 }
 
+{
+    console.log('== 10-17 外矿：W36S7 改挂 W37S7（W35S7 无安全路线），W37S5 不开被墙封死的 W37S4/W38S5/W38S6；Invader 预定期间零孵化 ==');
+    const rem = require('../src/remote');
+    const asg = liveRemoteAssign;
+    assert(asg.W37S7.includes('W36S7') && asg.W35S7.length === 0, 'W36S7 归 W37S7，W35S7 不挂（得 ' + JSON.stringify([asg.W37S7, asg.W35S7]) + '）');
+    assert(!['W37S4', 'W38S5', 'W38S6'].some((r) => asg.W37S5.includes(r)), 'W37S5 不开 >60 步（墙封死）的外矿');
+    const savedRooms = Memory.rooms, savedThreat = Memory.pvpThreat;
+    Memory.pvpThreat = {};
+    Memory.rooms = { W37S7: { remotes: { W36S7: { room: 'W36S7', enabled: true, clearReservation: false, suspendedUntil: Game.time + 17000,
+        suspendReason: 'foreignReservation:Invader', sources: [] } } } };
+    assert(rem.isSuspended('W37S7', 'W36S7') === true && rem.canClearReservation('W37S7', 'W36S7') === false,
+        'core 在、预定未到期：停着且不派削预定 reserver（零孵化）');
+    Memory.rooms.W37S7.remotes.W36S7.suspendedUntil = Game.time - 1;   // 等价于时间走过崩塌 tick
+    assert(rem.isSuspended('W37S7', 'W36S7') === false, '停用到期（core 崩塌）后自动恢复，现有逻辑接手派 creep');
+    Memory.rooms = savedRooms; Memory.pvpThreat = savedThreat;
+}
+
 console.log('== terminal 补能（2026-10-13，移植 overmind-absorb e4cae2f）：只从 storage 富余里补到 terminalTarget，storage 饥饿时一点都不补 ==');
 {
     resetWorld(6800);
