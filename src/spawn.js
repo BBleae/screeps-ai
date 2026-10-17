@@ -1163,6 +1163,8 @@ function coreHaulerBody(room, mem, budget) {
 
 /** 大脑给出目标数量；游戏内只核对即时开采条件。孵化仍排在 opportunistic。 */
 function mineralMinerTarget(room, mem) {
+    // 10-17 战略：房里有塔低于全局底线（utils.towerFloorHold，config.towerFloor 500）时不孵矿工——塔先补够（降级 < 5000 tick 例外）
+    if (utils.towerFloorHold(room)) return 0;
     const miner = require('roles_mineralMiner');
     const plan = miner.directive(room);
     return plan && plan.count === 1 && miner.ready(room, plan) ? 1 : 0;
