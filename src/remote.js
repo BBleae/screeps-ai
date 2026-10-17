@@ -1323,6 +1323,29 @@ function reserverBody(capacity) {
     return [];
 }
 
+/** 10-17 战略：按房的续订门槛（config.remote.reservationKeepByRoom[房]），没配就用全局 reservationKeep。
+ *  盯防房设 3000 = 预定低于约 3000 时就提前派 reserver，把预定顶在 3000 以上 */
+function reservationKeepFor(roomName) {
+    const remote = config.remote || {};
+    const byRoom = remote.reservationKeepByRoom;
+    const v = byRoom && Number(byRoom[roomName]);
+    if (v > 0) return v;
+    return positiveSetting('reservationKeep', 1000);
+}
+
+/** 10-17 战略：盯防房名单（config.remote.reserveDespitePvp）——被非武装玩家（pvpThreat）暂停时仍派 reserver 续订。
+ *  只盯不打：矿工/hauler 仍按原 pvp 回避停着，只有 reserver 继续去把预定顶住；有武装敌人或对方已占预定时不去 */
+function reserveDespitePvp(roomName) {
+    const list = (config.remote || {}).reserveDespitePvp;
+    return Array.isArray(list) && list.indexOf(roomName) >= 0;
+}
+
+/** 预定不是对方的（我方预定，或无预定/中立）：中立可以去 reserve 抢回来，对方占着就不硬抢（不写攻击代码） */
+function reservationNotForeign(record, username) {
+    const r = record && record.reservation;
+    return !r || !r.username || r.username === username;
+}
+
 /** 外矿矿工身体。路线没铺完（roadComplete 为假）且容量 ≥ 800 时给 5W1C5M：5W1C3M 在平地要 2 tick/格（5 WORK 每格疲劳 10、3 MOVE 每 tick 回 6），
  *  而替补提前量按 1 tick/格算路程，每代都晚到、源断采（线上 W33S3 的远外矿 roadComplete=false，矿工覆盖率 76–83%）；
  *  多 2 MOVE 只多 100 能量/代（0.07/tick），提前量公式自然成立，每代少浪费一半路程 */
@@ -1656,6 +1679,28 @@ function getDemands(home) {
             }
             continue;
         }
+        // 10-17 战略：盯防房（reserveDespitePvp）仅被非武装玩家（pvpThreat）暂停、且房里没有武装敌人（record.threat 空）、预定不是对方的时，
+        // 仍派 reserver 把预定顶在续订门槛以上——矿工/hauler 仍按原 pvp 回避停着（continue 跳过它们）。只盯不打：不写任何攻击代码。
+        if (record.enabled && record.suspendedUntil > Game.time && !record.sk &&
+            reserveDespitePvp(record.room) &&
+            String(record.suspendReason || '').indexOf('pvpThreat:') === 0 && !record.threat &&
+            reservationNotForeign(record, username) && withinDistance(home.name, record.room)) {
+            const watchBody = reserverBody(capacity);
+            const reserveKeep = reservationKeepFor(record.room);
+            const reserveLead = positiveSetting('reserverGrace', 60) + watchBody.length * 3 + controllerTravelDistance(home, record) + 20;
+            const reservationLeft = effectiveReservation(record, username);
+            const due = watchBody.length && reservationLeft <= reserveLead + DEMAND_BUFFER + reserveKeep;
+            // 在岗/在路上、CLAIM 够、还没进替补窗口的 reserver 不重复派（与正常续订同口径）
+            const hasFresh = creepsHomeRole(home.name, 'reserver').some((creep) => !isRetiring(creep.memory) &&
+                creep.memory.remoteRoom === record.room && (creep.spawning || creep.ticksToLive > reserveLead) &&
+                bodyPartCount(creep.body, CLAIM_PART) >= watchBody.filter((part) => part === CLAIM_PART).length);
+            if (due && !hasFresh) {
+                record.reserveDespitePvp = { at: Game.time, reservation: reservationLeft, keep: reserveKeep };
+                demands.push(demand('reserver', 'reserver:' + record.room, watchBody,
+                    { home: home.name, remoteRoom: record.room }, reserveLead, priority++, (budget) => reserverBody(budget)));
+            }
+            continue;
+        }
         if (!record.enabled || record.suspendedUntil > Game.time || !withinDistance(home.name, record.room)) continue;
         // 编制预算外（staffRemotes 每 tick 按收入算）：不补员，存量 creep 自然到期退役——房不再替养不起的外矿花钱
         if (record.staffed === false) continue;
@@ -1708,7 +1753,7 @@ function getDemands(home) {
         const reserveLead = reserveGrace + reserveBody.length * 3 + controllerTravelDistance(home, record) + 20;
         // 只按预定余量补（config.remote.reservationKeep）：以前"有 reserver 活着"本身就是触发条件，在岗者 TTL ≤ lead 就孵下一只，
         // 链条永不中断，预定顶到 5000 上限后新 reserver 的 reserve 全被引擎拒绝
-        const reserveKeep = positiveSetting('reservationKeep', 1000);
+        const reserveKeep = reservationKeepFor(record.room);   // 10-17 战略：按房续订门槛（盯防房 3000）
         const reservationLeft = effectiveReservation(record, username);
         if (reserveBody.length && reservationLeft > reserveLead + DEMAND_BUFFER + reserveKeep && hasReserver(home.name, record.room)) {
             // 遥测：预定充足、在岗 reserver 到期也不续派（旧规则只要有 reserver 活着就出需求）
@@ -1885,6 +1930,8 @@ module.exports = {
     suspensionLeft,
     threatReason,
     effectiveReservation,
+    reservationKeepFor,
+    reserveDespitePvp,
     reserverBody,
     remoteMinerBody,
     remoteHaulerBody,

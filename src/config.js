@@ -388,6 +388,11 @@ module.exports = {
         // 就自动退回 650 的 1 CLAIM，不再有"等满仓"的风险，原 1650 的 20% 余量规则撤销
         reserverDoubleClaimCapacity: 1300,
         reserverGrace: 60,
+        // 10-17 战略：盯防房（Jumpp 的 Claimer3460 在 W38S8/W39S8 附近）——按房提高续订门槛到 3000，预定低于约 3000 就提前派 reserver，顶在 3000 以上
+        reservationKeepByRoom: { W38S8: 3000, W39S8: 3000 },
+        // 10-17 战略：盯防房名单——仅被非武装玩家（pvpThreat，如 Jumpp 的纯 claimer）暂停时，仍派 reserver 续订（矿工/hauler 仍回避）；
+        // 有武装敌人、或对方已占/claim 该房时不去（只盯不打，不写攻击代码，交给战略猫决策）
+        reserveDespitePvp: ['W38S8', 'W39S8'],
         // reserver 只在预定余量 ≤ 提前量 + DEMAND_BUFFER + reservationKeep 时才补（不再"有 reserver 活着就按 TTL 链式续派"）：
         // 2 CLAIM 在岗每 tick 净攒 1、离岗每 tick 掉 1，维持水位只要约一半的时间在岗；引擎在 endTime+CLAIM 数 > 5000 时直接拒绝
         // reserve（processor/intents/creeps/reserveController.js），链式续派的 reserver 顶在上限空转——线上 15 只 reserver 里 8.7 只
