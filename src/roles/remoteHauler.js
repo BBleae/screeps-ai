@@ -367,7 +367,8 @@ function afterEmpty(creep, room, plan) {
     creep.memory.leg = 'out';
     creep.memory.legAt = Game.time;
     creep.memory.legRoom = room.name;
-    go(creep, plan, new RoomPosition(25, 25, remoteRoom), { range: 20, reusePath: 40 });
+    const target = travelTarget(creep, home, remoteRoom);
+    go(creep, plan, target.pos, { range: target.range, reusePath: 40 });
 }
 
 function deliver(creep, plan) {
@@ -745,12 +746,23 @@ function depart(creep, plan, load) {
     go(creep, plan, new RoomPosition(25, 25, creep.memory.dropRoom), { range: 20, reusePath: 35 });
 }
 
+/** 去程目标：有记录的矿位（range 1，与进房后的目标一致）；没有矿位记录才退回房间中心 range 20 */
+function travelTarget(creep, homeName, remoteRoom) {
+    const sourceMemory = remote.getSource(homeName, remoteRoom, creep.memory.sourceId, creep.memory.srcIdx);
+    const spot = sourceMemory && sourceMemory.spot;
+    if (spot && spot.x != null && spot.y != null) return { pos: new RoomPosition(spot.x, spot.y, remoteRoom), range: 1 };
+    return { pos: new RoomPosition(25, 25, remoteRoom), range: 20 };
+}
+
 function collect(creep, plan) {
     const homeName = creep.memory.home;
     const remoteRoom = creep.memory.remoteRoom;
     if (creep.room.name !== remoteRoom) {
         if (remote.noteTravel(creep)) return;
-        go(creep, plan, new RoomPosition(25, 25, remoteRoom), { range: 20, reusePath: 40 });
+        // 去程直接以矿位为目标（10-18）：以前走向 (25,25) range 20，外矿房里与矿位不连通的口袋也算到达，进房后对矿位寻路
+        // 若穿回母房更省（W38S5 东侧口袋走 W37S5 路网绕到破墙口），两个目标的路线在出口两侧互相抵消，6 只 hauler 在 W37S5/W38S5 边界来回弹
+        const target = travelTarget(creep, homeName, remoteRoom);
+        go(creep, plan, target.pos, { range: target.range, reusePath: 40 });
         return;
     }
 
