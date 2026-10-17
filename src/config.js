@@ -893,6 +893,8 @@ module.exports = {
         minerals: ['H', 'O', 'Z', 'K', 'U', 'L', 'X'],   // 只调基础矿：化合物跟着做它的房走
         mineralKeep: 3000,    // 发送方 terminal 里自己留这么多（= market.keep：一次反应批量 / boost 一队的量级）
         mineralWant: 1000,    // 有 lab 的房（terminal+storage+lab）低于它算缺口 = industry.labFill，够装满一个输入 lab
+        // 10-17 14:xx 战略：按矿种覆盖缺口目标——O 送到两个 lab 房（W32S4/W33S3）各 3000（终端网络优先分 W35S7 挖的 O）；其余矿沿用 mineralWant
+        mineralWantByResource: { O: 3000 },
         mineralMaxSend: 2000, // 一笔最多两个 labFill：缺口房一次补够两批，donor 也不被一个房掏空
         mineralLabs: 3,       // 至少这么多 lab 才算缺口房（反应三连的最低数）：没 lab 的房调过去也只是躺着
     },
@@ -1059,7 +1061,7 @@ module.exports = {
     },
     // 矿物数量、库存门槛和身体由 scripts/brain/minerals.py 决定。
     // 2026-10-15 战略猫：K 矿只开 W31S6、W33S8、W37S7（大脑已停用，冻结指令里是 enabled:false）。见 roles/mineralMiner.forced
-    minerals: { force: { W31S6: true, W33S8: true, W37S7: true }, maxStock: { W33S8: 10000 } },   // maxStock：10-16 战略 W33S8 K 库存 ≥1 万停孵矿物矿工，自动恢复
+    minerals: { force: { W31S6: true, W33S8: true, W37S7: true, W35S7: true }, maxStock: { W33S8: 10000 } },   // 10-17 14:xx 战略：W35S7 强开采 O（brain 冻结指令 enabled:false，force 翻成 count 1），经 terminalNetwork 分给两个 lab 房   // maxStock：10-16 战略 W33S8 K 库存 ≥1 万停孵矿物矿工，自动恢复
     // 外部大脑 2026-10-14 停用（晴猫）。retired = true：最后一份指令（issuedAt 10-14 12:00 JST、ttl 7 天）永不过期、不算掉线，
     // 否则 10-21 18:00 JST（ttl + 6h 宽限）起 brain.get 全返回 null：三座 K 矿 + W38S7 的矿全停（mineralMiner 只认指令）、
     // scout 名额从 0 变自治、外矿排序丢失，再过一天 expansion.autoClaim 开始自治占房。游戏内覆盖（remote.assign、minerals.force）照旧优先。

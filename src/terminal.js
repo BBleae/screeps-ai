@@ -275,9 +275,15 @@ function mineralHave(room, labs, mineral) {
     return sum;
 }
 
+/** 按矿种的缺口目标：cfg.mineralWantByResource[矿] 覆盖全局 mineralWant（10-17 战略：O→3000 给 lab 房） */
+function mineralWantFor(cfg, mineral) {
+    const by = cfg.mineralWantByResource;
+    const v = by && Number(by[mineral]);
+    return v > 0 ? v : Math.max(1, Number(cfg.mineralWant) || 1000);
+}
+
 /** 缺口房：有 lab（≥ mineralLabs 个）才消费矿物；没 lab 的房调过去也只是躺着 */
 function mineralShort(rooms, cfg) {
-    const want = Math.max(1, Number(cfg.mineralWant) || 1000);
     const minLabs = Math.max(1, Number(cfg.mineralLabs) || 3);
     const out = {};
     for (const room of rooms) {
@@ -287,6 +293,7 @@ function mineralShort(rooms, cfg) {
         const labRooms = config.industry && config.industry.labRooms;
         if (Array.isArray(labRooms) && labRooms.indexOf(room.name) < 0) continue;
         for (const mineral of cfg.minerals || []) {
+            const want = mineralWantFor(cfg, mineral);
             const have = mineralHave(room, labs, mineral);
             if (have < want) (out[mineral] || (out[mineral] = [])).push({ room, have });
         }
@@ -297,10 +304,10 @@ function mineralShort(rooms, cfg) {
 /** 这一轮该做的那笔矿物调剂；没有返回 null（纯函数，便于单测） */
 function planMineralTransfer(rooms, cfg) {
     const keep = Math.max(0, Number(cfg.mineralKeep) || 0);
-    const want = Math.max(1, Number(cfg.mineralWant) || 1000);
     const maxSend = Math.max(1, Number(cfg.mineralMaxSend) || 2000);
     const short = mineralShort(rooms, cfg);
     for (const mineral of cfg.minerals || []) {
+        const want = mineralWantFor(cfg, mineral);
         const needy = (short[mineral] || []).filter((entry) => freeOf(entry.room.terminal.store) > 0).sort((a, b) => a.have - b.have);
         if (!needy.length) continue;
         const donors = rooms.filter((room) => !(room.terminal.cooldown > 0) && !usedThisTick(room.name) &&
@@ -311,7 +318,8 @@ function planMineralTransfer(rooms, cfg) {
                 const to = entry.room;
                 if (to.name === from.name) continue;
                 const amount = Math.min(Number(from.terminal.store[mineral] || 0) - keep, maxSend, freeOf(to.terminal.store));
-                if (amount < want) continue;
+                // 一笔下限：目标与单笔上限的较小者（O want 3000 > maxSend 2000 时按 2000，分批补到 3000）
+                if (amount < Math.min(want, maxSend)) continue;
                 // 传送费从发送方 terminal 的能量里出
                 const cost = transactionCost(amount, from.name, to.name);
                 if (cost > energyOf(from.terminal.store)) continue;

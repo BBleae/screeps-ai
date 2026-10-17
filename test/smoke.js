@@ -10974,6 +10974,38 @@ console.log('== 10-16 23:03 全局塔底线 500（towerFloor）==');
     assert(/towerFloorHold\(room\)/.test(ub) && !/towerFirstHold\(room\)/.test(ub), 'upgrader 取能与控制器供能捷径都看全局底线');
 }
 
+console.log('== 10-17 14:xx 战略：W35S7 强开采 O，终端网络把 O 分给两个 lab 房各 3000；矿工受 towerFloor 挡住 ==');
+{
+    const term = require('terminal');
+    const cfg = term.settings();
+    // 配置落地
+    assert(config.minerals && config.minerals.force && config.minerals.force.W35S7 === true, 'W35S7 已进 minerals.force（强开采 O）');
+    assert(cfg.mineralWantByResource && cfg.mineralWantByResource.O === 3000, 'mineralWantByResource.O = 3000（得 ' + (cfg.mineralWantByResource && cfg.mineralWantByResource.O) + '）');
+    const mkLabsM = (n, store) => Array.from({ length: n }, (_, i) => ({ structureType: C.STRUCTURE_LAB, store: Object.assign({}, i === 0 ? (store || {}) : {}) }));
+    const mkRoomM = (name, terminalEnergy, minerals, labs, labStore) => {
+        const labList = mkLabsM(labs || 0, labStore);
+        return { name, controller: { my: true, level: 8 },
+            storage: { my: true, store: mkStore(50000, 1000000) },
+            terminal: { my: true, cooldown: 0, store: mkStore(terminalEnergy, 300000, minerals || {}),
+                send: function (type, amount, dest) { this.sent = { type, amount, dest }; return C.OK; } },
+            find: (kind, o) => (o && o.filter ? labList.filter(o.filter) : labList) };
+    };
+    // O 的缺口目标 3000：recipient 已有 2000（旧 want 1000 下不算缺口），仍继续补，证明按矿种覆盖生效
+    const op = term.planMineralTransfer([mkRoomM('W35S7', 20000, { O: 9000 }), mkRoomM('W33S3', 20000, { O: 2000 }, 3)], cfg);
+    assert(op && op.resource === 'O' && op.to.name === 'W33S3' && op.amount <= cfg.mineralMaxSend,
+        'O 只到 2000 仍按 3000 目标继续补（分批、单笔 ≤ mineralMaxSend）（得 ' + JSON.stringify(op && { r: op.resource, t: op.to.name, a: op.amount }) + '）');
+    // O 已达 3000：不再补（到位即止，配合市场 target 3000 一起停）
+    assert(term.planMineralTransfer([mkRoomM('W35S7', 20000, { O: 9000 }), mkRoomM('W33S3', 20000, { O: 3000 }, 3)], cfg) === null,
+        'O 已到 3000 ⇒ 不再调（到位即止）');
+    // 非 O 矿沿用 mineralWant 1000：H 已有 2000 ⇒ 不算缺口（证明只覆盖 O）
+    assert(term.planMineralTransfer([mkRoomM('W35S7', 20000, { H: 9000 }), mkRoomM('W33S3', 20000, { H: 2000 }, 3)], cfg) === null,
+        '非 O 矿沿用 mineralWant 1000：H 已有 2000 ⇒ 不算缺口');
+    // 矿工受 towerFloor 全局底线挡住（塔 < 500 不孵）
+    const spawnSrcM = require('fs').readFileSync(require.resolve('../src/spawn.js'), 'utf8');
+    assert(/function mineralMinerTarget[\s\S]*?towerFloorHold\(room\)\) return 0/.test(spawnSrcM),
+        'mineralMinerTarget 开头用 towerFloorHold 挡住（塔 < 500 不孵矿工）');
+}
+
 console.log('== 10-17 02:00 W36S6 strongholdLoot 取货（默认关）==');
 {
     const cq = require('../src/conquest');
