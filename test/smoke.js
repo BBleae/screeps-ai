@@ -11113,10 +11113,54 @@ console.log('== 10-17 10:26 能量买单：跟最高买价 ≤45、单独 200 �
     Memory.market = { ledger: { day: 1, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 }, orders: {} };
     created = null; mk.runOwnOrders(cfg, mkMarket(9000000, 38));
     assert(created && created.price === 38, '最高买价 38 < 45：跟到 38');
+    // 5 日均价 × 1.15 更低时，价格跟均价带（min(最高买价, 45, 均价×1.15)）
+    { const savedGM = Game.market;
+      Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 }, orders: {} };
+      const m2 = { credits: 9000000, orders: {},
+        getAllOrders: (f) => (f && (f.type === (C.ORDER_BUY || 'buy')) ? [{ price: 60, amount: 5000 }] : []),
+        getHistory: () => [{ avgPrice: 30 }, { avgPrice: 30 }, { avgPrice: 30 }, { avgPrice: 30 }, { avgPrice: 30 }],
+        createOrder: (o) => { created = o; return C.OK != null ? C.OK : 0; } };
+      Game.market = m2; created = null;
+      mk.runOwnOrders(cfg, m2);
+      assert(created && Math.abs(created.price - 34.5) < 0.01, '均价 30 × 1.15 = 34.5 < 最高买价/45：价格跟到 34.5（得 ' + (created && created.price) + '）');
+      Game.market = savedGM; }
     // 日额度 200 万用满：不再挂
     Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 2000000, deals: 0 }, orders: {} };
     created = null; assert(mk.runOwnOrders(cfg, mkMarket(9000000, 40)) === null && created === null, 'energyBuyCredits 日额度 200 万用满：不再挂');
     Game.rooms = savedRooms; Memory.market = savedMem;
+}
+
+console.log('== 10-17 11:04 原料买入：只给 W32S4 补 X/O 到 3000，lab 被能量闸挡住时不买 ==');
+{
+    const mk = require('../src/market');
+    const base = mk.settings();
+    const reserve = Number((require('../src/config').industry || {}).labStorageReserve) || 8000;
+    const cfg = Object.assign({}, base, { minDeal: 500, maxOrderCredits: 50000, creditFloor: 0, dailyBuyCredits: 150000, priceBand: 0.15,
+        ownOrders: { enabled: true, expireTicks: 3000, fee: 0.05, minBuyAmount: 100, buyMinerals: true, sell: [], energy: null },
+        buy: { resources: ['X', 'O'], target: 3000, orderAmount: 500, rooms: ['W32S4'] } });
+    const savedRooms = Game.rooms, savedMem = Memory.market, savedGM = Game.market, savedBucket = Game.cpu.bucket, savedStats = Memory.stats;
+    // 前面的测试删了 config.industry.labRooms（15827 行才还原）：labsAllowed 需要它，本块临时补回
+    const indC = require('../src/config').industry; const savedLabRooms = indC.labRooms, savedReserveCfg = indC.labStorageReserve;
+    indC.labRooms = ['W32S4', 'W33S3']; indC.labStorageReserve = reserve;
+    Game.cpu.bucket = 10000; Memory.stats = [];   // deposit.cpuOk → true
+    const mkMineralMarket = (credits) => ({ credits, orders: {}, getAllOrders: () => [],
+        getHistory: () => [{ avgPrice: 5 }, { avgPrice: 5 }], createOrder: (o) => { createdM.push(o); return C.OK != null ? C.OK : 0; } });
+    const term = { my: true, store: { X: 0, O: 0, getFreeCapacity: () => 100000 } };
+    const mkRoom = (storEnergy) => ({ name: 'W32S4', terminal: term, storage: { my: true, store: { energy: storEnergy, [C.RESOURCE_ENERGY]: storEnergy } } });
+    let createdM = [];
+    // lab 被能量闸挡住（storage 能量 < labStorageReserve）：不买
+    Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 }, orders: {} };
+    Game.rooms = { W32S4: mkRoom(reserve - 1) }; Game.market = mkMineralMarket(9000000); createdM = [];
+    mk.runOwnOrders(cfg, Game.market);
+    assert(createdM.length === 0, 'lab 被能量闸挡住（storage<labStorageReserve）：不补原料');
+    // storage 能量够：补 X/O
+    Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 }, orders: {} };
+    Game.rooms = { W32S4: mkRoom(reserve + 50000) }; Game.market = mkMineralMarket(9000000); createdM = [];
+    mk.runOwnOrders(cfg, Game.market);
+    assert(createdM.length === 1 && ['X', 'O'].indexOf(createdM[0].resourceType) >= 0 && createdM[0].roomName === 'W32S4', 'lab 在跑：给 W32S4 挂 X 或 O 买单');
+    assert(Memory.market.ledger.buyCredits > 0, '原料买入走普通 15 万日额度 buyCredits');
+    indC.labRooms = savedLabRooms; indC.labStorageReserve = savedReserveCfg;
+    Game.cpu.bucket = savedBucket; Memory.stats = savedStats; Game.rooms = savedRooms; Memory.market = savedMem; Game.market = savedGM;
 }
 
 console.log('== 10-16 19:00 市场降档：日额度 15 万、只给 W32S4 买 Z、救急买能量不占日额度 ==');
@@ -11125,9 +11169,8 @@ console.log('== 10-16 19:00 市场降档：日额度 15 万、只给 W32S4 买 Z
     const cfgPath = require.resolve('../src/config'); const savedCfg = require.cache[cfgPath]; delete require.cache[cfgPath];
     const mc = require('../src/config').market; require.cache[cfgPath] = savedCfg;
     assert(mc.dailyBuyCredits === 150000, '每日买入上限 15 万（得 ' + mc.dailyBuyCredits + '）');
-    // 10-17 03:xx：停买 Z，当天日买额 0 → buy.resources/rooms 清空，原配置记进 pauseNotes.market
-    assert(mc.buy.resources.length === 0 && mc.buy.rooms.length === 0, '停买：buy.resources/rooms 清空（得 ' + JSON.stringify(mc.buy) + '）');
-    assert(mc.pauseNotes && mc.pauseNotes.market && JSON.stringify(mc.pauseNotes.market.buy.resources) === '["Z"]' && JSON.stringify(mc.pauseNotes.market.buy.rooms) === '["W32S4"]', '原买入配置记进 pauseNotes.market');
+    // 10-17 11:04：恢复少量 X/O 买入，只给 W32S4 的 XGH2O 链补到 3000
+    assert(JSON.stringify(mc.buy.resources.slice().sort()) === '["O","X"]' && JSON.stringify(mc.buy.rooms) === '["W32S4"]' && mc.buy.target === 3000, '只给 W32S4 买 X/O 补到 3000（得 ' + JSON.stringify(mc.buy) + '）');
     assert(!Object.keys(mc.buyShare.reserve || {}).length, 'O/X 不再占预留份额');
     assert(mc.buyEnergy.spawnStuckEmergency === true && mc.buyEnergy.emergencyOutsideDaily === true, '救急买能量保留、且不占日额度');
 }

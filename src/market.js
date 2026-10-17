@@ -440,6 +440,10 @@ function runOwnOrders(cfg, market) {
         for (const roomName of b.rooms || []) {
             const room = Game.rooms[roomName];
             if (!room || !room.terminal) continue;
+            // 10-17：lab 被能量闸（labStorageReserve）挡住的房不补原料——只给在跑的 lab 链买
+            let labsOk = true;
+            try { labsOk = require('industry').labsAllowed(room); } catch (error) { labsOk = true; }
+            if (!labsOk) continue;
             for (const res of b.resources) {
                 if (book['buy:' + roomName + ':' + res]) continue;
                 const have = Number(room.terminal.store[res] || 0) + Number((room.storage && room.storage.store[res]) || 0);
@@ -461,12 +465,14 @@ function runOwnOrders(cfg, market) {
             const cap = Number(e.maxPrice) || 45;
             let price;
             if (e.followHighestBuy) {
-                // 10-17：价格跟市场当前最高能量买价，但 ≤ maxPrice
+                // 10-17：价格 = min(市场最高买价, maxPrice 45, 5 日均价 × (1+band 0.15))
                 let buyOrders = [];
                 try { buyOrders = market.getAllOrders({ type: BUY(), resourceType: ENERGY }) || []; }
                 catch (error) { utils.logErr('market.energyBuy getAllOrders', error); buyOrders = []; }
                 const top = buyOrders.reduce((m, o) => (o.amount > 0 && o.price > m ? o.price : m), 0);
-                price = top > 0 ? Math.min(top, cap) : 0;
+                const eAvg = recentAvgPrice(ENERGY, cfg);
+                const bandCeil = eAvg != null ? eAvg * (1 + band) : Infinity;
+                price = top > 0 ? Math.min(top, cap, bandCeil) : 0;
             } else {
                 const avg = recentAvgPrice(ENERGY, cfg);
                 price = Math.min(Number(e.price) || 10, cap, avg != null ? avg * (1 + band) : Infinity);
