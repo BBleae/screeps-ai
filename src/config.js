@@ -287,7 +287,7 @@ module.exports = {
         lossWindow: 3000,
         lossCooldown: 5000,
         // 10-17 单只验证模式（默认关，10:17 由战略拍板）：只派 1 只 reaper 去 room，把血量/击杀记到 Memory.skReaperValidate
-        validate: { enabled: false, home: null, room: null, units: 9 },
+        validate: { enabled: true, home: 'W33S7', room: 'W34S6', units: 12 },   // 10-17 10:26 战略拍板：单只验证模式，只去 W34S6（不去 W36S6）
     },
     // 防御（只对 NPC）：母房容量 ≥ minCapacity 才派 defender；清场后 idleTicks 无敌情回家退役
     defense: {
@@ -620,7 +620,7 @@ module.exports = {
         // RCL8 建造顺序：extension → 第 3 spawn → lab→10 → tower→6（layout.js 按此错峰）
         rcl8BuildOrder: true,
         // storage 低于此值不建 terminal（10 万进度会抽干升级口粮；W29S3 73k 时工地 0 进度）
-        terminalMinStorage: 120000,
+        terminalMinStorage: 100000,   // 10-17 10:26 战略：120000 → 100000
         // 塔射程外的维修债（血）低于它时不为维修孵 builder（spawn.hasBuilderWork）：约 100 能量的活不值一只 builder 的摊销
         outOfReachMinDebt: 10000,
         horizon: 300,
@@ -920,7 +920,7 @@ module.exports = {
             ZH2O: 50000,              // 攻城 boost 备用 5 万（战略猫 15:49），其余慢慢卖
             silicon: 0, mist: 0,      // deposit 产出直接卖（不做 wire）
         },
-        dailySellUnits: { ZH2O: 2000 },
+        dailySellUnits: { ZH2O: 5000 },   // 10-17 10:26 战略：2000 → 5000（W34S7 保留 5 万规则不变）
         creditFloor: 2000000,         // 低于它只卖不买
         // 10-17 军事 boost 买入（strongholdLoot，默认关，10:17 拍板）：买现成化合物送进 room 的 terminal，单独记 ledger.militaryCredits，不占日额度
         militaryBoost: {
@@ -964,7 +964,17 @@ module.exports = {
             dailySellFeeCredits: 300000,
             sell: [{ resource: 'ZH2O', room: 'W34S7' }],           // 量 = min(富余, 当日剩余 dailySellUnits)
             buyMinerals: true,                                       // 用 buy.resources/buy.rooms/buy.target
-            energy: null,   // 10-15 战略猫：能量买单停掉（挂 10 而均价 38 不成交），缺能量房靠 terminal 调剂
+            // 10-17 10:26 战略：重挂能量买单。价格跟市场最高买价但 ≤ maxPrice 45；单独日额度 dailyBuyCredits 200 万（不占普通 buyCredits，记 ledger.energyBuyCredits）；
+            // credits < creditFloor 500 万停；只给有 terminal 且 storage+terminal 能量 < below 1 万的房
+            energy: {
+                rooms: ['W34S7', 'W35S7', 'W37S5', 'W31S5', 'W37S7', 'W31S6'],
+                below: 10000,
+                followHighestBuy: true,
+                maxPrice: 45,
+                amount: 4500,
+                dailyBuyCredits: 2000000,
+                creditFloor: 5000000,
+            },
         },
     },
     // CPU 预留（bucket 健康时 creep 循环的上限 = limit − cpuReserve，超了只跳 broker 分数 < 20 的单位，与过去一致）

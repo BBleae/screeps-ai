@@ -732,6 +732,9 @@ function resetWorld(time) {
 
 // ---- 测试 ----
 const config = require('../src/config');
+// 10-17：skReaper 单只验证（config.sk.validate）在线上开着，但它给 home W33S7 注入一个 skReaper 需求，会扰动下面以 W33S7 为样板房的孵化测试；
+// 这些测试按 validate 关闭的基线写，先在测试进程里关掉，专门的验证断言在其对应块里局部打开。
+config.sk.validate.enabled = false;
 // 线上外矿分配（config.remote.assign）会盖过测试里的大脑白名单：先存档清空，末尾单测覆盖语义
 const liveRemoteAssign = config.remote.assign;
 config.remote.assign = {};
@@ -11062,6 +11065,57 @@ console.log('== 10-17 02:00 军事 boost 买入（默认关，不占日额度）
     const r = mk.buyMilitaryBoosts(cfg, market);
     assert(r && dealt && dealt.room === 'W33S3', '开启后向 W33S3 买 XZH2O');
     assert(Memory.market.ledger.militaryCredits > 0 && Memory.market.ledger.buyCredits === 0, '花费记 ledger.militaryCredits，不占日买额度 buyCredits');
+    Game.rooms = savedRooms; Memory.market = savedMem;
+}
+
+console.log('== 10-17 10:26 skReaper 单只验证：home W33S7 → 只去 W34S6，units 12 ==');
+{
+    const cq = require('../src/conquest');
+    const v = require('../src/config').sk.validate;
+    const saved = { e: v.enabled, h: v.home, r: v.room, u: v.units };
+    v.enabled = true; v.home = 'W33S7'; v.room = 'W34S6'; v.units = 12;
+    const d = cq.skValidateDemands({ name: 'W33S7' });
+    assert(d.length === 1 && d[0].role === 'skReaper' && d[0].memory.remoteRoom === 'W34S6' && d[0].memory.validate === true, 'home W33S7：出 1 只 skReaper 去 W34S6');
+    assert(d[0].body.filter((p) => p === 'ranged_attack').length === 12 && d[0].body.filter((p) => p === 'heal').length === 12, 'units 12：12 RANGED + 12 HEAL');
+    assert(cq.skValidateDemands({ name: 'W35S7' }).length === 0, '非 home 房：不出验证 reaper');
+    v.enabled = false;
+    assert(cq.skValidateDemands({ name: 'W33S7' }).length === 0, '开关关：不出（零影响）');
+    v.enabled = saved.e; v.home = saved.h; v.room = saved.r; v.units = saved.u;
+}
+
+console.log('== 10-17 10:26 能量买单：跟最高买价 ≤45、单独 200 万日额度、credits<500 万停、只给缺能量房 ==');
+{
+    const mk = require('../src/market');
+    const base = mk.settings();
+    const cfg = Object.assign({}, base, { minDeal: 500, maxOrderCredits: 500000, creditFloor: 2000000,
+        ownOrders: { enabled: true, expireTicks: 3000, fee: 0.05, minBuyAmount: 100, buyMinerals: false, sell: [],
+            energy: { rooms: ['W34S7', 'W35S7'], below: 10000, followHighestBuy: true, maxPrice: 45, amount: 4500, dailyBuyCredits: 2000000, creditFloor: 5000000 } },
+        buy: { resources: [], rooms: [] } });
+    const savedRooms = Game.rooms, savedMem = Memory.market;
+    const term = (e) => ({ my: true, store: { energy: e, getFreeCapacity: () => 100000, [C.RESOURCE_ENERGY]: e } });
+    // W34S7 缺能量（storage+terminal < 1 万），W35S7 不缺
+    Game.rooms = { W34S7: { name: 'W34S7', terminal: term(1000), storage: { store: { energy: 2000 } } },
+                   W35S7: { name: 'W35S7', terminal: term(8000), storage: { store: { energy: 9000 } } } };
+    let created = null;
+    const mkMarket = (credits, buyTop) => ({ credits, orders: {},
+        getAllOrders: (f) => (f && (f.type === (C.ORDER_BUY || 'buy')) ? [{ price: buyTop, amount: 5000 }, { price: 20, amount: 1000 }] : []),
+        createOrder: (o) => { created = o; return C.OK != null ? C.OK : 0; } });
+    // credits < 500 万：不挂
+    Memory.market = { ledger: { day: 1, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 }, orders: {} };
+    assert(mk.runOwnOrders(cfg, mkMarket(4000000, 60)) === null && created === null, 'credits < creditFloor 500 万：不挂能量买单');
+    // credits 够：挂 W34S7，价 = min(最高买价 60, maxPrice 45) = 45
+    Memory.market = { ledger: { day: 1, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 }, orders: {} };
+    const r = mk.runOwnOrders(cfg, mkMarket(9000000, 60));
+    assert(r && created && created.roomName === 'W34S7' && created.resourceType === (C.RESOURCE_ENERGY || 'energy'), '只给缺能量房 W34S7 挂单（W35S7 不缺跳过）');
+    assert(created.price === 45, '价格封顶 maxPrice 45（最高买价 60 → 45）');
+    assert(Memory.market.ledger.energyBuyCredits > 0 && Memory.market.ledger.buyCredits === 0, '能量买单记 energyBuyCredits，不占普通 buyCredits');
+    // 最高买价低于 45 时跟买价
+    Memory.market = { ledger: { day: 1, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 }, orders: {} };
+    created = null; mk.runOwnOrders(cfg, mkMarket(9000000, 38));
+    assert(created && created.price === 38, '最高买价 38 < 45：跟到 38');
+    // 日额度 200 万用满：不再挂
+    Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 2000000, deals: 0 }, orders: {} };
+    created = null; assert(mk.runOwnOrders(cfg, mkMarket(9000000, 40)) === null && created === null, 'energyBuyCredits 日额度 200 万用满：不再挂');
     Game.rooms = savedRooms; Memory.market = savedMem;
 }
 
