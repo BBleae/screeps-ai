@@ -1090,15 +1090,22 @@ function ownerCacheObserve(force) {
         if (!ctrl) continue;   // 高速路/SK/中心房没有控制器：与房主无关
         const owner = ctrl.owner && ctrl.owner.username;
         const prev = cache.rooms[name];
-        if (!owner || owner === me || ctrl.my) {
+        if (owner === me || ctrl.my) {
             if (prev) { delete cache.rooms[name]; changed++; }
             continue;
         }
         const towerType = typeof STRUCTURE_TOWER === 'undefined' ? 'tower' : STRUCTURE_TOWER;
-        const towers = room.find(typeof FIND_HOSTILE_STRUCTURES === 'undefined' ? 'hostileStructures' : FIND_HOSTILE_STRUCTURES).filter((s) => s.structureType === towerType).length;
-        const level = Number(ctrl.level) || 0;
-        if (!prev || prev.o !== owner || prev.l !== level || prev.t !== towers) changed++;
-        cache.rooms[name] = { o: owner, l: level, t: towers, at: Game.time };
+        const towerList = room.find(typeof FIND_HOSTILE_STRUCTURES === 'undefined' ? 'hostileStructures' : FIND_HOSTILE_STRUCTURES).filter((s) => s.structureType === towerType);
+        const towers = towerList.length;
+        // 控制器无主：一般删条目；但还有敌方塔（invader 据点，塔归 Invader）照样记着——塔才是要回避的东西
+        const who = owner || (towers ? (towerList[0].owner && towerList[0].owner.username) || 'Invader' : null);
+        if (!who) {
+            if (prev) { delete cache.rooms[name]; changed++; }
+            continue;
+        }
+        const level = owner ? Number(ctrl.level) || 0 : 0;
+        if (!prev || prev.o !== who || prev.l !== level || prev.t !== towers) changed++;
+        cache.rooms[name] = { o: who, l: level, t: towers, at: Game.time };
     }
     if (changed) cache.rev = (Number(cache.rev) || 0) + 1;
     return changed;

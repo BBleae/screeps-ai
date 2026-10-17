@@ -15614,13 +15614,15 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
         W34S9: { name: 'W34S9', controller: { my: false, level: 7, owner: { username: 'Alepoldar' } }, find: () => [] },
         W35S3: { name: 'W35S3', controller: { my: false, level: 4, owner: { username: 'Newbie' } }, find: () => [{ structureType: typeof STRUCTURE_TOWER === 'undefined' ? 'tower' : STRUCTURE_TOWER }] },
         W29S4: { name: 'W29S4', controller: { my: false, level: 0 }, find: () => [] },
+        W36S4: { name: 'W36S4', controller: { my: false, level: 0 }, find: () => [{ structureType: typeof STRUCTURE_TOWER === 'undefined' ? 'tower' : STRUCTURE_TOWER, owner: { username: 'Invader' } }] },
     };
     const rev0 = Memory.ownerCache.rev;
     const changed = utilsMod.ownerCacheObserve(true);
     const fr2 = mv.frozenOwnerRooms();
-    assert(changed === 3 && Memory.ownerCache.rev === rev0 + 1, '有视野复核：塔数变了/新塔房/房主没了 三处变化，rev +1（得 ' + changed + '）');
+    assert(changed === 4 && Memory.ownerCache.rev === rev0 + 1, '有视野复核：塔数变了/新塔房/房主没了/新据点 四处变化，rev +1（得 ' + changed + '）');
     assert(!fr2.includes('W34S9') && fr2.includes('W35S3') && fr2.includes('W33S9'), '看到塔没了才移出、看到新塔房才加入；没视野的 W33S9 原样保留（不按时间删）');
     assert(!Memory.ownerCache.rooms.W29S4 && Memory.ownerCache.rooms.W34S9 && Memory.ownerCache.rooms.W34S9.l === 7, '看到无主才删条目；有主无塔的仍记房主/RCL');
+    assert(fr2.includes('W36S4') && Memory.ownerCache.rooms.W36S4.o === 'Invader', '控制器无主但有 Invader 据点塔：照样留在回避集合');
     assert(utilsMod.ownerCacheObserve(true) === 0 && Memory.ownerCache.rev === rev0 + 1, '没有变化：不改 rev');
     Game.rooms = savedRoomsO;
     Memory.brain = savedBrain; Game.spawns = savedSpawns; Memory.ownerCache = savedOwnerCache;
