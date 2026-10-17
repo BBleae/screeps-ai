@@ -11234,6 +11234,23 @@ console.log('== 10-16 W29S3：lab 等 terminal 建成才恢复；bankRooms 0.6 �
     assert(utils.upgraderSupplyWork(bk, bkMem) === 12, 'storageRich 开着时身体/编制的可持续供给也封在 12（得 ' + utils.upgraderSupplyWork(bk, bkMem) + '）');
 }
 
+console.log('== 10-17 14:12 六个买能房全部进攒能档（bankRooms 0.6，storage 充裕也不放开）==');
+{
+    const br = config.upgrading.bankRooms;
+    for (const r of ['W34S7', 'W35S7', 'W37S5', 'W31S5', 'W37S7', 'W31S6']) assert(br[r] === 0.6, r + ' 在 bankRooms、系数 0.6（得 ' + br[r] + '）');
+    const twoSrc = () => [{ energyCapacity: 3000 }, { energyCapacity: 3000 }];   // 2 源 → sourceSupply 20 → 封顶 12
+    const richMem = { storageRich: { on: true, at: 1 } };
+    // 攒能房：storage 50 万、storageRich 开着，仍封在 12（买来的能量只进 storage，不放开升级规模）
+    const bankRoom = { name: 'W34S7', find: twoSrc, storage: { my: true, store: { energy: 500000, [C.RESOURCE_ENERGY]: 500000 } }, terminal: null, controller: { level: 7, my: true } };
+    assert(utils.upgraderSupplyWork(bankRoom, richMem) === 12, '攒能房 storage 50 万也封在 12（不按 storage 放开）（得 ' + utils.upgraderSupplyWork(bankRoom, richMem) + '）');
+    // 对照：非攒能房同样 storage → 可持续供给随富余放开（> 12），证明是 bank 规则在封顶
+    const freeRoom = { name: 'W30S5', find: twoSrc, storage: { my: true, store: { energy: 500000, [C.RESOURCE_ENERGY]: 500000 } }, terminal: null, controller: { level: 7, my: true } };
+    assert(utils.upgraderSupplyWork(freeRoom, richMem) > 12, '非攒能房 storage 50 万：供给放开（> 12）（得 ' + utils.upgraderSupplyWork(freeRoom, richMem) + '）');
+    // 防降级最低保障：即使源很小，bankingWorkCap 也 >= 1（控制器永远有 1 WORK 升级，不会降级）
+    const tiny = { name: 'W37S5', find: () => [{ energyCapacity: 1000 }], storage: { my: true, store: { energy: 0 } }, controller: { level: 7, my: true } };
+    assert(utils.bankingWorkCap(tiny) >= 1, '攒能房封顶也不低于 1 WORK（防控制器降级）（得 ' + utils.bankingWorkCap(tiny) + '）');
+}
+
 console.log('== 援建加码：容量 < 1300 且 storage 不足的弱房受援；母房 storage 富余时派 courier 把能量搬到弱房 ==');
 {
     resetWorld(6400);
@@ -11351,7 +11368,7 @@ console.log('== 两个房同时开荒：各自的母房都要出 pioneer；援�
 console.log('== storage 富余要花在升级上：控制器容器提到第 1 层、上限用富余表；取货 storage 只是源容器空了之后的兜底、升级者只按容器到货加、阈值有滞回 ==');
 {
     resetWorld(6700);
-    const rsRoom = makeRoom('W35S7', { rcl: 5, energy: 1800, cap: 1800, ctrl: { x: 34, y: 24 }, owner: 'me' });
+    const rsRoom = makeRoom('W30S5', { rcl: 5, energy: 1800, cap: 1800, ctrl: { x: 34, y: 24 }, owner: 'me' });
     rsRoom._sources = [makeSource(rsRoom, 14, 6, 'rs0'), makeSource(rsRoom, 31, 12, 'rs1')];
     makeSpawn(rsRoom, 23, 21);
     const rsStorage = makeStructure(rsRoom, C.STRUCTURE_STORAGE, 21, 20, { energy: SF_RICH, capacity: 1000000 });
@@ -11360,27 +11377,27 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     const rsSrc0 = makeStructure(rsRoom, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 1500, capacity: 2000 });
     const rsSrc1 = makeStructure(rsRoom, C.STRUCTURE_CONTAINER, 30, 13, { my: false, energy: 1500, capacity: 2000 });
     const rsPlan = { anchor: { x: 23, y: 21 }, containers: { ctrl: { x: 33, y: 25 }, src0: { x: 15, y: 7 }, src1: { x: 30, y: 13 } }, workPositions: { ctrl: { x: 33, y: 25 }, src0: { x: 15, y: 7 }, src1: { x: 30, y: 13 } }, roads: {}, links: {} };
-    Memory.rooms.W35S7 = { sources: ['rs0', 'rs1'], plan: rsPlan, state: { at: Game.time, recovering: false, emergencyHarvest: false } };
-    ['rs0', 'rs1'].forEach((id, index) => { world.creeps['rsH' + index] = makeCreep(rsRoom, 'rsH' + index, utils.makeBody('staticHarvester', 1800), { home: 'W35S7', role: 'harvester', sourceIdx: index, sourceId: id, staticMiner: true }); });
-    for (let i = 0; i < 2; i++) world.creeps['rsHa' + i] = makeCreep(rsRoom, 'rsHa' + i, utils.makeBody('hauler', 1800), { home: 'W35S7', role: 'hauler' });
-    for (let i = 0; i < 2; i++) world.creeps['rsU' + i] = makeCreep(rsRoom, 'rsU' + i, utils.makeBody('upgrader', 1800), { home: 'W35S7', role: 'upgrader' });
+    Memory.rooms.W30S5 = { sources: ['rs0', 'rs1'], plan: rsPlan, state: { at: Game.time, recovering: false, emergencyHarvest: false } };
+    ['rs0', 'rs1'].forEach((id, index) => { world.creeps['rsH' + index] = makeCreep(rsRoom, 'rsH' + index, utils.makeBody('staticHarvester', 1800), { home: 'W30S5', role: 'harvester', sourceIdx: index, sourceId: id, staticMiner: true }); });
+    for (let i = 0; i < 2; i++) world.creeps['rsHa' + i] = makeCreep(rsRoom, 'rsHa' + i, utils.makeBody('hauler', 1800), { home: 'W30S5', role: 'hauler' });
+    for (let i = 0; i < 2; i++) world.creeps['rsU' + i] = makeCreep(rsRoom, 'rsU' + i, utils.makeBody('upgrader', 1800), { home: 'W30S5', role: 'upgrader' });
     taskBroker.beginTick();
     const rsTasks = taskBroker.roomTasks(rsRoom);
     const rsStorageCollect = rsTasks.find((t) => t.kind === 'collect' && t.target === rsStorage);
     const rsSrcCollect = rsTasks.find((t) => t.kind === 'collect' && t.target === rsSrc0);
     const rsCtrlDeliver = rsTasks.find((t) => t.kind === 'deliver' && t.target === rsCtrl);
     assert(rsStorageCollect && rsSrcCollect && rsStorageCollect.rich === true && rsStorageCollect.weight < rsSrcCollect.weight, 'storage 9 万且控制器容器 200/2000：storage 取货标 rich 但权重低于源容器（兜底）（得 ' + JSON.stringify([rsStorageCollect && rsStorageCollect.weight, rsStorageCollect && rsStorageCollect.rich, rsSrcCollect && rsSrcCollect.weight]) + '）');
-    assert(Memory.rooms.W35S7.storageRich && Memory.rooms.W35S7.storageRich.on === true && Memory.rooms.W35S7.storageRich.at === Game.time, '富余状态写进 Memory.rooms[房].storageRich（得 ' + JSON.stringify(Memory.rooms.W35S7.storageRich) + '）');
+    assert(Memory.rooms.W30S5.storageRich && Memory.rooms.W30S5.storageRich.on === true && Memory.rooms.W30S5.storageRich.at === Game.time, '富余状态写进 Memory.rooms[房].storageRich（得 ' + JSON.stringify(Memory.rooms.W30S5.storageRich) + '）');
     assert(rsCtrlDeliver && rsCtrlDeliver.tier === 1, '富余时控制器容器的投递提到第 1 层（得 ' + (rsCtrlDeliver && rsCtrlDeliver.tier) + '）');
     // hauler 满载、spawn/ext 满：先送控制器容器（第 1 层里 spawn 无缺口）
     const rsHauler = world.creeps.rsHa0;
-    rsHauler.pos = new RoomPosition(22, 21, 'W35S7');
+    rsHauler.pos = new RoomPosition(22, 21, 'W30S5');
     rsHauler.store[C.RESOURCE_ENERGY] = 800;
     ROLES.hauler.run(rsHauler);
     assert(rsCtrl.store[C.RESOURCE_ENERGY] === 1000 || headingTo(rsHauler, rsCtrl), 'spawn/ext 满时满载 hauler 把能量送进控制器容器（得 ' + rsCtrl.store[C.RESOURCE_ENERGY] + '）');
     // 空载 hauler：源容器 1500 有货 → 先取源容器，storage 不动（storage 压过源容器会把矿工溢出的能量丢在地上衰减，A/B 总 CP −5%）
     const rsHauler2 = world.creeps.rsHa1;
-    rsHauler2.pos = new RoomPosition(22, 22, 'W35S7');
+    rsHauler2.pos = new RoomPosition(22, 22, 'W30S5');
     rsHauler2.store[C.RESOURCE_ENERGY] = 0;
     rsHauler2.actions.length = 0;
     ROLES.hauler.run(rsHauler2);
@@ -11391,7 +11408,7 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     world.time += 3;
     taskBroker.beginTick();
     const rsHauler2b = world.creeps.rsHa1;
-    rsHauler2b.pos = new RoomPosition(22, 21, 'W35S7');
+    rsHauler2b.pos = new RoomPosition(22, 21, 'W30S5');
     rsHauler2b.store[C.RESOURCE_ENERGY] = 0;
     rsHauler2b.actions.length = 0;
     delete rsHauler2b.memory.brokerTask;
@@ -11399,18 +11416,18 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     assert(rsStorage.store[C.RESOURCE_ENERGY] < SF_RICH, '源容器都空时空载 hauler 从 storage 取（兜底）（storage ' + rsStorage.store[C.RESOURCE_ENERGY] + '，动作 ' + rsHauler2b.actions.join(',') + '）');
     rsSrc0.store[C.RESOURCE_ENERGY] = 1500; rsSrc1.store[C.RESOURCE_ENERGY] = 1500;
     // 升级者目标：容器 200/2000 而 storage 9 万 → 供给比例只看容器（EMA 往下走），上限仍用富余表（RCL5：3 而不是 2）
-    Memory.rooms.W35S7.upgradeSupply = { ema: 0.5, extra: 2, at: -1, changedAt: -1 };
+    Memory.rooms.W30S5.upgradeSupply = { ema: 0.5, extra: 2, at: -1, changedAt: -1 };
     rsCtrl.store[C.RESOURCE_ENERGY] = 200;
     spawnMgr.run(rsRoom);
     const rsCfg = require('../src/config').upgrading;
-    assert(Memory.rooms.W35S7.upgradeSupply.ema < 0.5 && Memory.rooms.W35S7.demand.targets.upgrader < rsCfg.maxUpgradersRich[5],
-        '容器只有 10%：供给 EMA 只按容器到货往下走、升级者减员，不按 storage 水位配（得 ema ' + Memory.rooms.W35S7.upgradeSupply.ema + ' 目标 ' + Memory.rooms.W35S7.demand.targets.upgrader + '）');
+    assert(Memory.rooms.W30S5.upgradeSupply.ema < 0.5 && Memory.rooms.W30S5.demand.targets.upgrader < rsCfg.maxUpgradersRich[5],
+        '容器只有 10%：供给 EMA 只按容器到货往下走、升级者减员，不按 storage 水位配（得 ema ' + Memory.rooms.W30S5.upgradeSupply.ema + ' 目标 ' + Memory.rooms.W30S5.demand.targets.upgrader + '）');
     // 容器喂得饱（95%）：上限才用富余表（RCL5：3 而不是 2）
-    Memory.rooms.W35S7.upgradeSupply = { ema: 0.5, extra: 2, at: -1, changedAt: -1 };
+    Memory.rooms.W30S5.upgradeSupply = { ema: 0.5, extra: 2, at: -1, changedAt: -1 };
     rsCtrl.store[C.RESOURCE_ENERGY] = 1900;
     world.time += 3;
     spawnMgr.run(rsRoom);
-    const rsTargets = Memory.rooms.W35S7.demand.targets;
+    const rsTargets = Memory.rooms.W30S5.demand.targets;
     assert(rsTargets.upgrader === rsCfg.maxUpgradersRich[5] && rsTargets.upgrader > rsCfg.maxUpgraders[5], 'storage 富余且容器喂得饱：升级者上限到 maxUpgradersRich[5]（得 ' + rsTargets.upgrader + '）');
     rsCtrl.store[C.RESOURCE_ENERGY] = 200;
     // 滞回：storage 从 9 万掉到 1.5 万仍算富余（≥ storageFeedBelow 1 万）
@@ -11419,7 +11436,7 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     taskBroker.beginTick();
     const rsTasksH = taskBroker.roomTasks(rsRoom);
     const rsCtrlDeliverH = rsTasksH.find((t) => t.kind === 'deliver' && t.target === rsCtrl);
-    assert(rsCtrlDeliverH && rsCtrlDeliverH.tier === 1 && Memory.rooms.W35S7.storageRich.on === true, '滞回：storage 1.5 万（曾富余）仍是富余，控制器容器仍在第 1 层（得 ' + JSON.stringify([rsCtrlDeliverH && rsCtrlDeliverH.tier, Memory.rooms.W35S7.storageRich]) + '）');
+    assert(rsCtrlDeliverH && rsCtrlDeliverH.tier === 1 && Memory.rooms.W30S5.storageRich.on === true, '滞回：storage 1.5 万（曾富余）仍是富余，控制器容器仍在第 1 层（得 ' + JSON.stringify([rsCtrlDeliverH && rsCtrlDeliverH.tier, Memory.rooms.W30S5.storageRich]) + '）');
     // storage 掉到 storageFeedBelow 以下：回到普通规则
     rsStorage.store[C.RESOURCE_ENERGY] = SF_UNDER;
     world.time += 3;
@@ -11427,49 +11444,49 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     const rsTasks2 = taskBroker.roomTasks(rsRoom);
     const rsCtrlDeliver2 = rsTasks2.find((t) => t.kind === 'deliver' && t.target === rsCtrl);
     const rsStorageCollect2 = rsTasks2.find((t) => t.kind === 'collect' && t.target === rsStorage);
-    assert(rsCtrlDeliver2 && rsCtrlDeliver2.tier === 3 && (!rsStorageCollect2 || (rsStorageCollect2.weight < 6 && !rsStorageCollect2.rich)) && Memory.rooms.W35S7.storageRich.on === false,
-        'storage 8000 时控制器容器回到第 3 层、storage 取货不再 rich（得 ' + JSON.stringify([rsCtrlDeliver2 && rsCtrlDeliver2.tier, rsStorageCollect2 && [rsStorageCollect2.weight, rsStorageCollect2.rich], Memory.rooms.W35S7.storageRich]) + '）');
+    assert(rsCtrlDeliver2 && rsCtrlDeliver2.tier === 3 && (!rsStorageCollect2 || (rsStorageCollect2.weight < 6 && !rsStorageCollect2.rich)) && Memory.rooms.W30S5.storageRich.on === false,
+        'storage 8000 时控制器容器回到第 3 层、storage 取货不再 rich（得 ' + JSON.stringify([rsCtrlDeliver2 && rsCtrlDeliver2.tier, rsStorageCollect2 && [rsStorageCollect2.weight, rsStorageCollect2.rich], Memory.rooms.W30S5.storageRich]) + '）');
     // competeAt：刚看到过竞争需求（保持期内），限流生效——spawn.run 会按本房实况重写 builderBacklog
-    Memory.rooms.W35S7.upgradeSupply = { ema: 0.5, extra: 2, at: -1, changedAt: -1, competeAt: world.time };
+    Memory.rooms.W30S5.upgradeSupply = { ema: 0.5, extra: 2, at: -1, changedAt: -1, competeAt: world.time };
     spawnMgr.run(rsRoom);
     // storage 掉到 lowBelow 以下同时进入升级低档：控制器限流到 W12，而每只容器站位的升级者已是 W12——
-    // 数量按 上限 ÷ 每只 WORK 封顶为 1（第 2 只只会把 duty 摊到 0.5，线上 W32S4/W34S7/W35S7 就是两只 W12 各干一半）
-    const rsPer = spawnMgr.upgraderBody(rsRoom, Memory.rooms.W35S7, rsRoom.energyCapacityAvailable).filter((part) => part === 'work').length;
+    // 数量按 上限 ÷ 每只 WORK 封顶为 1（第 2 只只会把 duty 摊到 0.5，线上 W32S4/W34S7/W30S5 就是两只 W12 各干一半）
+    const rsPer = spawnMgr.upgraderBody(rsRoom, Memory.rooms.W30S5, rsRoom.energyCapacityAvailable).filter((part) => part === 'work').length;
     // 2026-10-08 起身体按可持续供给（≤ W20）而不是瞬时限流定：RCL5 容量 1800 的 W16；数量仍按 限流 12 ÷ 16 封顶为 1
-    assert(utils.upgraderWorkCap(rsRoom, Memory.rooms.W35S7) === 12 && rsPer === 16, '前提：低档限流 W12、每只升级者 W16（容量所限，不再缩到限流值）（得 cap ' + utils.upgraderWorkCap(rsRoom, Memory.rooms.W35S7) + ' W' + rsPer + '）');
-    assert(Memory.rooms.W35S7.demand.targets.upgrader === 1 && 1 < rsCfg.maxUpgraders[5],
-        'storage 富余退出且进入升级低档：升级者按限流封顶为 1，不按 extra 加到 maxUpgraders[5]（得 ' + Memory.rooms.W35S7.demand.targets.upgrader + '）');
+    assert(utils.upgraderWorkCap(rsRoom, Memory.rooms.W30S5) === 12 && rsPer === 16, '前提：低档限流 W12、每只升级者 W16（容量所限，不再缩到限流值）（得 cap ' + utils.upgraderWorkCap(rsRoom, Memory.rooms.W30S5) + ' W' + rsPer + '）');
+    assert(Memory.rooms.W30S5.demand.targets.upgrader === 1 && 1 < rsCfg.maxUpgraders[5],
+        'storage 富余退出且进入升级低档：升级者按限流封顶为 1，不按 extra 加到 maxUpgraders[5]（得 ' + Memory.rooms.W30S5.demand.targets.upgrader + '）');
     // 滞回另一侧：退出后 storage 回到 1.5 万不重新进入（要到 2 万）
     rsStorage.store[C.RESOURCE_ENERGY] = SF_MID;
     world.time += 3;
     taskBroker.beginTick();
     const rsCtrlDeliverL = taskBroker.roomTasks(rsRoom).find((t) => t.kind === 'deliver' && t.target === rsCtrl);
-    assert(rsCtrlDeliverL && rsCtrlDeliverL.tier === 3 && Memory.rooms.W35S7.storageRich.on === false, '滞回：退出后 1.5 万不重新进入富余（得 ' + JSON.stringify([rsCtrlDeliverL && rsCtrlDeliverL.tier, Memory.rooms.W35S7.storageRich]) + '）');
+    assert(rsCtrlDeliverL && rsCtrlDeliverL.tier === 3 && Memory.rooms.W30S5.storageRich.on === false, '滞回：退出后 1.5 万不重新进入富余（得 ' + JSON.stringify([rsCtrlDeliverL && rsCtrlDeliverL.tier, Memory.rooms.W30S5.storageRich]) + '）');
     // 专职短途搬运工 feeder：storage 富余 + 容器供能 + storage 到控制器容器 12 格（≤ feederMaxDistance）→ 编制 1；hauler 编制不再算 storage 回流项
     const rsFeederCfg = require('../src/config').upgrading;
     world.time += 3;
     spawnMgr.run(rsRoom);
-    const rsHaulersLean = Memory.rooms.W35S7.demand.targets.hauler;
-    assert(Memory.rooms.W35S7.demand.targets.feeder === 0, 'storage 不富余：feeder 编制 0（得 ' + Memory.rooms.W35S7.demand.targets.feeder + '）');
+    const rsHaulersLean = Memory.rooms.W30S5.demand.targets.hauler;
+    assert(Memory.rooms.W30S5.demand.targets.feeder === 0, 'storage 不富余：feeder 编制 0（得 ' + Memory.rooms.W30S5.demand.targets.feeder + '）');
     rsStorage.store[C.RESOURCE_ENERGY] = SF_RICH;
     world.time += 3;
     spawnMgr.run(rsRoom);
-    assert(Memory.rooms.W35S7.demand.targets.feeder === rsFeederCfg.feeders && Memory.rooms.W35S7.demand.targets.feeder > 0, 'storage 富余、容器供能、12 格：feeder 编制 ' + rsFeederCfg.feeders + '（得 ' + Memory.rooms.W35S7.demand.targets.feeder + '）');
-    assert(Memory.rooms.W35S7.demand.targets.hauler === rsHaulersLean, '有 feeder 时 hauler 编制不再加 storage 回流项（得 ' + Memory.rooms.W35S7.demand.targets.hauler + ' vs ' + rsHaulersLean + '）');
+    assert(Memory.rooms.W30S5.demand.targets.feeder === rsFeederCfg.feeders && Memory.rooms.W30S5.demand.targets.feeder > 0, 'storage 富余、容器供能、12 格：feeder 编制 ' + rsFeederCfg.feeders + '（得 ' + Memory.rooms.W30S5.demand.targets.feeder + '）');
+    assert(Memory.rooms.W30S5.demand.targets.hauler === rsHaulersLean, '有 feeder 时 hauler 编制不再加 storage 回流项（得 ' + Memory.rooms.W30S5.demand.targets.hauler + ' vs ' + rsHaulersLean + '）');
     let rsFeeder = null;
     for (let i = 0; i < 6 && !rsFeeder; i++) { world.time += 1; spawnMgr.run(rsRoom); rsFeeder = Object.values(world.creeps).find((c) => c.memory.role === 'feeder'); }
     assert(rsFeeder && utils.bodyPartCount(rsFeeder.body, 'carry') >= 4 && utils.bodyPartCount(rsFeeder.body, 'move') >= 2, '孵出 feeder：CARRY ≥ 4、MOVE ≥ 2（得 ' + (rsFeeder && rsFeeder.body.map((p) => p.type[0]).join('')) + '）');
-    assert(spawnMgr.feederBody(rsRoom, Memory.rooms.W35S7, 250).length === 0 && utils.bodyPartCount(spawnMgr.feederBody(rsRoom, Memory.rooms.W35S7, 600), 'carry') >= 4,
-        '预算不够 4 CARRY 的 feeder 不孵（返回空身体等预算），600 预算给 ≥ 4 CARRY（得 ' + JSON.stringify([spawnMgr.feederBody(rsRoom, Memory.rooms.W35S7, 250).length, spawnMgr.feederBody(rsRoom, Memory.rooms.W35S7, 600).map((p) => p[0]).join('')]) + '）');
+    assert(spawnMgr.feederBody(rsRoom, Memory.rooms.W30S5, 250).length === 0 && utils.bodyPartCount(spawnMgr.feederBody(rsRoom, Memory.rooms.W30S5, 600), 'carry') >= 4,
+        '预算不够 4 CARRY 的 feeder 不孵（返回空身体等预算），600 预算给 ≥ 4 CARRY（得 ' + JSON.stringify([spawnMgr.feederBody(rsRoom, Memory.rooms.W30S5, 250).length, spawnMgr.feederBody(rsRoom, Memory.rooms.W30S5, 600).map((p) => p[0]).join('')]) + '）');
     // 角色：空载去 storage 取；满载送控制器容器；富余关闭且空载 → 退役
-    const rsF = makeCreep(rsRoom, 'rs-feeder', ['carry', 'carry', 'carry', 'carry', 'move', 'move'], { home: 'W35S7', role: 'feeder' });
-    rsF.pos = new RoomPosition(22, 20, 'W35S7');   // storage (21,20) 旁
+    const rsF = makeCreep(rsRoom, 'rs-feeder', ['carry', 'carry', 'carry', 'carry', 'move', 'move'], { home: 'W30S5', role: 'feeder' });
+    rsF.pos = new RoomPosition(22, 20, 'W30S5');   // storage (21,20) 旁
     world.creeps[rsF.name] = rsF;
     const rsStorageBefore = rsStorage.store[C.RESOURCE_ENERGY];
     ROLES.feeder.run(rsF);
     assert(rsF.actions.includes('withdraw') && rsStorage.store[C.RESOURCE_ENERGY] < rsStorageBefore && rsF.store[C.RESOURCE_ENERGY] === 200, '空载 feeder 从 storage 取满（得 ' + rsF.actions.join(',') + ' 载 ' + rsF.store[C.RESOURCE_ENERGY] + '）');
     rsF.actions.length = 0;
-    rsF.pos = new RoomPosition(32, 25, 'W35S7');   // 控制器容器 (33,25) 旁
+    rsF.pos = new RoomPosition(32, 25, 'W30S5');   // 控制器容器 (33,25) 旁
     const rsCtrlBefore = rsCtrl.store[C.RESOURCE_ENERGY];
     ROLES.feeder.run(rsF);
     assert(rsF.actions.includes('transfer') && rsCtrl.store[C.RESOURCE_ENERGY] === rsCtrlBefore + 200 && rsF.store[C.RESOURCE_ENERGY] === 0, '满载 feeder 送进控制器容器（得 ' + rsF.actions.join(',') + ' 容器 ' + rsCtrl.store[C.RESOURCE_ENERGY] + '）');
@@ -11499,15 +11516,15 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     assert(rsLinkDeliver && rsLinkDeliver.tier === 1 && rsLinkDeliver.weight === 9, 'link 供能 + storage 富余：控制器 link 是第 1 层投递目标（得 ' + JSON.stringify(rsLinkDeliver && [rsLinkDeliver.tier, rsLinkDeliver.weight]) + '）');
     assert(rsStorageCollect3 && rsStorageCollect3.rich === true && rsStorageCollect3.weight >= 8, 'link 模式下 storage 取货是几格短途：权重 8 压过源容器，第一轮竞价就放行（得 ' + JSON.stringify([rsStorageCollect3.weight, rsStorageCollect3.rich]) + '）');
     // link 供能房：容器不由 hauler 喂，升级者供给信号仍是 storage 水位（容器 200 但 storage 9 万 → EMA 往上走、上限到富余表）
-    Memory.rooms.W35S7.upgradeSupply = { ema: 0.5, extra: 2, at: -1, changedAt: -1 };
+    Memory.rooms.W30S5.upgradeSupply = { ema: 0.5, extra: 2, at: -1, changedAt: -1 };
     rsCtrl.store[C.RESOURCE_ENERGY] = 200;
     world.time += 3;
     spawnMgr.run(rsRoom);
-    assert(Memory.rooms.W35S7.upgradeSupply.ema > 0.5 && Memory.rooms.W35S7.demand.targets.upgrader === rsCfg.maxUpgradersRich[5],
-        'link 供能房：供给 EMA 按 storage 水位往上走、升级者上限到 maxUpgradersRich[5]（得 ema ' + Memory.rooms.W35S7.upgradeSupply.ema + ' 目标 ' + Memory.rooms.W35S7.demand.targets.upgrader + '）');
-    assert(Memory.rooms.W35S7.demand.targets.feeder === 0, 'link 供能房不出 feeder（得 ' + Memory.rooms.W35S7.demand.targets.feeder + '）');
+    assert(Memory.rooms.W30S5.upgradeSupply.ema > 0.5 && Memory.rooms.W30S5.demand.targets.upgrader === rsCfg.maxUpgradersRich[5],
+        'link 供能房：供给 EMA 按 storage 水位往上走、升级者上限到 maxUpgradersRich[5]（得 ema ' + Memory.rooms.W30S5.upgradeSupply.ema + ' 目标 ' + Memory.rooms.W30S5.demand.targets.upgrader + '）');
+    assert(Memory.rooms.W30S5.demand.targets.feeder === 0, 'link 供能房不出 feeder（得 ' + Memory.rooms.W30S5.demand.targets.feeder + '）');
     const rsHauler3 = world.creeps.rsHa0;
-    rsHauler3.pos = new RoomPosition(22, 21, 'W35S7');
+    rsHauler3.pos = new RoomPosition(22, 21, 'W30S5');
     rsHauler3.store[C.RESOURCE_ENERGY] = 700;
     delete rsHauler3.memory.brokerTask;
     ROLES.hauler.run(rsHauler3);
