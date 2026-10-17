@@ -1,62 +1,62 @@
 {
-    "phase": 1,
-    "cpu": {
-        "targetAvg": 135,
-        "noNewRemotesIfAvgAbove": 145,
-        "noNewRemotesIfBucketBelow": 3000,
-        "pixelEnabled": false
+  "phase": 1,
+  "cpu": {
+    "targetAvg": 135,
+    "noNewRemotesIfAvgAbove": 145,
+    "noNewRemotesIfBucketBelow": 3000,
+    "pixelEnabled": false
+  },
+  "energy": {
+    "starvingBelow": 10000,
+    "priorityReceivers": [
+      "W33S7",
+      "W32S4",
+      "W33S8",
+      "W31S8",
+      "W35S7",
+      "W34S7",
+      "W31S5",
+      "W37S5"
+    ],
+    "noNewConsumersUntilBalanced": true,
+    "policy": "能量平衡达标之前不加任何新的能量消耗；lab 继续按 2 万能量闸运行",
+    "labEnergyGate": 20000
+  },
+  "remotes": {
+    "maxPerRoomDefault": 3,
+    "maxHops": 2,
+    "policy": "总数不增，只在房间间挪；W34S7/W35S7 走 SK 外矿，不争 Alepoldar 的房",
+    "targets": {
+      "W35S7": [],
+      "W29S3": [
+        "W29S2",
+        "W29S1",
+        "W31S1"
+      ]
     },
-    "energy": {
-        "starvingBelow": 10000,
-        "priorityReceivers": [
-            "W33S7",
-            "W32S4",
-            "W33S8",
-            "W31S8",
-            "W35S7",
-            "W34S7",
-            "W31S5",
-            "W37S5"
-        ],
-        "noNewConsumersUntilBalanced": true,
-        "policy": "能量平衡达标之前不加任何新的能量消耗；lab 继续按 2 万能量闸运行",
-        "labEnergyGate": 20000
-    },
-    "remotes": {
-        "maxPerRoomDefault": 3,
-        "maxHops": 2,
-        "policy": "总数不增，只在房间间挪",
-        "targets": {
-            "W35S7": [],
-            "W29S3": [
-                "W29S2",
-                "W29S1",
-                "W31S1"
-            ]
-        },
-        "roomPlans": {
-            "W29S3": {
-                "plan": "外矿全开（W29S2/W29S1/W31S1）攒能量；storage 攒到 terminalMinStorage 12 万再建 terminal，接入能量网络；不再硬冲 RCL7，已移出 forceRichUpgraders",
-                "date": "2026-10-16"
-            }
-        }
-    },
-    "brain": {
-        "directiveTtlHours": 6,
-        "fallback": "game-conservative-defaults",
-        "keepInGame": [
-            "defense",
-            "towers",
-            "safeMode",
-            "spawnEmergency"
-        ]
-    },
-    "pauseNotes": {
-        "W31S5": "2026-10-16 21:00 战略：W31S5 缺能（storage/terminal 0、塔 5/7）——config.towerFirst.W31S5=500（塔没到 500 前 upgrader/builder 不取能、builder 不修路），upgrading.bankRooms.W31S5=0.6。待办：等 W29S3 的 terminal 建成后，把 W31S5 接进能量网络（terminalNetwork），届时去掉 towerFirst.W31S5。",
-        "market": "2026-10-16 19:00 战略：能量平衡达标前原料采购降档——market.dailyBuyCredits 50万→15万；market.buy 只买 Z（W32S4 ZK 链，K 自产），O/X/U 与 W33S3 停买；buyShare 的 Z 40% 上限与 O/X 预留取消；救急买能量 buyEnergy.emergencyOutsideDaily=true 不占日额度。lab 恢复后调回：dailyBuyCredits 500000、buy.resources ['Z','O','X','U']、buy.rooms ['W32S4','W33S3']、buyShare { cap:{Z:0.4}, reserve:{O:0.2,X:0.2} }"
-    },
-    "next": [
-        "deposit：只挖 silicon/mist，3 房间内，近 3000 tick 有他人 pvpFlee 或 pvpThreat 的房跳过",
-        "外矿选址和布局规划搬到大脑"
+    "roomPlans": {
+      "W29S3": {
+        "plan": "外矿全开（W29S2/W29S1/W31S1）攒能量；storage 攒到 terminalMinStorage 10 万（10-17 下调）再建 terminal，接入能量网络；不再硬冲 RCL7，已移出 forceRichUpgraders",
+        "date": "2026-10-16"
+      }
+    }
+  },
+  "brain": {
+    "directiveTtlHours": 6,
+    "fallback": "game-conservative-defaults",
+    "keepInGame": [
+      "defense",
+      "towers",
+      "safeMode",
+      "spawnEmergency"
     ]
+  },
+  "pauseNotes": {
+    "W31S5": "2026-10-16 21:00 战略：W31S5 缺能（storage/terminal 0、塔 5/7）——config.towerFirst.W31S5=500（塔没到 500 前 upgrader/builder 不取能、builder 不修路），upgrading.bankRooms.W31S5=0.6。待办：等 W29S3 的 terminal 建成后，把 W31S5 接进能量网络（terminalNetwork），届时去掉 towerFirst.W31S5。",
+    "market": "2026-10-16 19:00 战略：能量平衡达标前原料采购降档——market.dailyBuyCredits 50万→15万；market.buy 只买 Z（W32S4 ZK 链，K 自产），O/X/U 与 W33S3 停买；buyShare 的 Z 40% 上限与 O/X 预留取消；救急买能量 buyEnergy.emergencyOutsideDaily=true 不占日额度。lab 恢复后调回：dailyBuyCredits 500000、buy.resources ['Z','O','X','U']、buy.rooms ['W32S4','W33S3']、buyShare { cap:{Z:0.4}, reserve:{O:0.2,X:0.2} }"
+  },
+  "next": [
+    "deposit：只挖 silicon/mist，3 房间内，近 3000 tick 有他人 pvpFlee 或 pvpThreat 的房跳过",
+    "外矿选址和布局规划搬到大脑"
+  ]
 }
