@@ -282,6 +282,17 @@ function mineralWantFor(cfg, mineral) {
     return v > 0 ? v : Math.max(1, Number(cfg.mineralWant) || 1000);
 }
 
+/** 10-17 战略：按房的自留量（config.terminalNetwork.mineralKeepByRoom[房]），没配就用全局 mineralKeep。
+ *  纯外发房（W35S7 没有 lab，O 只用来外发）设 0：发送门槛降到 want、且能把 O 发到接近 0，不自留 */
+function mineralKeepFor(cfg, roomName) {
+    const by = cfg.mineralKeepByRoom;
+    if (by && Object.prototype.hasOwnProperty.call(by, roomName)) {
+        const v = Number(by[roomName]);
+        if (v >= 0) return v;
+    }
+    return Math.max(0, Number(cfg.mineralKeep) || 0);
+}
+
 /** 缺口房：有 lab（≥ mineralLabs 个）才消费矿物；没 lab 的房调过去也只是躺着 */
 function mineralShort(rooms, cfg) {
     const minLabs = Math.max(1, Number(cfg.mineralLabs) || 3);
@@ -303,7 +314,6 @@ function mineralShort(rooms, cfg) {
 
 /** 这一轮该做的那笔矿物调剂；没有返回 null（纯函数，便于单测） */
 function planMineralTransfer(rooms, cfg) {
-    const keep = Math.max(0, Number(cfg.mineralKeep) || 0);
     const maxSend = Math.max(1, Number(cfg.mineralMaxSend) || 2000);
     const short = mineralShort(rooms, cfg);
     for (const mineral of cfg.minerals || []) {
@@ -311,9 +321,10 @@ function planMineralTransfer(rooms, cfg) {
         const needy = (short[mineral] || []).filter((entry) => freeOf(entry.room.terminal.store) > 0).sort((a, b) => a.have - b.have);
         if (!needy.length) continue;
         const donors = rooms.filter((room) => !(room.terminal.cooldown > 0) && !usedThisTick(room.name) &&
-            Number(room.terminal.store[mineral] || 0) > keep + want)
+            Number(room.terminal.store[mineral] || 0) > mineralKeepFor(cfg, room.name) + want)
             .sort((a, b) => Number(b.terminal.store[mineral] || 0) - Number(a.terminal.store[mineral] || 0));
         for (const from of donors) {
+            const keep = mineralKeepFor(cfg, from.name);
             for (const entry of needy) {
                 const to = entry.room;
                 if (to.name === from.name) continue;
