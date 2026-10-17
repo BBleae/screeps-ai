@@ -15480,6 +15480,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     const rem = require('../src/remote');
     const asg = liveRemoteAssign;
     assert(asg.W37S7.includes('W36S7') && asg.W35S7.length === 0, 'W36S7 归 W37S7，W35S7 不挂（得 ' + JSON.stringify([asg.W37S7, asg.W35S7]) + '）');
+    assert(!asg.W37S7.includes('W39S9'), 'W39S9 从 W37S7 撤掉');
     assert(!['W37S4', 'W38S5', 'W38S6'].some((r) => asg.W37S5.includes(r)), 'W37S5 不开 >60 步（墙封死）的外矿');
     const savedRooms = Memory.rooms, savedThreat = Memory.pvpThreat;
     Memory.pvpThreat = {};
