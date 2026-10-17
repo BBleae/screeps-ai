@@ -621,6 +621,8 @@ module.exports = {
         rcl8BuildOrder: true,
         // storage 低于此值不建 terminal（10 万进度会抽干升级口粮；W29S3 73k 时工地 0 进度）
         terminalMinStorage: 100000,   // 10-17 10:26 战略：120000 → 100000
+        // 10-17 13:01 战略：按房覆盖 terminal 门槛，只在该房还没有 terminal 时生效，建成后回到全局 10 万（utils.terminalMinStorageFor）
+        terminalMinStorageByRoom: { W29S3: 30000 },
         // 塔射程外的维修债（血）低于它时不为维修孵 builder（spawn.hasBuilderWork）：约 100 能量的活不值一只 builder 的摊销
         outOfReachMinDebt: 10000,
         horizon: 300,
@@ -975,6 +977,8 @@ module.exports = {
                 amount: 4500,
                 dailyBuyCredits: 2000000,
                 creditFloor: 5000000,
+                // 10-17 13:01 战略：先从这些房的 terminal 内部发能量（terminalNetwork），它们还能当发送方时本轮不市场买；发完（跌破 sendAbove）再买
+                preferSenders: ['W29S3'],
             },
         },
     },

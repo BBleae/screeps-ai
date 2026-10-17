@@ -460,7 +460,16 @@ function runOwnOrders(cfg, market) {
     const e = own.energy;
     if (e) {
         const eFloor = Number(e.creditFloor) || cfg.creditFloor;
-        if (Number(market.credits) >= eFloor) {
+        // 10-17：优先内部发送——preferSenders 里有带 terminal、storage+terminal 仍高于 terminalNetwork.sendAbove 的房时，
+        // 本轮不市场买能量（让终端网络先发），等它发到跌破 sendAbove（发完/不够）再买
+        const tn = config.terminalNetwork || {};
+        const sendAbove = Number(tn.sendAbove) || 0;
+        const senderReady = (e.preferSenders || []).some((n) => {
+            const rm = Game.rooms[n];
+            if (!rm || !rm.terminal || rm.terminal.my === false) return false;
+            return energyHave(rm) > sendAbove;
+        });
+        if (!senderReady && Number(market.credits) >= eFloor) {
             const names = e.rooms === 'priorityReceivers' ? ((config.terminalNetwork || {}).priorityReceivers || []) : (e.rooms || []);
             const cap = Number(e.maxPrice) || 45;
             let price;

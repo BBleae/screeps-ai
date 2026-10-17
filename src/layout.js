@@ -955,7 +955,7 @@ function placeSites(room, mem, plan) {
         for (const [key, type] of [['storage', STRUCTURE_STORAGE], ['terminal', STRUCTURE_TERMINAL]]) {
             if (need(key) <= 0 || oneOffBudget <= 0 || !plan[key]) continue;
             if (key === 'terminal') {
-                const min = Number((config.construction || {}).terminalMinStorage) || 0;
+                const min = utils.terminalMinStorageFor(room);   // 10-17：按房覆盖（W29S3:30000），terminal 建成后回到全局 10 万
                 const st = room.storage && room.storage.my !== false && room.storage.store
                     ? Number(room.storage.store[RESOURCE_ENERGY] || 0) : 0;
                 if (min > 0 && st < min) continue;

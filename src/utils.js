@@ -858,13 +858,24 @@ function luxuryAllowed(room) {
     return energy >= threshold;
 }
 
+/** terminal 工地的 storage 能量门槛：按房覆盖（config.construction.terminalMinStorageByRoom），
+ *  且覆盖只在房间还没有自己的 terminal 时生效——terminal 建成后自动回到全局 terminalMinStorage（10-17 战略 W29S3:30000）。*/
+function terminalMinStorageFor(room) {
+    const c = config.construction || {};
+    const global = Number(c.terminalMinStorage) || 0;
+    const by = c.terminalMinStorageByRoom || {};
+    const hasTerminal = !!(room && room.terminal && room.terminal.my !== false);
+    if (!hasTerminal && room && by[room.name] != null) return Number(by[room.name]) || 0;
+    return global;
+}
+
 /** 工地现在该不该有人建（奢侈建筑没过经济门槛时不算） */
 function siteWanted(room, site) {
     if (!site) return false;
     if (luxuryStructure(site.structureType) && !luxuryAllowed(room)) return false;
     // terminal 10 万进度：storage 不够时不建，把能量留给升级（战略 W29S3）
     if (site.structureType === (typeof STRUCTURE_TERMINAL !== 'undefined' ? STRUCTURE_TERMINAL : 'terminal')) {
-        const min = Number((config.construction || {}).terminalMinStorage) || 0;
+        const min = terminalMinStorageFor(room);
         if (min > 0) {
             const store = room && room.storage && room.storage.my !== false && room.storage.store;
             const energy = store ? Number(store[typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy'] || 0) : 0;
@@ -1049,6 +1060,7 @@ function pvpDangerRoom(name) {
 }
 
 module.exports = {
+    terminalMinStorageFor,
     pvpHostile,
     notePvpThreat,
     noteAggressors,

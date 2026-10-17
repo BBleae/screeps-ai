@@ -11083,6 +11083,17 @@ console.log('== 10-17 10:26 skReaper 单只验证：home W33S7 → 只去 W34S6�
     v.enabled = saved.e; v.home = saved.h; v.room = saved.r; v.units = saved.u;
 }
 
+console.log('== 10-17 13:01 terminal 门槛按房覆盖（W29S3:30000，建成后回全局）==');
+{
+    const cc = require('../src/config').construction;
+    const savedBy = cc.terminalMinStorageByRoom, savedGlobal = cc.terminalMinStorage;
+    cc.terminalMinStorageByRoom = { W29S3: 30000 }; cc.terminalMinStorage = 100000;
+    assert(utils.terminalMinStorageFor({ name: 'W29S3' }) === 30000, 'W29S3 还没 terminal：门槛 3 万');
+    assert(utils.terminalMinStorageFor({ name: 'W29S3', terminal: { my: true } }) === 100000, 'W29S3 建成 terminal 后：回到全局 10 万');
+    assert(utils.terminalMinStorageFor({ name: 'W33S7' }) === 100000, '没覆盖的房：全局 10 万');
+    cc.terminalMinStorageByRoom = savedBy; cc.terminalMinStorage = savedGlobal;
+}
+
 console.log('== 10-17 10:26 能量买单：跟最高买价 ≤45、单独 200 万日额度、credits<500 万停、只给缺能量房 ==');
 {
     const mk = require('../src/market');
@@ -11127,6 +11138,19 @@ console.log('== 10-17 10:26 能量买单：跟最高买价 ≤45、单独 200 �
     // 日额度 200 万用满：不再挂
     Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 2000000, deals: 0 }, orders: {} };
     created = null; assert(mk.runOwnOrders(cfg, mkMarket(9000000, 40)) === null && created === null, 'energyBuyCredits 日额度 200 万用满：不再挂');
+    // preferSenders：W29S3 有 terminal 且 storage+terminal > terminalNetwork.sendAbove 时，本轮不市场买（让内部发送先走）
+    { const cfg2 = Object.assign({}, cfg, { ownOrders: Object.assign({}, cfg.ownOrders, { energy: Object.assign({}, cfg.ownOrders.energy, { preferSenders: ['W29S3'] }) }) });
+      const sendAbove = Number(require('../src/config').terminalNetwork.sendAbove) || 100000;
+      Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 }, orders: {} };
+      const savedR = Game.rooms;
+      Game.rooms = Object.assign({}, Game.rooms, { W29S3: { name: 'W29S3', terminal: term(0), storage: { store: { energy: sendAbove + 50000 } } } });
+      created = null; assert(mk.runOwnOrders(cfg2, mkMarket(9000000, 40)) === null && created === null, 'preferSenders W29S3 能发（> sendAbove）：本轮不市场买能量');
+      // W29S3 跌破 sendAbove（发完/不够）：恢复市场买
+      Game.rooms.W29S3 = { name: 'W29S3', terminal: term(0), storage: { store: { energy: sendAbove - 50000 } } };
+      Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 }, orders: {} };
+      created = null; mk.runOwnOrders(cfg2, mkMarket(9000000, 40));
+      assert(created && created.roomName === 'W34S7', 'W29S3 发完跌破 sendAbove：恢复市场买');
+      Game.rooms = savedR; }
     Game.rooms = savedRooms; Memory.market = savedMem;
 }
 
