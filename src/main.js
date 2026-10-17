@@ -55,6 +55,7 @@ const ROLES = {
     lootHauler: require('roles_lootHauler'),
     depositMiner: require('roles_depositMiner'),
     depositScout: require('roles_depositScout'),
+    wallBreaker: require('roles_wallBreaker'),
 };
 
 function hasBodyPart(creep, type) {

@@ -13,6 +13,7 @@ const aid = require('aid');
 const defense = require('defense');
 const conquest = require('conquest');
 const depositMod = require('deposit');
+const wallBreach = require('wall_breach');
 const queue = require('spawn_queue');
 const spawnExit = require('spawn_exit');
 const { makeBody, bodyCost, bodyPartCount, carryCapacity, packedPathLength, pathLength, repeat, logErr, needsRepair, creepName, bodyTicksPerTile, isRetiring } = utils;
@@ -2518,6 +2519,8 @@ function runQueue(room) {
     const conquestDemands = idle.length && !state.recovering ? conquest.getDemands(room) : [];
     let depositDemands = [];
     if (idle.length && !state.recovering) { try { depositDemands = depositMod.getDemands(room); } catch (e) { utils.logErr('deposit.getDemands', e); } }
+    let breachDemands = [];
+    if (idle.length && !state.recovering) { try { breachDemands = wallBreach.getDemands(room); } catch (e) { utils.logErr('wall_breach.getDemands', e); } }
     const remoteDemands = defenseDemands.concat(expansionDemands, aidDemands, remoteOnly, conquestDemands);
     lap('demands');
     const builderBacklog = constructionBacklog(room);
@@ -2641,6 +2644,8 @@ function runQueue(room) {
         for (const item of conquestDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'conquest', settings, { jumpable: true, blocking: false }));
         // deposit 采集 / 巡逻侦察（src/deposit.js）：最低档、买得起才孵，不挡任何经济需求
         for (const item of depositDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'opportunistic', settings, { jumpable: true, blocking: false, opportunistic: true }));
+        // 无主墙开口拆机（src/wall_breach.js，10-17）：一次性、外矿档，买不起不挡经济
+        for (const item of breachDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'remote', settings, { jumpable: true, blocking: false }));
     }
     const upgrading = new Set();
     for (const request of harvesterUpgradeRequests(room, state, mem, sources, settings)) {

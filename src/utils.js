@@ -651,6 +651,7 @@ const ROLE_CHARACTERS = {
     mineralMiner: '雏田',    // 矿物钻机：只管挖矿脉、自己送去 terminal
     labTech: '帕秋莉',      // 帕秋莉·诺蕾姬 · 图书馆的魔女，管实验室的进出货
     skReaper: '妹红',
+    wallBreaker: '芙兰',    // 芙兰朵露 · 破坏一切的能力，这里只拆白名单上的无主墙
     depositMiner: '萃香',   // 伊吹萃香 · 搬山的鬼，去过道把矿堆一点点搬回家
     depositScout: '琪露诺', // 琪露诺 · 到处乱飞的冰精，巡过道房       // 藤原妹红 · 不死之身，站在 keeper 射程边缘打持久战
 };
