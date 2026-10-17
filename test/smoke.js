@@ -13833,7 +13833,9 @@ const rhCore = (room, name, energy, x, y) => {
     return c;
 };
 const callsOf = (c, a) => (c.calls || []).filter((x) => x.a === a);
-const headingRoom = (c, roomName) => (c.moveCalls || []).some((m) => m.target && m.target.roomName === roomName && m.target.x === 25 && m.target.y === 25);
+// 10-18：去外矿改为直奔矿位（与进房后的目标一致，防止出口两侧路线互相抵消来回弹），回家仍走房间中心；这里只判朝哪个房走
+const headingRoom = (c, roomName) => (c.moveCalls || []).some((m) => m.target && m.target.roomName === roomName);
+const headingSpot = (c, roomName, x, y) => (c.moveCalls || []).some((m) => m.target && m.target.roomName === roomName && m.target.x === x && m.target.y === y);
 const rhStat = (key) => ((Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaul) || {})[key] || 0;
 const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || { ac: 0, acm: 0 };
 {
@@ -13929,6 +13931,7 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
     ROLES.remoteHauler.run(h);
     assert(callsOf(h, 'transfer').length === 1 && headingRoom(h, 'W33S6') && h.memory.state === 'collect' && !h.memory.dropRoom && rhStat('trips') === 1,
         '投空的那一 tick 就转回取货并朝外矿起步（state=' + h.memory.state + ' dropRoom=' + h.memory.dropRoom + '）');
+    assert(headingSpot(h, 'W33S6', 12, 10), '去程目标是矿位 (12,10)，不是房间中心 range 20（得 ' + JSON.stringify((h.moveCalls || []).map((m) => m.target)) + '）');
     // 这次投递在结算时落空（别的 creep 同 tick 先把那格灌满）：下一 tick 还在己方房里揣着货——转回投递，不把货带回外矿
     world.time++;
     h.moveCalls.length = 0;
