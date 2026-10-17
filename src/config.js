@@ -339,6 +339,8 @@ module.exports = {
     // 远程采矿：RCL4+ 开启，由 scout 探明后自动纳入（要求无主、无 Keeper 巢穴、双源；keeper 房只走 config.sk 那条闸）
     // 10-16 战略猫：高威胁玩家回避。highThreat 的玩家一露面、或任何玩家的武装 creep 出现过的非己方房，armedMemory tick 内
     // 外矿/deposit 不派人、在场 creep 撤回母房、不在己方房以外和玩家交火；dangerRooms 是手动永久回避（寻路绕开、不做外矿/deposit/防御）
+    // 10-17 官方系统号/NPC owner 名单常量：这些 owner 的 creep 一律当 NPC，不记 pvpAggressors、不触发封路（Screeps 是官方系统号 GCL 0，W30S7 的 8 个 NPC 也归它）
+    npcOwners: ['Invader', 'Source Keeper', 'Power Bank', 'Screeps'],
     pvp: {
         highThreat: ['Jumpp'],
         blockExclude: [],   // 10-16 战略：这些玩家只记攻击、不触发高速路封路（23:59 Kasami 移出，按通用规则封）

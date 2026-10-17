@@ -10885,6 +10885,16 @@ console.log('== 10-16 22:20 自动记攻击者（Memory.pvpAggressors）==');
     Memory.pvpAggressors = {}; Memory.pvpThreat = {}; Memory.highwayBlock = {};
     utils.noteAggressors(room);
     assert(!Object.keys(Memory.pvpAggressors).length, 'NPC（Invader）攻击不记');
+    // 10-17 官方系统号 Screeps 与 NPC 一样排除（attack 实伤 >0、目标真掉血也不记、不封路）
+    { const sys = { id: 's1', owner: { username: 'Screeps' }, body: [{ type: 'attack' }] };
+      const dmg = { id: 'm1', my: true, name: '阿燐甲', hits: 4000, hitsMax: 5000 };
+      const g = Game.getObjectById; Game.getObjectById = (id) => (id === 'm1' ? dmg : null);
+      room.hostiles = [sys]; room.events = [{ event: C.EVENT_ATTACK || 1, objectId: 's1', data: { targetId: 'm1', damage: 160 } }];
+      Memory.pvpAggressors = {}; utils.noteAggressors(room);
+      assert(!Memory.pvpAggressors.Screeps, '官方系统号 Screeps：攻击不记入 pvpAggressors');
+      Game.rooms = { W30S6: Object.assign({}, room, { name: 'W30S6' }) }; world.time++;
+      assert(!mv.highwayBlocks().has('W30S6'), '官方系统号 Screeps：不触发封路');
+      Game.getObjectById = g; Memory.pvpAggressors = {}; Memory.highwayBlock = {}; room.hostiles = [inv]; room.events = [{ event: C.EVENT_ATTACK || 1, objectId: 'i1', data: { targetId: 'm1' } }]; Game.rooms = saved.rooms; }
     room.hostiles = [kas]; room.events = [{ event: C.EVENT_ATTACK || 1, objectId: 'k1', data: { targetId: 'm1', damage: 0 } }];
     utils.noteAggressors(room);
     assert(!Memory.pvpAggressors.Kasami, '伤害为 0 的攻击（范围攻击溅射）不记');

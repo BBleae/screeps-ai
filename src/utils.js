@@ -976,7 +976,7 @@ function notePvpThreat(room) {
 /** 10-16 战略：自动记"打过我们的玩家" → Memory.pvpAggressors[user] = { first, last, n, rooms }。
  *  只在有视野、房里同时有我方 creep 和非 NPC 玩家 creep 时读 room.getEventLog()（引擎按房缓存，事件只含上一 tick）。
  *  EVENT_ATTACK 的目标是我方 creep/建筑 → 反查攻击者 owner。aggressorTtl（默认 20000）tick 没再动手自动移除。不改 config.pvp.highThreat */
-const AGGRESSOR_NPC = ['Invader', 'Source Keeper', 'Power Bank'];
+const AGGRESSOR_NPC = (config.npcOwners && config.npcOwners.length) ? config.npcOwners : ['Invader', 'Source Keeper', 'Power Bank', 'Screeps'];   // 10-17：统一 owner 名单常量（含官方系统号 Screeps）
 const hitsSeen = (typeof global !== 'undefined' ? (global.__pvpHitsSeen || (global.__pvpHitsSeen = {})) : {});
 function targetLostHits(target) {
     const prev = hitsSeen[target.id];
