@@ -2689,6 +2689,54 @@ assert(remoteMod.getDemands(demandHome).some((d) => d.role === 'reserver'), '预
 delete world.creeps.dhRes;
 Memory.rooms.W33S7.remotes.W33S6.reservation = { username: 'me', ticksToEnd: 10, seenAt: Game.time };
 
+console.log('== 10-17 战略：盯防房 Jumpp claimer——仅被非武装玩家 pvp 暂停时仍派 reserver 顶住预定（≥3000 门槛），对方占了不硬抢，中立抢回来，武装敌人只盯不打 ==');
+{
+    resetWorld(3965);
+    const wHome = makeRoom('W33S7', { rcl: 6, energy: 5600, cap: 5600, owner: 'me' });   // 容量 ≥ 1300 → reserverBody 给 2 CLAIM
+    wHome._sources = [makeSource(wHome, 14, 6, 'wh0'), makeSource(wHome, 31, 12, 'wh1')];
+    makeSpawn(wHome, 23, 21);
+    const mkRec = () => ({ room: 'W33S6', enabled: true, sourceCount: 2, controllerDistance: 40,
+        suspendedUntil: Game.time + 300, suspendReason: 'pvpThreat:Jumpp',
+        reservation: { username: 'me', ticksToEnd: 800, seenAt: Game.time },
+        sources: [
+            { id: 'wr0', pos: { x: 10, y: 10 }, spot: { x: 11, y: 10 }, distance: 30, energyCapacity: 3000, road: '1.1', roadComplete: true, containerId: 'wc0' },
+            { id: 'wr1', pos: { x: 40, y: 40 }, spot: { x: 39, y: 40 }, distance: 32, energyCapacity: 3000, road: '2.2', roadComplete: true, containerId: 'wc1' },
+        ] });
+    const remoteCfg = require('../src/config').remote;
+    const savedWatch = remoteCfg.reserveDespitePvp, savedKeep = remoteCfg.reservationKeepByRoom;
+    remoteCfg.reserveDespitePvp = ['W33S6'];
+    remoteCfg.reservationKeepByRoom = { W33S6: 3000 };
+    // 按房续订门槛导出：盯防房 3000，其余回落全局 1000
+    assert(remoteMod.reservationKeepFor('W33S6') === 3000 && remoteMod.reservationKeepFor('W33S2') === remoteMod.reservationKeepFor('__none__') && remoteMod.reservationKeepFor('W33S2') === 1000,
+        '续订门槛按房覆盖：盯防房 3000、其余全局 1000（得 ' + remoteMod.reservationKeepFor('W33S6') + '/' + remoteMod.reservationKeepFor('W33S2') + '）');
+    assert(remoteMod.reserveDespitePvp('W33S6') === true && remoteMod.reserveDespitePvp('W33S2') === false, '盯防房名单可配');
+    // pvp 暂停 + 预定 800 < 3000 + 无武装 + 我方预定 ⇒ 仍派 2 CLAIM reserver
+    Memory.rooms.W33S7 = { remotes: { W33S6: mkRec() } };
+    const d1 = remoteMod.getDemands(wHome);
+    const rv1 = d1.find((x) => x.role === 'reserver');
+    assert(rv1 && rv1.body.filter((p) => p === 'claim').length === 2, '盯防房 pvp 暂停期间仍派 reserver，容量够用 2 CLAIM（得 ' + JSON.stringify(rv1 && rv1.body) + '）');
+    assert(!d1.some((x) => x.role === 'remoteMiner' || x.role === 'remoteHauler'), '盯防暂停期间只派 reserver，矿工/hauler 仍按 pvp 回避（不出）');
+    // 预定已 ≥ 门槛（4000 > 3000）⇒ 不续派
+    Memory.rooms.W33S7.remotes.W33S6.reservation = { username: 'me', ticksToEnd: 4000, seenAt: Game.time };
+    assert(!remoteMod.getDemands(wHome).some((x) => x.role === 'reserver'), '预定已到 3000 门槛以上 ⇒ 不续派');
+    // 对方占了预定（foreign）⇒ 不硬抢、不派（只盯不打）
+    Memory.rooms.W33S7.remotes.W33S6.reservation = { username: 'Jumpp', ticksToEnd: 1000, seenAt: Game.time };
+    assert(!remoteMod.getDemands(wHome).some((x) => x.role === 'reserver'), '预定被对方占了 ⇒ 不硬抢（不派 reserver，不写攻击代码）');
+    // 打成中立（无预定）⇒ 派 reserver 去 reserve 抢回来
+    Memory.rooms.W33S7.remotes.W33S6.reservation = { username: null, ticksToEnd: 0, seenAt: Game.time };
+    assert(remoteMod.getDemands(wHome).some((x) => x.role === 'reserver'), '预定被打成中立 ⇒ 派 reserver reserve 抢回来（不是 attackController）');
+    // 出现武装敌人（record.threat）⇒ 盯防房也不派（只盯不打）
+    Memory.rooms.W33S7.remotes.W33S6.reservation = { username: 'me', ticksToEnd: 800, seenAt: Game.time };
+    Memory.rooms.W33S7.remotes.W33S6.threat = { count: 1 };
+    assert(!remoteMod.getDemands(wHome).some((x) => x.role === 'reserver'), '出现武装敌人 ⇒ 盯防房也不派（只盯不打）');
+    delete Memory.rooms.W33S7.remotes.W33S6.threat;
+    // 不在盯防名单的房：pvp 暂停照旧整条停（不派 reserver，原回避不变）
+    remoteCfg.reserveDespitePvp = [];
+    assert(!remoteMod.getDemands(wHome).some((x) => x.role === 'reserver'), '非盯防房 pvp 暂停 ⇒ 不派 reserver（原 pvp 回避不变）');
+    remoteCfg.reserveDespitePvp = savedWatch;
+    remoteCfg.reservationKeepByRoom = savedKeep;
+}
+
 console.log('== 外矿矿工：路线没铺完时给 5W1C5M（平地 1 tick/格，替补提前量按 1 tick/格算才成立）==');
 {
     const rmMove = (body) => body.filter((part) => part === 'move').length;
