@@ -233,6 +233,7 @@ module.exports.loop = function () {
         const sampleRoles = Game.time % ROLE_SAMPLE_EVERY === 0;
         if (sampleRoles) cpuProf.roleTicks++;
         try { require('utils').noteAggressorsAll(); } catch (e) { logErr('pvp.aggressors', e); }   // 10-16 自动记打过我们的玩家
+        try { require('utils').ownerCacheObserve(); } catch (e) { logErr('pvp.ownerCache', e); }   // 10-18 持久房主缓存（错峰，每房 50 tick 复核一次）
         for (const room of Object.values(Game.rooms)) {
             if (!room.controller || !room.controller.my) continue;
             // 房级计时要自己取起点：runRoom 内部的模块级打点会一路推进 cpuMark，

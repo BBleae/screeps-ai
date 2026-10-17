@@ -169,25 +169,9 @@ function keeperRoomsNearHomes() {
     return keeperRoomCache.get(key);
 }
 
-/** 冻结大脑指令（Memory.brain.intel）里别人占着、有塔的房。按 issuedAt 缓存（指令冻结后永不变，等于只算一次） */
-const frozenOwners = { key: null, rooms: [] };
+/** 别人占着、有塔的房：来自持久房主缓存 Memory.ownerCache（utils.ownerCache，首次用冻结大脑指令播种，之后按视野更新、不按时间过期） */
 function frozenOwnerRooms() {
-    const directive = typeof Memory !== 'undefined' && Memory && Memory.brain;
-    const intel = directive && directive.intel;
-    if (!intel || typeof intel !== 'object') return [];
-    const key = String(directive.issuedAt) + ':' + Object.keys(intel).length;
-    if (frozenOwners.key === key) return frozenOwners.rooms;
-    const spawn = typeof Game !== 'undefined' && Game.spawns ? Object.values(Game.spawns)[0] : null;
-    const me = spawn && spawn.owner && spawn.owner.username || null;
-    const rooms = [];
-    for (const name of Object.keys(intel)) {
-        const entry = intel[name];
-        if (!entry || !entry.owner || entry.owner === me) continue;
-        if (!(Number(entry.towers) > 0)) continue;   // 只回避塔房（KungFuDragon W29S4 这种 RCL1 无塔的不绕）
-        rooms.push(name);
-    }
-    frozenOwners.key = key; frozenOwners.rooms = rooms;
-    return rooms;
+    return utils.ownerDangerRooms();
 }
 
 function dangerRooms() {
@@ -204,7 +188,7 @@ function dangerRooms() {
         if (entry.class === 'sk' || entry.lairs > 0 || entry.owner || isKeeperRoom(name)) rooms.add(name);
     }
     // 10-18：大脑停用后 Memory.map 已老化清空，他人塔房（tidusfox9 / Alepoldar…）掉出了回避集合（线上 74399424 W29S9 的 remoteHauler
-    // 绕 S10 高速路误入 Alepoldar 的 W34S9 被塔打死）。改从冻结大脑指令 Memory.brain.intel 补：只在指令变化（issuedAt）时重算一次
+    // 绕 S10 高速路误入 Alepoldar 的 W34S9 被塔打死）。改从持久房主缓存补（utils.ownerDangerRooms，按 rev 缓存）
     for (const name of frozenOwnerRooms()) if (!(gameRooms[name] && gameRooms[name].controller && gameRooms[name].controller.my)) rooms.add(name);
     // 10-16 战略猫：手动 dangerRooms + 近期出现玩家威胁的房（config.pvp）
     for (const name of (require('config').pvp || {}).dangerRooms || []) rooms.add(name);
@@ -298,6 +282,33 @@ function civilianRouteOk(from, to) {
     try { ok = Array.isArray(map.findRoute(from, to, { routeCallback: (r) => (r !== to && danger.has(r) ? Infinity : 1) })); } catch (e) { ok = true; }
     civRoutes.set(key, { ok, at: Game.time, sig });
     return ok;
+}
+
+/** 10-18：被封路的非战斗 creep 的避难房——从 from 出发、不穿 civilianDangerRooms（危险房 ∪ 高速路封锁 ∪ 临时回避）能到的最近己方房（controller.my）。
+ *  已经在己方房里 → 返回 from（原地等）；一个都到不了 → null（原地等）。按 from + 封锁签名缓存 100 tick */
+const refugeCache = new Map();
+function civilianRefuge(from) {
+    const rooms = typeof Game !== 'undefined' && Game.rooms || {};
+    const here = rooms[from];
+    if (here && here.controller && here.controller.my) return from;
+    const map = typeof Game !== 'undefined' && Game.map;
+    if (!map || typeof map.findRoute !== 'function') return null;
+    const sig = Array.from(highwayBlocks()).sort().join(',');
+    const hit = refugeCache.get(from);
+    if (hit && hit.sig === sig && Game.time - hit.at < 100) return hit.room;
+    const danger = civilianDangerRooms();
+    let best = null;
+    let bestLen = Infinity;
+    for (const name of Object.keys(rooms)) {
+        const room = rooms[name];
+        if (!room || !room.controller || !room.controller.my || danger.has(name)) continue;
+        if (typeof map.getRoomLinearDistance === 'function' && map.getRoomLinearDistance(from, name) > 6) continue;
+        let route;
+        try { route = map.findRoute(from, name, { routeCallback: (r) => (danger.has(r) ? Infinity : 1) }); } catch (e) { route = null; }
+        if (Array.isArray(route) && route.length < bestLen) { best = name; bestLen = route.length; }
+    }
+    refugeCache.set(from, { room: best, at: Game.time, sig });
+    return best;
 }
 
 /** 10-16 战略：可见的非己方房里非 NPC 玩家带 RANGED_ATTACK 的 creep 坐标（按 tick 一份）→ { 房: [{x,y}] } */
@@ -487,6 +498,17 @@ function go(creep, target, opts) {
         !civilianRouteOk(creep.pos.roomName, pos.roomName)) {
         state.stats.blockedWaits = (state.stats.blockedWaits || 0) + 1;
         if (creep.memory) creep.memory.blockedWait = Game.time;
+        // 10-18 战略：不在己方房里时别停在回避房边界干等——就近找条不穿回避房/危险房的路，去最近的己方房待着
+        const refuge = civilianRefuge(creep.pos.roomName);
+        if (refuge && refuge !== creep.pos.roomName) {
+            state.stats.refugeMoves = (state.stats.refugeMoves || 0) + 1;
+            if (creep.memory) creep.memory.blockedRefuge = refuge;
+            const refugePos = new RoomPosition(25, 25, refuge);
+            const refugeOpts = normalizeOpts(creep, Object.assign({}, opts || {}, { range: 20 }));
+            applyDangerAvoidance(creep, refugePos, refugeOpts);
+            if (loadEngine()) for (const key of UNSUPPORTED_MOVE_OPTIONS) delete refugeOpts[key];
+            return creep.moveTo(refugePos, refugeOpts);
+        }
         return resultCode('ERR_NO_PATH', -2);
     }
     applyDangerAvoidance(creep, pos, moveOpts);
@@ -860,7 +882,7 @@ api = {
     resetCreepPath,
     keeperAvoidCallback,
     hostileTerritoryRooms,
-    safeRouteExists, frozenOwnerRooms, rangedThreats, rangedAvoidCallback, highwayBlocks, civilianDangerRooms, civilianRouteOk, isHighwayRoom, isCombatCreep,
+    safeRouteExists, frozenOwnerRooms, civilianRefuge, rangedThreats, rangedAvoidCallback, highwayBlocks, civilianDangerRooms, civilianRouteOk, isHighwayRoom, isCombatCreep,
     resetSafeRoutes,
     knownLairs,
     noteKeeperTransit,

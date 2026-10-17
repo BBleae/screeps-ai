@@ -15595,18 +15595,103 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     assert(!utilsMod.tempAvoidRooms(true).has('W30S8'), '解除后不再回避（不来回翻）');
     config.pvp = savedPvp; Game.rooms = savedRoomsG; Memory.tempAvoidDone = savedDone;
     utilsMod.tempAvoidRooms(true);
-    const savedSpawns = Game.spawns;
+    const savedSpawns = Game.spawns, savedOwnerCache = Memory.ownerCache;
     Game.spawns = { S1: { owner: { username: 'me' } } };
     const me = 'me';
+    delete Memory.ownerCache;
     Memory.brain = { issuedAt: 123, frozen: true, intel: {
         W34S9: { owner: 'Alepoldar', level: 7, towers: 2 }, W33S9: { owner: 'tidusfox9', level: 8, towers: 5 },
         W29S4: { owner: 'KungFuDragon', level: 1, towers: 0 }, W33S7: { owner: me, level: 7, towers: 3 }, W30S5: { sources: 0 } } };
     const fr = mv.frozenOwnerRooms();
     assert(fr.includes('W34S9') && fr.includes('W33S9') && !fr.includes('W29S4') && !fr.includes('W33S7'),
-        '冻结指令里他人塔房（Alepoldar/tidusfox9）进回避，无塔/自家房不进（得 ' + JSON.stringify(fr) + '）');
-    Memory.brain.intel.W34S9.towers = 0;
-    assert(mv.frozenOwnerRooms() === fr, '指令不变（issuedAt 同）只算一次：直接返回缓存');
-    Memory.brain = savedBrain; Game.spawns = savedSpawns;
+        '房主缓存首次用冻结指令播种：他人塔房（Alepoldar/tidusfox9）进回避，无塔/自家房不进（得 ' + JSON.stringify(fr) + '）');
+    assert(Memory.ownerCache && /123/.test(Memory.ownerCache.seededFrom || ''), 'ownerCache 记下播种来源（指令 issuedAt）');
+    assert(mv.frozenOwnerRooms() === fr, 'rev 不变：直接返回缓存（不重算）');
+    Memory.brain = undefined;
+    assert(mv.frozenOwnerRooms().includes('W34S9'), '大脑指令被清掉/不再读：房主缓存仍在，他人塔房不会掉出回避集合');
+    const savedRoomsO = Game.rooms;
+    Game.rooms = {
+        W34S9: { name: 'W34S9', controller: { my: false, level: 7, owner: { username: 'Alepoldar' } }, find: () => [] },
+        W35S3: { name: 'W35S3', controller: { my: false, level: 4, owner: { username: 'Newbie' } }, find: () => [{ structureType: typeof STRUCTURE_TOWER === 'undefined' ? 'tower' : STRUCTURE_TOWER }] },
+        W29S4: { name: 'W29S4', controller: { my: false, level: 0 }, find: () => [] },
+    };
+    const rev0 = Memory.ownerCache.rev;
+    const changed = utilsMod.ownerCacheObserve(true);
+    const fr2 = mv.frozenOwnerRooms();
+    assert(changed === 3 && Memory.ownerCache.rev === rev0 + 1, '有视野复核：塔数变了/新塔房/房主没了 三处变化，rev +1（得 ' + changed + '）');
+    assert(!fr2.includes('W34S9') && fr2.includes('W35S3') && fr2.includes('W33S9'), '看到塔没了才移出、看到新塔房才加入；没视野的 W33S9 原样保留（不按时间删）');
+    assert(!Memory.ownerCache.rooms.W29S4 && Memory.ownerCache.rooms.W34S9 && Memory.ownerCache.rooms.W34S9.l === 7, '看到无主才删条目；有主无塔的仍记房主/RCL');
+    assert(utilsMod.ownerCacheObserve(true) === 0 && Memory.ownerCache.rev === rev0 + 1, '没有变化：不改 rev');
+    Game.rooms = savedRoomsO;
+    Memory.brain = savedBrain; Game.spawns = savedSpawns; Memory.ownerCache = savedOwnerCache;
+
+    console.log('== 10-18 W31S9/W29S9 跟 W30S8 临时回避一起暂停、一起自动解除；被封路的平民 creep 去最近的己方房，不在边界干等 ==');
+    const remoteMod = require('remote');
+    assert(config.remote.holdWhileAvoid && config.remote.holdWhileAvoid.W31S9 === 'W30S8' && config.remote.holdWhileAvoid.W29S9 === 'W30S8',
+        'config：W31S9、W29S9 绑定 W30S8 回避');
+    const T = Game.time;
+    const savedRoomsH = Game.rooms;
+    config.pvp = Object.assign({}, savedPvp, { tempAvoid: { W30S8: { until: T + 500, untilNoPowerBank: true } } });
+    Memory.tempAvoidDone = {};
+    Game.rooms = {};
+    utilsMod.tempAvoidRooms(true);
+    const holds = { W31S9: { enabled: true, suspendedUntil: 0, suspendReason: null }, W29S9: { enabled: true, suspendedUntil: 0, suspendReason: 'hostileCreep' },
+        W31S7: { enabled: true, suspendedUntil: 0, suspendReason: null } };
+    remoteMod.applyAvoidHolds('W31S8', holds);
+    assert(holds.W31S9.suspendedUntil === T + 500 && holds.W31S9.suspendReason === 'avoidHold:W30S8' && holds.W29S9.suspendedUntil === T + 500,
+        '回避期间两个外矿暂停到回避的 until（getDemands 不出 miner/hauler/reserver）');
+    assert(holds.W31S7.suspendedUntil === 0 && !holds.W31S7.avoidHold, '没绑定的外矿不受影响');
+    holds.W31S9.suspendedUntil = 0; holds.W31S9.suspendReason = null;
+    remoteMod.applyAvoidHolds('W31S8', holds);
+    assert(holds.W31S9.suspendedUntil === T + 500, '暂停被别的逻辑清掉：下一 tick 重申');
+    holds.W29S9.suspendedUntil = T + 900; holds.W29S9.suspendReason = 'pvpThreat:X';
+    Game.rooms = { W30S8: { name: 'W30S8', controller: null, find: () => [] } };
+    utilsMod.tempAvoidRooms(true);
+    remoteMod.applyAvoidHolds('W31S8', holds);
+    assert(holds.W31S9.suspendedUntil === 0 && holds.W31S9.suspendReason === null && !holds.W31S9.avoidHold, 'power bank 消失、回避提前解除：暂停自动撤掉');
+    assert(holds.W29S9.suspendedUntil === T + 900 && holds.W29S9.suspendReason === 'pvpThreat:X', '别的原因叠上的更晚暂停原样保留');
+    Memory.tempAvoidDone = {}; Game.rooms = {};
+    utilsMod.tempAvoidRooms(true);
+    remoteMod.applyAvoidHolds('W31S8', holds);
+    assert(holds.W31S9.suspendedUntil === T + 500, '（重新挂上）');
+    config.pvp = Object.assign({}, savedPvp, { tempAvoid: { W30S8: { until: T - 1, untilNoPowerBank: true } } });
+    utilsMod.tempAvoidRooms(true);
+    remoteMod.applyAvoidHolds('W31S8', holds);
+    assert(holds.W31S9.suspendedUntil === 0 && !holds.W31S9.avoidHold, '回避到期：暂停自动撤掉');
+
+    // 被封路的 creep：W30S9 回 W31S8 只能穿 W30S8（回避中）→ 去最近能安全到的己方房 W31S6
+    config.pvp = Object.assign({}, savedPvp, { tempAvoid: { W30S8: { until: T + 50000 } } });
+    const savedMap = Game.map, savedTime = world.time, savedSpawns2 = Game.spawns;
+    world.time = T + 300;
+    Game.spawns = { S1: { owner: { username: 'me' } } };
+    const adj = { W30S9: ['W30S8', 'W29S9'], W30S8: ['W31S8', 'W30S9', 'W30S7'], W29S9: ['W29S8', 'W30S9'], W29S8: ['W29S7', 'W29S9'],
+        W29S7: ['W30S7', 'W29S8'], W30S7: ['W31S7', 'W30S8', 'W29S7'], W31S7: ['W31S6', 'W30S7'], W31S8: ['W30S8'], W31S6: ['W31S7'] };
+    Game.map = Object.assign({}, savedMap, {
+        getRoomLinearDistance: () => 2,
+        findRoute: (from, to, o) => {
+            const prev = { [from]: null }, q = [from];
+            while (q.length) {
+                const r = q.shift();
+                if (r === to) { const out = []; let c = r; while (prev[c] !== null) { out.unshift({ room: c }); c = prev[c]; } return out; }
+                for (const n of adj[r] || []) if (!(n in prev) && !(o && o.routeCallback && o.routeCallback(n, r) === Infinity)) { prev[n] = r; q.push(n); }
+            }
+            return -2;
+        } });
+    Game.rooms = { W31S8: { name: 'W31S8', controller: { my: true, level: 6 }, find: () => [] }, W31S6: { name: 'W31S6', controller: { my: true, level: 6 }, find: () => [] },
+        W30S9: { name: 'W30S9', find: () => [] } };
+    utilsMod.tempAvoidRooms(true);
+    assert(mv.civilianRouteOk('W30S9', 'W31S8') === false, '（W30S9→W31S8 只能穿回避房：封路）');
+    assert(mv.civilianRefuge('W30S9') === 'W31S6', '避难房：不穿回避房能到的最近己方房 W31S6');
+    assert(mv.civilianRefuge('W31S8') === 'W31S8', '已经在己方房里：原地等（返回本房）');
+    let moved = null;
+    const stuck = { name: 'h1', pos: new RoomPosition(25, 2, 'W30S9'), room: Game.rooms.W30S9, body: [{ type: 'carry' }, { type: 'move' }], memory: { role: 'remoteHauler' },
+        moveTo: (p, o) => { moved = { p, o }; return 0; } };
+    mv.go(stuck, new RoomPosition(25, 25, 'W31S8'), { range: 1 });
+    assert(moved && moved.p.roomName === 'W31S6' && stuck.memory.blockedRefuge === 'W31S6', '被封路的 hauler 不在边界干等：改去 W31S6（得 ' + JSON.stringify(moved && moved.p) + '）');
+    assert(moved && moved.o && moved.o.avoidRooms && moved.o.avoidRooms.has && moved.o.avoidRooms.has('W30S8'), '去避难房的路同样避开回避房 W30S8');
+    Game.map = savedMap; world.time = savedTime; Game.spawns = savedSpawns2; Game.rooms = savedRoomsH;
+    config.pvp = savedPvp; Memory.tempAvoidDone = savedDone;
+    utilsMod.tempAvoidRooms(true);
     assert(!liveRemoteAssign.W29S3.includes('W31S1'), 'W29S3 撤掉 W31S1');
 }
 

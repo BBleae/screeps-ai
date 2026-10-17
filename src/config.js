@@ -357,6 +357,8 @@ module.exports = {
         },
     },
     remote: {
+        // 10-18 战略：外矿跟临时回避房（config.pvp.tempAvoid）一起暂停、一起自动解除（remote.applyAvoidHolds）。W31S8 去这两个外矿都要过 W30S8
+        holdWhileAvoid: { W31S9: 'W30S8', W29S9: 'W30S8' },
         holdReserver: { W31S9: 20000 },   // 10-16 战略猫：W31S8 storage < 2 万时不派 W31S9 reserver（矿工/hauler 照常），首次到 2 万自动恢复
         // 母房 storage+terminal 低于它时外矿 hauler 按 max(energyAvailable, lowStorageHaulMin) 定身体（remote.haulBudget，2026-10-15）
         // 10-16：饿线（在途 CARRY < 需求一半）的 hauler 需求排到外矿维护档最前（remote.js starvedLine），先只开 W29S3

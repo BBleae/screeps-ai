@@ -1050,6 +1050,74 @@ function noteAggressorsAll() {
     }
 }
 
+// ---- 10-18 房主缓存 Memory.ownerCache（持久、不按时间过期）----
+// 安全回避（movement.dangerRooms）要知道"别人的塔房"。以前来自 Memory.map（大脑情报，20000 tick 老化、大脑停用后已清空）→ 一度改读冻结指令
+// Memory.brain.intel（retired 时永不过期，但只要指令被清/换掉又会变空）。这里做一份只在**实际看到变化**时才改的缓存：
+//   rooms[房] = { o: 房主, l: RCL, t: 塔数, at: 最后确认 tick }；首次用冻结指令 intel 的房主信息播种；
+//   有视野的房按房错峰每 ownerCacheInterval（50）tick 复核一次：有主（非自己）→ 写入/更新；无主或变成自己的 → 删除。没视野的房从不删。
+//   rev 每次改动 +1，ownerDangerRooms 按 rev 缓存，CPU 只花在"复核到的那一房"上（每 tick 平均 < 1 房，一次 find）。
+function ownerCache() {
+    if (typeof Memory === 'undefined' || !Memory) return { rev: 0, rooms: {} };
+    let cache = Memory.ownerCache;
+    if (!cache || typeof cache !== 'object' || !cache.rooms) {
+        cache = Memory.ownerCache = { v: 1, rev: 1, rooms: {}, seededFrom: null };
+        const directive = Memory.brain;
+        const intel = directive && directive.intel;
+        if (intel && typeof intel === 'object') {
+            for (const name of Object.keys(intel)) {
+                const e = intel[name];
+                if (e && e.owner) cache.rooms[name] = { o: e.owner, l: Number(e.level) || 0, t: Number(e.towers) || 0, at: Number(e.at) || 0 };
+            }
+            cache.seededFrom = 'brain.intel:' + directive.issuedAt;
+        }
+    }
+    return cache;
+}
+function myName() {
+    const spawn = typeof Game !== 'undefined' && Game.spawns ? Object.values(Game.spawns)[0] : null;
+    return spawn && spawn.owner && spawn.owner.username || null;
+}
+function ownerCacheObserve(force) {
+    if (typeof Game === 'undefined' || !Game.rooms) return 0;
+    const cache = ownerCache();
+    const interval = Math.max(1, Number((config.pvp || {}).ownerCacheInterval) || 50);
+    const me = myName();
+    let changed = 0;
+    for (const name of Object.keys(Game.rooms)) {
+        if (!force && !isRoomPhaseTick(name, interval)) continue;
+        const room = Game.rooms[name];
+        const ctrl = room && room.controller;
+        if (!ctrl) continue;   // 高速路/SK/中心房没有控制器：与房主无关
+        const owner = ctrl.owner && ctrl.owner.username;
+        const prev = cache.rooms[name];
+        if (!owner || owner === me || ctrl.my) {
+            if (prev) { delete cache.rooms[name]; changed++; }
+            continue;
+        }
+        const towerType = typeof STRUCTURE_TOWER === 'undefined' ? 'tower' : STRUCTURE_TOWER;
+        const towers = room.find(typeof FIND_HOSTILE_STRUCTURES === 'undefined' ? 'hostileStructures' : FIND_HOSTILE_STRUCTURES).filter((s) => s.structureType === towerType).length;
+        const level = Number(ctrl.level) || 0;
+        if (!prev || prev.o !== owner || prev.l !== level || prev.t !== towers) changed++;
+        cache.rooms[name] = { o: owner, l: level, t: towers, at: Game.time };
+    }
+    if (changed) cache.rev = (Number(cache.rev) || 0) + 1;
+    return changed;
+}
+const ownerDangerCache = { rev: -1, me: null, rooms: [] };
+/** 别人占着、有塔的房（movement.dangerRooms 并进回避集合）。按 ownerCache.rev 缓存 */
+function ownerDangerRooms() {
+    const cache = ownerCache();
+    const me = myName();
+    if (ownerDangerCache.rev === cache.rev && ownerDangerCache.me === me && ownerDangerCache.rooms) return ownerDangerCache.rooms;
+    const rooms = [];
+    for (const name of Object.keys(cache.rooms)) {
+        const e = cache.rooms[name];
+        if (e && e.o && e.o !== me && Number(e.t) > 0) rooms.push(name);
+    }
+    ownerDangerCache.rev = cache.rev; ownerDangerCache.me = me; ownerDangerCache.rooms = rooms;
+    return rooms;
+}
+
 /** 10-18 战略：临时回避名单 config.pvp.tempAvoid { 房: { until, untilNoPowerBank } }——到 until tick 自动解除；
  *  untilNoPowerBank 的房有视野且 power bank 已不在时提前解除（记 Memory.tempAvoidDone[房]，之后不再回避）。按 tick 缓存一份 Set */
 const tempAvoidCache = { tick: -1, rooms: null };
@@ -1097,6 +1165,9 @@ module.exports = {
     pvpAggressors,
     pvpDangerRoom,
     tempAvoidRooms,
+    ownerCache,
+    ownerCacheObserve,
+    ownerDangerRooms,
     conserving,
     conserveUpgradeAllowed,
     towerFirstHold,

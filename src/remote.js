@@ -1184,6 +1184,7 @@ function run(home) {
         }
     }
     syncKeeperRooms(home, mem.remotes);
+    applyAvoidHolds(home.name, mem.remotes);
     admitCandidates(home, mem.remotes);
     for (const roomName in mem.remotes) {
         const record = mem.remotes[roomName];
@@ -1312,6 +1313,40 @@ function controllerTravelDistance(home, record) {
         distance = Math.max(distance, Math.max(Math.abs(dx), Math.abs(dy)) - 1);
     }
     return distance;
+}
+
+/** 10-18 战略：外矿跟着临时回避房一起暂停（config.remote.holdWhileAvoid：{ 外矿: 回避房 }，W31S9/W29S9 ← W30S8）。
+ *  回避房还在 utils.tempAvoidRooms() 里（没到 until、power bank 还在）→ record.suspendedUntil 抬到回避的 until、suspendReason 'avoidHold:回避房'，
+ *  每 tick 重申（别的逻辑把它清掉也会补回）；暂停期间 getDemands 不出 miner/hauler/reserver，在外的 remote creep 走原有暂停逻辑回家/退役。
+ *  回避一解除（到期或 power bank 消失写了 Memory.tempAvoidDone）→ 只撤掉本函数加的那段暂停（suspendedUntil 不晚于 hold 的 until），
+ *  别的原因（敌情等）叠上去的更晚的暂停原样保留。 */
+function applyAvoidHolds(homeName, remotes) {
+    const map = config.remote && config.remote.holdWhileAvoid;
+    if (!map || !remotes) return;
+    const avoid = require('utils').tempAvoidRooms();
+    const rules = (config.pvp && config.pvp.tempAvoid) || {};
+    for (const roomName in remotes) {
+        const record = remotes[roomName];
+        if (!record) continue;
+        const holdRoom = map[roomName];
+        if (holdRoom && avoid.has(holdRoom)) {
+            const rule = rules[holdRoom] || {};
+            const until = Number(rule.until) || (Game.time + 1500);
+            if (!(Number(record.suspendedUntil) >= until)) {
+                record.suspendedUntil = until;
+                record.suspendReason = 'avoidHold:' + holdRoom;
+            }
+            record.avoidHold = { room: holdRoom, until };
+        } else if (record.avoidHold) {
+            const hold = record.avoidHold;
+            const ours = String(record.suspendReason || '').indexOf('avoidHold:') === 0;
+            if (ours || Number(record.suspendedUntil) === Number(hold.until)) {
+                if (Number(record.suspendedUntil) <= Number(hold.until)) record.suspendedUntil = 0;
+                if (ours) record.suspendReason = null;
+            }
+            delete record.avoidHold;
+        }
+    }
 }
 
 /** 母房缺能量时暂停某外矿的 reserver（config.remote.holdReserver：{ 外矿: 母房 storage 能量门槛 }，10-16 战略猫 W31S9）：
@@ -1929,6 +1964,7 @@ module.exports = {
     noteTravel,
     isUnreachable,
     run,
+    applyAvoidHolds,
     observe,
     getDemands,
     reserverHandoffs,
