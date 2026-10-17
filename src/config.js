@@ -348,6 +348,13 @@ module.exports = {
         highThreatIds: ['5a8a3d2d90d85961a7b853de'],
         armedMemory: 300,   // 10-16 战略猫：威胁离开后再等 300 tick 才恢复
         dangerRooms: [],   // 10-16 晴猫：W30S9 不永久回避，只按 pvpThreat 临时回避
+        // 10-18 战略猫（Jumpp 74399318 在 W32S10 首次真打我们的 creep；Jumpp/Kasami 在 W30S8 抢 power bank）：临时回避，到 until 自动解除。
+        // 非战斗 creep 跨房寻路绕开（并进 highwayBlocks）、deposit 巡逻/开采跳过（utils.pvpDangerRoom）。W30S8 在 power bank 消失（有视野时）提前解除。
+        // 后果：W31S8 的 W31S9 / W29S9 外矿路线（W31S8→W30S8→W30S9）期间不通，hauler 原地等（W30S8 本来就被 Jumpp 武装 creep 触发的封路挡着）
+        tempAvoid: {
+            W29S10: { until: 74405600 }, W30S10: { until: 74405600 }, W31S10: { until: 74405600 }, W32S10: { until: 74405600 }, W33S10: { until: 74405600 },
+            W30S8: { until: 74405600, untilNoPowerBank: true },
+        },
     },
     remote: {
         holdReserver: { W31S9: 20000 },   // 10-16 战略猫：W31S8 storage < 2 万时不派 W31S9 reserver（矿工/hauler 照常），首次到 2 万自动恢复
@@ -382,7 +389,7 @@ module.exports = {
             W33S3: ['W33S2', 'W32S3', 'W32S2', 'W32S1'],
             W31S4: ['W31S3', 'W31S2', 'W29S2'],
             W38S7: ['W38S8', 'W39S7', 'W39S8'],   // W38S9（1 源 1500）让出名额，抵 W35S7 新开的 W36S7
-            W29S3: ['W29S2', 'W29S1', 'W31S1'],
+            W29S3: ['W29S2', 'W29S1'],   // 10-18 战略猫：W31S1 撤
         },
         minRcl: 4,
         maxRooms: { 4: 1, 5: 1, 6: 2, 7: 2, 8: 2 },

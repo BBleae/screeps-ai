@@ -1050,10 +1050,38 @@ function noteAggressorsAll() {
     }
 }
 
-/** 这个房现在要回避：手动 dangerRooms，或 armedMemory 内见过玩家威胁 */
+/** 10-18 战略：临时回避名单 config.pvp.tempAvoid { 房: { until, untilNoPowerBank } }——到 until tick 自动解除；
+ *  untilNoPowerBank 的房有视野且 power bank 已不在时提前解除（记 Memory.tempAvoidDone[房]，之后不再回避）。按 tick 缓存一份 Set */
+const tempAvoidCache = { tick: -1, rooms: null };
+function tempAvoidRooms(fresh) {
+    const now = typeof Game !== 'undefined' ? Game.time : 0;
+    if (!fresh && tempAvoidCache.tick === now && tempAvoidCache.rooms) return tempAvoidCache.rooms;
+    const rooms = new Set();
+    const list = (config.pvp || {}).tempAvoid || {};
+    const done = (typeof Memory !== 'undefined' && Memory && Memory.tempAvoidDone) || null;
+    for (const name of Object.keys(list)) {
+        const rule = list[name] || {};
+        if (!(Number(rule.until) > now)) continue;
+        if (done && done[name]) continue;
+        if (rule.untilNoPowerBank) {
+            const room = typeof Game !== 'undefined' && Game.rooms && Game.rooms[name];
+            const bankType = typeof STRUCTURE_POWER_BANK === 'undefined' ? 'powerBank' : STRUCTURE_POWER_BANK;
+            if (room && typeof room.find === 'function' && !room.find(FIND_STRUCTURES).some((s) => s.structureType === bankType)) {
+                (Memory.tempAvoidDone || (Memory.tempAvoidDone = {}))[name] = now;
+                continue;
+            }
+        }
+        rooms.add(name);
+    }
+    tempAvoidCache.tick = now; tempAvoidCache.rooms = rooms;
+    return rooms;
+}
+
+/** 这个房现在要回避：手动 dangerRooms、临时回避名单（tempAvoid），或 armedMemory 内见过玩家威胁 */
 function pvpDangerRoom(name) {
     const cfg = config.pvp || {};
     if ((cfg.dangerRooms || []).indexOf(name) >= 0) return true;
+    if (tempAvoidRooms().has(name)) return true;
     const rec = Memory.pvpThreat && Memory.pvpThreat[name];
     if (rec && rec.until > Game.time) return true;
     if (rec && Game.time % 100 === 0) delete Memory.pvpThreat[name];
@@ -1068,6 +1096,7 @@ module.exports = {
     noteAggressorsAll,
     pvpAggressors,
     pvpDangerRoom,
+    tempAvoidRooms,
     conserving,
     conserveUpgradeAllowed,
     towerFirstHold,

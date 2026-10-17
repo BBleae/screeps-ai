@@ -169,6 +169,27 @@ function keeperRoomsNearHomes() {
     return keeperRoomCache.get(key);
 }
 
+/** 冻结大脑指令（Memory.brain.intel）里别人占着、有塔的房。按 issuedAt 缓存（指令冻结后永不变，等于只算一次） */
+const frozenOwners = { key: null, rooms: [] };
+function frozenOwnerRooms() {
+    const directive = typeof Memory !== 'undefined' && Memory && Memory.brain;
+    const intel = directive && directive.intel;
+    if (!intel || typeof intel !== 'object') return [];
+    const key = String(directive.issuedAt) + ':' + Object.keys(intel).length;
+    if (frozenOwners.key === key) return frozenOwners.rooms;
+    const spawn = typeof Game !== 'undefined' && Game.spawns ? Object.values(Game.spawns)[0] : null;
+    const me = spawn && spawn.owner && spawn.owner.username || null;
+    const rooms = [];
+    for (const name of Object.keys(intel)) {
+        const entry = intel[name];
+        if (!entry || !entry.owner || entry.owner === me) continue;
+        if (!(Number(entry.towers) > 0)) continue;   // 只回避塔房（KungFuDragon W29S4 这种 RCL1 无塔的不绕）
+        rooms.push(name);
+    }
+    frozenOwners.key = key; frozenOwners.rooms = rooms;
+    return rooms;
+}
+
 function dangerRooms() {
     const tick = typeof Game !== 'undefined' ? Game.time : 0;
     if (state.danger && state.danger.tick === tick) return state.danger.rooms;
@@ -182,6 +203,9 @@ function dangerRooms() {
         if (visible && visible.controller && visible.controller.my) continue;   // 自家房（情报里 owner 是自己）
         if (entry.class === 'sk' || entry.lairs > 0 || entry.owner || isKeeperRoom(name)) rooms.add(name);
     }
+    // 10-18：大脑停用后 Memory.map 已老化清空，他人塔房（tidusfox9 / Alepoldar…）掉出了回避集合（线上 74399424 W29S9 的 remoteHauler
+    // 绕 S10 高速路误入 Alepoldar 的 W34S9 被塔打死）。改从冻结大脑指令 Memory.brain.intel 补：只在指令变化（issuedAt）时重算一次
+    for (const name of frozenOwnerRooms()) if (!(gameRooms[name] && gameRooms[name].controller && gameRooms[name].controller.my)) rooms.add(name);
     // 10-16 战略猫：手动 dangerRooms + 近期出现玩家威胁的房（config.pvp）
     for (const name of (require('config').pvp || {}).dangerRooms || []) rooms.add(name);
     const pvp = typeof Memory !== 'undefined' && Memory && Memory.pvpThreat;
@@ -243,6 +267,8 @@ function highwayBlocks() {
         if (!rec || !(Number(rec.until) > tick)) { delete mem[name]; continue; }
         rooms.add(name);
     }
+    // 10-18 战略：临时回避名单（config.pvp.tempAvoid，到期自动解除）对非战斗 creep 同封路处理
+    for (const name of utils.tempAvoidRooms()) rooms.add(name);
     state.hwBlock = { tick, rooms };
     return rooms;
 }
@@ -826,6 +852,7 @@ function passthrough(name) {
 
 api = {
     go,
+    dangerRooms,
     beginTick,
     endTick,
     isWorkTile,
@@ -833,7 +860,7 @@ api = {
     resetCreepPath,
     keeperAvoidCallback,
     hostileTerritoryRooms,
-    safeRouteExists, rangedThreats, rangedAvoidCallback, highwayBlocks, civilianDangerRooms, civilianRouteOk, isHighwayRoom, isCombatCreep,
+    safeRouteExists, frozenOwnerRooms, rangedThreats, rangedAvoidCallback, highwayBlocks, civilianDangerRooms, civilianRouteOk, isHighwayRoom, isCombatCreep,
     resetSafeRoutes,
     knownLairs,
     noteKeeperTransit,

@@ -15572,6 +15572,44 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     Memory.wallBreach = savedWB; Memory.pvpThreat = savedThreat; config.remote.assign = savedAssign;
 }
 
+{
+    console.log('== 10-18 不交战只回避：tempAvoid 临时回避（到期/power bank 消失自动解除）、冻结大脑指令里的他人塔房回到回避集合、W31S1 撤 ==');
+    const utilsMod = require('utils');
+    const mv = require('movement');
+    const savedBrain = Memory.brain, savedDone = Memory.tempAvoidDone, savedRoomsG = Game.rooms, savedPvp = config.pvp;
+    const ta = (config.pvp || {}).tempAvoid || {};
+    assert(['W29S10', 'W30S10', 'W31S10', 'W32S10', 'W33S10', 'W30S8'].every((r) => ta[r] && ta[r].until > 74400000), 'S10 五个高速路房 + W30S8 都在临时回避名单且有到期 tick');
+    assert(!liveRemoteAssign.W31S8.includes('W30S8'), 'W30S8 不是外矿（回避不会停掉外矿记录）');
+    Memory.tempAvoidDone = {};
+    config.pvp = Object.assign({}, savedPvp, { tempAvoid: { W32S10: { until: Game.time + 100 }, W30S10: { until: Game.time - 1 }, W30S8: { until: Game.time + 100, untilNoPowerBank: true } } });
+    Game.rooms = Object.assign({}, savedRoomsG);
+    delete Game.rooms.W30S8;
+    let set = utilsMod.tempAvoidRooms(true);
+    assert(set.has('W32S10') && !set.has('W30S10'), '未到期的回避、过期的自动解除');
+    assert(set.has('W30S8'), 'W30S8 看不见：按到期 tick 回避');
+    assert(utilsMod.pvpDangerRoom('W32S10') === true, 'pvpDangerRoom 认 tempAvoid（deposit 跳过）');
+    Game.rooms.W30S8 = { name: 'W30S8', controller: null, find: () => [] };
+    set = utilsMod.tempAvoidRooms(true);
+    assert(!set.has('W30S8') && Memory.tempAvoidDone.W30S8, 'W30S8 有视野且 power bank 已不在：提前解除并记 tempAvoidDone');
+    Game.rooms.W30S8.find = () => [{ structureType: STRUCTURE_POWER_BANK || 'powerBank' }];
+    assert(!utilsMod.tempAvoidRooms(true).has('W30S8'), '解除后不再回避（不来回翻）');
+    config.pvp = savedPvp; Game.rooms = savedRoomsG; Memory.tempAvoidDone = savedDone;
+    utilsMod.tempAvoidRooms(true);
+    const savedSpawns = Game.spawns;
+    Game.spawns = { S1: { owner: { username: 'me' } } };
+    const me = 'me';
+    Memory.brain = { issuedAt: 123, frozen: true, intel: {
+        W34S9: { owner: 'Alepoldar', level: 7, towers: 2 }, W33S9: { owner: 'tidusfox9', level: 8, towers: 5 },
+        W29S4: { owner: 'KungFuDragon', level: 1, towers: 0 }, W33S7: { owner: me, level: 7, towers: 3 }, W30S5: { sources: 0 } } };
+    const fr = mv.frozenOwnerRooms();
+    assert(fr.includes('W34S9') && fr.includes('W33S9') && !fr.includes('W29S4') && !fr.includes('W33S7'),
+        '冻结指令里他人塔房（Alepoldar/tidusfox9）进回避，无塔/自家房不进（得 ' + JSON.stringify(fr) + '）');
+    Memory.brain.intel.W34S9.towers = 0;
+    assert(mv.frozenOwnerRooms() === fr, '指令不变（issuedAt 同）只算一次：直接返回缓存');
+    Memory.brain = savedBrain; Game.spawns = savedSpawns;
+    assert(!liveRemoteAssign.W29S3.includes('W31S1'), 'W29S3 撤掉 W31S1');
+}
+
 console.log('== terminal 补能（2026-10-13，移植 overmind-absorb e4cae2f）：只从 storage 富余里补到 terminalTarget，storage 饥饿时一点都不补 ==');
 {
     resetWorld(6800);
