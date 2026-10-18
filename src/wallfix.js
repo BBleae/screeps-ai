@@ -104,7 +104,9 @@ function run(creep) {
     if (energy === 0) creep.memory.wallFix = 'get';
     else if (creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0 || !creep.memory.wallFix) creep.memory.wallFix = 'fix';
     if (creep.memory.wallFix === 'get') { gather(creep, room); return true; }
-    const target = list[0];
+    const band = list.filter((r) => r.hits <= list[0].hits + 5000);
+    const range = (r) => Math.max(Math.abs(r.pos.x - creep.pos.x), Math.abs(r.pos.y - creep.pos.y));
+    const target = band.reduce((best, r) => (range(r) < range(best) ? r : best), band[0]);
     if (!creep.pos.inRangeTo(target, 3)) { movement.go(creep, target.pos, { range: 3, reusePath: 10 }); return true; }
     if (creep.repair(target) === OK) note(room, creep, target);
     return true;

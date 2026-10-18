@@ -15245,6 +15245,13 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
         pos: pos(x, y), store: { energy, getFreeCapacity: () => 50 - energy }, repair: (t) => (repaired.push(t.id), OK), withdraw: () => OK, pickup: () => OK, harvest: () => OK });
     const up = mkC('upgrader', [WORK, CARRY, MOVE], 40, 45, 23);
     assert(wf.run(up) === true && repaired[0] === low.id, 'upgrader 有能量：先修最低的 rampart，不去升级');
+    const far = mkC('upgrader', [WORK, CARRY, MOVE], 40, 47, 21);
+    repaired.length = 0;
+    const lowB = ram(42, 15, 5101);
+    const room2 = { name: 'W31S5', controller: { my: true }, find: (k) => (k === FIND_STRUCTURES ? [ok, mid, low, lowB, term] : []) };
+    far.room = room2; far.pos = pos(41, 15);
+    assert(wf.run(far) === true && repaired[0] === lowB.id, '血量相差 5000 以内时修最近的那个');
+    repaired.length = 0;
     const miner = mkC('harvester', [WORK, CARRY, MOVE], 40, 45, 23);
     assert(wf.run(miner) === false, '矿工不被拉去修墙');
     const empty = mkC('builder', [WORK, CARRY, MOVE], 0, 40, 21);
