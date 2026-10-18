@@ -15306,6 +15306,19 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     mk.runOwnOrders(cfg, m);
     assert(created.length === 1, '当天额度挂完、单子吃满：不再新挂');
     assert(config.market.ownOrders.energy.dailyOrder === true, 'config 打开 dailyOrder');
+    {
+        const cancelled = [];
+        Memory.market.orders = { 'buy:W31S5:energy': { type: 'buy', resource: 'energy', room: 'W31S5', price: 43, amount: 1000, posted: 500, expires: 9000000, id: null, left: 1000, day: today } };
+        const m3 = { credits: 9000000, orders: {
+            old: { id: 'old', type: 'buy', resourceType: 'energy', roomName: 'W31S5', remainingAmount: 0, totalAmount: 1157, created: 300, price: 43 },
+            neu: { id: 'neu', type: 'buy', resourceType: 'energy', roomName: 'W31S5', remainingAmount: 1000, totalAmount: 1000, created: 500, price: 43 } },
+            cancelOrder: (id) => { cancelled.push(id); return OK; } };
+        world.time += 100;
+        mk.syncOrders(cfg, m3);
+        const ob = Memory.market.orders['buy:W31S5:energy'];
+        assert(ob && ob.id === 'neu', '认单跳过已吃满的旧单，认到本次新挂的（得 ' + (ob && ob.id) + '）');
+        assert(cancelled.includes('old') && !cancelled.includes('neu'), '已吃满、没人认领的旧单顺手取消清掉');
+    }
     Game.rooms = savedRooms; Memory.market = savedMem; Game.market = savedGM;
 }
 

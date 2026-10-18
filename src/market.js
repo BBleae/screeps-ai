@@ -406,10 +406,22 @@ function syncOrders(cfg, market) {
     const led = ledger();
     const live = market.orders || {};
     const claimed = new Set(Object.values(book).map((o) => o.id).filter(Boolean));
+    if (typeof market.cancelOrder === 'function') {
+        let swept = 0;
+        for (const x of Object.values(live)) {
+            if (swept >= 10) break;
+            if (claimed.has(x.id) || Number(x.remainingAmount) > 0) continue;
+            market.cancelOrder(x.id);
+            swept++;
+        }
+        if (swept) led.swept = (led.swept || 0) + swept;
+    }
     for (const key of Object.keys(book)) {
         const o = book[key];
         if (!o.id) {
-            const found = Object.values(live).find((x) => !claimed.has(x.id) && x.type === o.type && x.resourceType === o.resource && x.roomName === o.room);
+            const found = Object.values(live).filter((x) => !claimed.has(x.id) && x.type === o.type && x.resourceType === o.resource && x.roomName === o.room &&
+                Number(x.remainingAmount) > 0 && !(Number(x.created) < Number(o.posted)))
+                .sort((p, q) => (Number(q.created) || 0) - (Number(p.created) || 0))[0];
             if (found) { o.id = found.id; claimed.add(found.id); }
             else if (Game.time - o.posted > 20) { delete book[key]; continue; }
             else continue;
