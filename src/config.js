@@ -287,7 +287,7 @@ module.exports = {
         lossWindow: 3000,
         lossCooldown: 5000,
         // 10-17 单只验证模式（默认关，10:17 由战略拍板）：只派 1 只 reaper 去 room，把血量/击杀记到 Memory.skReaperValidate
-        validate: { enabled: true, home: 'W33S7', room: 'W34S6', units: 12 },   // 10-17 10:26 战略拍板：单只验证模式，只去 W34S6（不去 W36S6）
+        validate: { enabled: false, home: 'W33S7', room: 'W34S6', units: 12 },   // 10-17 10:26 战略拍板：单只验证模式，只去 W34S6（不去 W36S6）
     },
     // 防御（只对 NPC）：母房容量 ≥ minCapacity 才派 defender；清场后 idleTicks 无敌情回家退役
     defense: {
