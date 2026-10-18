@@ -1,9 +1,6 @@
 'use strict';
-/** External mineral plan executor. No room scans, body search or pathfinding. */
 const brain = require('brain');
 
-// 外部大脑 2026-10-14 停用，冻结的指令里 K 矿全是 enabled:false（reason energy）。
-// config.minerals.force[房] = true 时在游戏内强开（count 1），其余字段（sinks/路线/身体）沿用大脑最后一份指令。
 const forcedCache = { tick: -1, byRoom: {} };
 function forced(room, plan) {
     const force = ((require('config').minerals) || {}).force;
@@ -41,7 +38,6 @@ function ready(room, plan) {
     const extractor = object(plan.extractorId);
     if (!mineral || mineral.mineralAmount <= 0 || !active(extractor)) return false;
     const sinks = destinations(plan);
-    // config.minerals.maxStock[房]：按房压低库存上限（10-16 战略 W33S8：terminal K ≥ 1 万暂停孵矿工，降到 1 万以下自动恢复）
     const cap = Number((((require('config').minerals) || {}).maxStock || {})[room.name]);
     const maxStock = cap > 0 ? Math.min(cap, Number(plan.maxStock) || cap) : plan.maxStock;
     return stock(plan, sinks) < maxStock && sinks.some(({ target }) => target.store.getFreeCapacity() > plan.reserveFree);
@@ -64,7 +60,6 @@ function move(creep, path, revision) {
         if (!previous || previous.key !== key) delete creep.memory.mineralBlocked;
         creep.move(direction);
     } else {
-        // The next brain pass includes this creep's actual position in its routes.
         creep.memory.mineralRouteMiss = Game.time;
     }
 }
@@ -105,11 +100,10 @@ function run(creep) {
         if (!canMine || ending) { recycle(creep, plan); return; }
     }
     const work = creep.getActiveBodyparts(WORK);
-    // Do not overflow the creep and strand minerals on a container / the floor.
     if (load && (creep.memory.mineralDelivering || !canMine || ending || creep.store.getFreeCapacity() < work)) {
         creep.memory.mineralDelivering = true;
         const sink = sinks.find(({ target }) => target.store.getFreeCapacity() > 0);
-        if (!sink) return; // Preserve cargo while storage is full or being rebuilt.
+        if (!sink) return;
         const type = Object.keys(creep.store).find((key) => creep.store[key] > 0);
         const before = creep.store[type];
         const code = creep.transfer(sink.target, type);
