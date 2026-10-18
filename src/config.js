@@ -470,6 +470,8 @@ module.exports = {
         minEffective: { H: 450 },
         minEffectiveShare: { ZH2O: 0.6 },
         maxDealBy: { ZH2O: 1000 },
+        dealsPerRound: { ZH2O: 2 },
+        extraDealDepth: { ZH2O: 2000 },
         depthTrack: ['ZH2O'],
         minBucket: 5000,
         maxScans: 3,

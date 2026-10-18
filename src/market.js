@@ -849,8 +849,99 @@ function buyMilitaryBoosts(cfg, market) {
     return null;
 }
 
+function sellOnce(cfg, market, room, entry, orders, floor) {
+    const pick = pickBuyOrder(orders, room, entry, cfg, floor);
+    if (!pick) return null;
+    const ret = market.deal(pick.order.id, pick.amount, room.name);
+    terminalNet.markUsed(room.name);
+    const record = { at: Game.time, room: room.name, resource: entry.resource, amount: pick.amount, cost: pick.cost,
+        price: pick.order.price, effective: Math.round(pick.effective * 1000) / 1000, floor: Math.round(floor * 1000) / 1000, energyPrice: Math.round(cfg.energyPrice * 1000) / 1000, result: ret };
+    const mem = Memory.market || (Memory.market = {});
+    mem.last = record;
+    if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
+        mem.deals = (Number(mem.deals) || 0) + 1;
+        mem.sold = (Number(mem.sold) || 0) + pick.amount;
+        const led = ledger();
+        led.sold[entry.resource] = (led.sold[entry.resource] || 0) + pick.amount;
+        led.soldCredits = Math.round(led.soldCredits + pick.amount * pick.order.price);
+        led.deals++;
+        if (Array.isArray(cfg.depthTrack) && cfg.depthTrack.includes(entry.resource)) {
+            const rec = dailyBook(entry.resource);
+            rec.sold = (rec.sold || 0) + pick.amount;
+            rec.deals = (rec.deals || 0) + 1;
+        }
+    }
+    return record;
+}
+
+function extraDeals(resource, cfg) {
+    const per = cfg.dealsPerRound && Number(cfg.dealsPerRound[resource]);
+    return per > 1 ? Math.floor(per) - 1 : 0;
+}
+
+function extraDepth(resource, cfg) {
+    const v = cfg.extraDealDepth && Number(cfg.extraDealDepth[resource]);
+    return v > 0 ? v : Infinity;
+}
+
+function planFollow(cfg, resource, depth) {
+    const mem = Memory.market || (Memory.market = {});
+    const left = mem.follow && mem.follow.resource === resource && mem.follow.round === Game.time - (Game.time % cfg.interval)
+        ? Number(mem.follow.left) - 1 : extraDeals(resource, cfg);
+    if (!(left > 0) || !depth || !(Number(depth.depthLast) >= extraDepth(resource, cfg))) {
+        if (mem.follow && mem.follow.resource === resource) delete mem.follow;
+        return null;
+    }
+    const wait = Math.max(1, Number(cfg.followTicks) || 11);
+    const round = Game.time - (Game.time % cfg.interval);
+    if (Game.time + wait >= round + cfg.interval) { delete mem.follow; return null; }
+    mem.follow = { resource, round, due: Game.time + wait, left, depth: depth.depthLast };
+    return mem.follow;
+}
+
+function runFollow(cfg, shed) {
+    const mem = Memory.market;
+    const follow = mem && mem.follow;
+    if (!follow || Game.time < follow.due) return null;
+    if (Game.time >= follow.round + cfg.interval) { delete mem.follow; return null; }
+    if (!terminalNet.cpuAllows(cfg, shed)) return null;
+    const market = marketApi();
+    if (!market || typeof market.deal !== 'function' || typeof market.getAllOrders !== 'function') return null;
+    delete mem.follow;
+    cfg.energyPrice = energyPriceNow(cfg);
+    let hold = null;
+    try { hold = terminalNet.mineralHolds(); } catch (error) { hold = null; }
+    let orders = null;
+    for (const room of sellerRooms(cfg)) {
+        const entry = sellable(room, cfg, hold).find((e) => e.resource === follow.resource);
+        if (!entry) continue;
+        const avg = recentAvgPrice(entry.resource, cfg);
+        const floor = sellFloorFor(entry.resource, avg, cfg);
+        if (floor == null) return null;
+        if (!orders) {
+            try { orders = market.getAllOrders({ type: BUY(), resourceType: entry.resource }) || []; }
+            catch (error) { utils.logErr('market.getAllOrders', error); return null; }
+        }
+        const depth = recordDepth(entry.resource, room, orders, floor, cfg);
+        if (!depth || !(Number(depth.depthLast) >= extraDepth(entry.resource, cfg))) {
+            mem.followSkipped = { at: Game.time, resource: entry.resource, depth: depth ? depth.depthLast : null };
+            return null;
+        }
+        const record = sellOnce(cfg, market, room, entry, orders, floor);
+        if (!record) continue;
+        record.follow = true;
+        if (record.result === (typeof OK !== 'undefined' ? OK : 0) && follow.left > 1) {
+            mem.follow = Object.assign({}, follow, { left: follow.left - 1, due: Game.time + Math.max(1, Number(cfg.followTicks) || 11) });
+            if (mem.follow.due >= follow.round + cfg.interval) delete mem.follow;
+        }
+        return record;
+    }
+    return null;
+}
+
 function run(shed) {
     const cfg = settings();
+    if (cfg.enabled && cfg.interval > 0 && Game.time % cfg.interval !== 0) return runFollow(cfg, shed);
     if (!cfg.enabled || !(cfg.interval > 0) || Game.time % cfg.interval !== 0) return null;
     if (!terminalNet.cpuAllows(cfg, shed)) return null;
     try { const dep = require('deposit'); if (!dep.cpuOk(dep.settings())) return null; } catch (error) {  }
@@ -889,32 +980,15 @@ function run(shed) {
                 try { ordersBy[entry.resource] = market.getAllOrders({ type: BUY(), resourceType: entry.resource }) || []; }
                 catch (error) { utils.logErr('market.getAllOrders', error); ordersBy[entry.resource] = []; }
             }
-            try { recordDepth(entry.resource, room, ordersBy[entry.resource], floor, cfg); } catch (error) { utils.logErr('market.recordDepth', error); }
-            const pick = pickBuyOrder(ordersBy[entry.resource], room, entry, cfg, floor);
-            if (!pick) continue;
-            const ret = market.deal(pick.order.id, pick.amount, room.name);
-            terminalNet.markUsed(room.name);
-            const record = { at: Game.time, room: room.name, resource: entry.resource, amount: pick.amount, cost: pick.cost,
-                price: pick.order.price, effective: Math.round(pick.effective * 1000) / 1000, floor: Math.round(floor * 1000) / 1000, energyPrice: Math.round(cfg.energyPrice * 1000) / 1000, result: ret };
-            const mem = Memory.market || (Memory.market = {});
-            mem.last = record;
-            if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
-                mem.deals = (Number(mem.deals) || 0) + 1;
-                mem.sold = (Number(mem.sold) || 0) + pick.amount;
-                const led = ledger();
-                led.sold[entry.resource] = (led.sold[entry.resource] || 0) + pick.amount;
-                led.soldCredits = Math.round(led.soldCredits + pick.amount * pick.order.price);
-                led.deals++;
-                if (Array.isArray(cfg.depthTrack) && cfg.depthTrack.includes(entry.resource)) {
-                    const rec = dailyBook(entry.resource);
-                    rec.sold = (rec.sold || 0) + pick.amount;
-                    rec.deals = (rec.deals || 0) + 1;
-                }
-            }
+            let depth = null;
+            try { depth = recordDepth(entry.resource, room, ordersBy[entry.resource], floor, cfg); } catch (error) { utils.logErr('market.recordDepth', error); }
+            const record = sellOnce(cfg, market, room, entry, ordersBy[entry.resource], floor);
+            if (!record) continue;
+            if (record.result === (typeof OK !== 'undefined' ? OK : 0)) planFollow(cfg, entry.resource, depth);
             return record;
         }
     }
     return null;
 }
 
-module.exports = { run, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
+module.exports = { run, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };

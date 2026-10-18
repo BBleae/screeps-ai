@@ -15585,6 +15585,54 @@ console.log('== 10-18 12:04 #8：W31S5 修完墙的 builder 修沼泽路和 ≤5
     Game.getObjectById = savedGet; world.time = savedTime;
 }
 
+console.log('== 10-18 12:04 #3：ZH2O 一轮可卖两笔（合格深度 ≥2000、到手价 ≥ 5 日均价×0.6；每笔 ≤1000、每天 ≤5000 不变） ==');
+{
+    const mk = require('market');
+    const savedCfgMarket = config.market, savedGM = Game.market, savedMem = Memory.market, savedRooms = Game.rooms, savedTime = world.time;
+    config.market = structuredClone(liveMarketCfg);
+    config.market.dealsPerRound = { ZH2O: 2 };
+    config.market.extraDealDepth = { ZH2O: 2000 };
+    const cfg = Object.assign({}, mk.settings(), { anyRoom: true });
+    assert(cfg.dealsPerRound.ZH2O === 2 && cfg.extraDealDepth.ZH2O === 2000 && cfg.maxDealBy.ZH2O === 1000 && cfg.dailySellUnits.ZH2O === 5000, 'config：每轮 2 笔、第二笔要深度 ≥2000，每笔 1000、每天 5000 不变');
+    world.time = 77700;
+    let orders = [{ id: 'a', type: 'buy', resourceType: 'ZH2O', price: 2015, amount: 5130, roomName: 'W7S35' }];
+    const deals = [];
+    Game.market = { calcTransactionCost: (n) => Math.ceil(n * 0.5), getHistory: () => [1, 2, 3, 4, 5].map(() => ({ avgPrice: 2700 })),
+        getAllOrders: () => orders, deal: (id, n, r) => (deals.push([id, n, r]), OK), orders: {}, credits: 9e7 };
+    Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 } };
+    Game.rooms = { W34S7: { name: 'W34S7', controller: { my: true }, terminal: { my: true, cooldown: 0, store: { ZH2O: 60000, energy: 20000 } } } };
+    const depth = { depthLast: 5130 };
+    const f = mk.planFollow(cfg, 'ZH2O', depth);
+    assert(f && f.left === 1 && f.due === 77711 && f.round === 77700, '第一笔成交后排第二笔：等 terminal 冷却（11 tick）后同一轮内做');
+    assert(mk.planFollow(cfg, 'ZH2O', { depthLast: 1999 }) === null && !Memory.market.follow, '深度 <2000：不排第二笔');
+    mk.planFollow(cfg, 'ZH2O', depth);
+    world.time = 77705;
+    assert(mk.runFollow(cfg) === null && deals.length === 0, '没到时间不做');
+    world.time = 77711;
+    const r2 = mk.runFollow(cfg);
+    assert(r2 && r2.follow && deals.length === 1 && deals[0][1] === 1000 && r2.effective >= r2.floor, '到点做第二笔：1000，到手价不低于下限（得 ' + JSON.stringify(r2) + '）');
+    assert(!Memory.market.follow && Memory.market.ledger.sold.ZH2O === 1000, '做完清掉，计入当天卖出');
+    world.time = 77790;
+    assert(mk.planFollow(cfg, 'ZH2O', depth) === null, '离下一轮不到 11 tick：不排');
+    world.time = 77800;
+    mk.planFollow(cfg, 'ZH2O', depth);
+    orders = [{ id: 'a', type: 'buy', resourceType: 'ZH2O', price: 2015, amount: 1500, roomName: 'W7S35' }];
+    world.time = 77811;
+    assert(mk.runFollow(cfg) === null && deals.length === 1 && Memory.market.followSkipped, '到点时深度跌到 1500：不做，记 followSkipped');
+    orders = [{ id: 'b', type: 'buy', resourceType: 'ZH2O', price: 1600, amount: 9000, roomName: 'W7S35' }];
+    world.time = 77900;
+    mk.planFollow(cfg, 'ZH2O', depth);
+    world.time = 77911;
+    assert(mk.runFollow(cfg) === null && deals.length === 1, '到手价低于 5 日均价×0.6：不做');
+    Memory.market.ledger.sold.ZH2O = 5000;
+    world.time = 78000;
+    mk.planFollow(cfg, 'ZH2O', depth);
+    orders = [{ id: 'a', type: 'buy', resourceType: 'ZH2O', price: 2015, amount: 5130, roomName: 'W7S35' }];
+    world.time = 78011;
+    assert(mk.runFollow(cfg) === null && deals.length === 1, '当天满 5000：不做');
+    config.market = savedCfgMarket; Game.market = savedGM; Memory.market = savedMem; Game.rooms = savedRooms; world.time = savedTime;
+}
+
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');
 {
     resetWorld(6900);
