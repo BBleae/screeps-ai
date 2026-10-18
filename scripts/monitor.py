@@ -503,6 +503,7 @@ PROBE = r"""
     brain: Memory.brain ? { issuedAt: Memory.brain.issuedAt || 0, ttlMs: Memory.brain.ttlMs || 0,
       stale: !!Memory.brain.stale, ackTick: (Memory.brain.ack && Memory.brain.ack.tick) || 0,
       rooms: Object.keys(Memory.brain.rooms || {}).length } : null,
+    brainRetired: (function () { try { var b = require('config').brain; return !!(b && b.retired); } catch (e) { return null; } })(),
     px: Game.resources && typeof PIXEL !== 'undefined' ? Game.resources[PIXEL] : null,
     bucket: Game.cpu.bucket,
     cpu: Game.cpu.getUsed(),
@@ -1257,18 +1258,22 @@ def analyze_snapshot(mon, history):
     # 宽限一过白名单退回"只做出口相邻外矿"，收入掉一截 —— 要在那之前就知道大脑停了
     # 'brain' 键不存在 = 旧 schema 的快照（历史 status.jsonl），跳过；键在而值为 null 才是真的没指令
     brain = mon.get('brain') if 'brain' in mon else False
-    if brain is None:
-        issues.append('外脑指令缺失：Memory.brain 为空（segment 90 从未写入或被清掉），外矿/占领全部退回自治')
-    elif brain:
-        issued_at = brain.get('issuedAt') or 0
-        if issued_at > 0:
-            age_min = max(0.0, (time.time() * 1000 - issued_at) / 60000)
-            if age_min >= THRESHOLDS['brain_age_alert_min']:
-                issues.append(f'外脑已 {age_min:.0f} 分钟没写入（segment 90），接近 6 小时宽限：到期后外矿白名单退回自治')
-            elif age_min >= THRESHOLDS['brain_age_warn_min']:
-                issues.append(f'外脑 {age_min:.0f} 分钟没写入（segment 90），launchd 定时可能停了')
-        if brain.get('stale'):
-            issues.append('外脑指令已过 ttl，正在 6 小时宽限内沿用（Memory.brain.stale）')
+    retired = mon.get('brainRetired') if 'brainRetired' in mon else None
+    if retired is False:
+        issues.append('config.brain.retired 被删掉或变成 false：冻结指令会过期，segment 90 可能整份覆盖 Memory.brain')
+    if retired is not True:
+        if brain is None:
+            issues.append('外脑指令缺失：Memory.brain 为空（segment 90 从未写入或被清掉），外矿/占领全部退回自治')
+        elif brain:
+            issued_at = brain.get('issuedAt') or 0
+            if issued_at > 0:
+                age_min = max(0.0, (time.time() * 1000 - issued_at) / 60000)
+                if age_min >= THRESHOLDS['brain_age_alert_min']:
+                    issues.append(f'外脑已 {age_min:.0f} 分钟没写入（segment 90），接近 6 小时宽限：到期后外矿白名单退回自治')
+                elif age_min >= THRESHOLDS['brain_age_warn_min']:
+                    issues.append(f'外脑 {age_min:.0f} 分钟没写入（segment 90），launchd 定时可能停了')
+            if brain.get('stale'):
+                issues.append('外脑指令已过 ttl，正在 6 小时宽限内沿用（Memory.brain.stale）')
 
     cpu = mon.get('cpu') or 0
     cpu_limit = mon.get('cpuLimit') or 0

@@ -36,6 +36,7 @@ function ingestSegment() {
     if (typeof RawMemory === 'undefined' || !RawMemory) return;
     // 91 = main 的 cpuSpikes 遥测段；一并激活，避免大脑把 active 盖成只剩 90
     if (typeof RawMemory.setActiveSegments === 'function') RawMemory.setActiveSegments([SEGMENT, 91]);
+    if (retired()) return;
     const raw = RawMemory.segments && RawMemory.segments[SEGMENT];
     // 引擎在 tick 末尾会把 RawMemory.segments 上存在的每个键原样写回（driver runtime.js），
     // 大脑通过 API 写入的指令若恰好落在本 tick 读取之后就会被旧内容覆盖；读完即删键，本 tick 不再写回
@@ -106,9 +107,23 @@ function mergeIntel(intel) {
     return merged;
 }
 
+function retiredGuard() {
+    if (typeof Memory === 'undefined' || !Memory) return;
+    if (retired()) {
+        if (Memory.brainRetiredAlert) delete Memory.brainRetiredAlert;
+        return;
+    }
+    if (Memory.brainRetiredAlert) return;
+    Memory.brainRetiredAlert = { at: Game.time };
+    const msg = '[brain] config.brain.retired is missing or false: frozen directive will expire and segment 90 can overwrite Memory.brain (tick ' + Game.time + ')';
+    if (typeof Game !== 'undefined' && typeof Game.notify === 'function') Game.notify(msg);
+    logErr('brain.retiredGuard', new Error(msg));
+}
+
 function run() {
     runtime.activeAt = Game.time;
     runtime.active = null;
+    try { retiredGuard(); } catch (error) { logErr('brain.retiredGuard', error); }
     try { ingestSegment(); } catch (error) { logErr('brain.ingest', error); }
     const directive = typeof Memory !== 'undefined' ? Memory.brain : null;
     if (!directive) return null;
@@ -200,4 +215,4 @@ function standingLock(key) {
     return { value: lock.value === undefined ? null : lock.value };
 }
 
-module.exports = { run, directive, get, isStale, available, offlineMs, standingLock, retired, CONTRACT_VERSION, SEGMENT, STALE_GRACE_MS };
+module.exports = { run, retiredGuard, ingestSegment, directive, get, isStale, available, offlineMs, standingLock, retired, CONTRACT_VERSION, SEGMENT, STALE_GRACE_MS };

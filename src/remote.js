@@ -1496,9 +1496,9 @@ function getDemands(home) {
     const capacity = home.energyCapacityAvailable;
     const demands = [];
     let priority = 0;
-    const directive = brain.directive(home.name);
     const rank = {};
-    ((directive && directive.remotes) || []).forEach((name, index) => { rank[name] = index; });
+    const assigned = (config.remote && config.remote.assign && config.remote.assign[home.name]) || [];
+    (Array.isArray(assigned) ? assigned.concat(breachUnlocked(home.name)) : []).forEach((name, index) => { if (!(name in rank)) rank[name] = index; });
     const rankOf = (record) => (record.room in rank ? rank[record.room] : 1000);
     const ready = (record) => ((record.sources || []).some((source) => source.containerId) ? 0 : 1);
     const records = Object.values(remotes).sort((a, b) => (ready(a) - ready(b)) || (rankOf(a) - rankOf(b)) || a.room.localeCompare(b.room));

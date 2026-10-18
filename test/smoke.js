@@ -688,7 +688,7 @@ function resetWorld(time) {
     global.Game.flags = world.flags;
     global.Game.getObjectById = (id) => world.byId[id] || null;
     global.Game.resources = {};
-    global.Memory = { creeps: {}, rooms: {}, map: {}, roomPlanner: {}, errors: [], stats: [] };
+    global.Memory = { creeps: {}, rooms: {}, map: {}, roomPlanner: {}, errors: [], stats: [], brainRetiredAlert: { at: 0 } };
     global.roomPlanCache = {};
     plannerState.cache = {};
     plannerState.calls = [];
@@ -706,6 +706,7 @@ config.sk.validate.enabled = false;
 const liveRemoteAssign = config.remote.assign;
 const liveMarketCfg = structuredClone(config.market);
 const liveHaulingCfg = structuredClone(config.hauling);
+const liveBrainCfg = structuredClone(config.brain);
 config.remote.assign = {};
 const liveIndustry = { labRooms: config.industry.labRooms, boostTargets: config.industry.boostTargets, boostUpgraders: config.industry.boostUpgraders, labOpportunistic: config.industry.labOpportunistic };
 config.industry.labOpportunistic = true;
@@ -4848,6 +4849,7 @@ assert(brainMod.directive('W33S7') != null && Memory.brain.stale === true && bra
 world.time++;
 Memory.brain.issuedAt = Date.now() - 1800000 - brainMod.STALE_GRACE_MS - 1000;
 config.brain = { retired: false };
+Memory.brainRetiredAlert = { at: Game.time };
 assert(brainMod.directive('W33S7') == null, '超过 ttl + 宽限的指令视为过期，访问器返回 null');
 assert(brainMod.offlineMs() > 0, '过期后算掉线（offlineMs > 0）');
 config.brain = { retired: true };
@@ -4855,6 +4857,7 @@ world.time++;
 assert(brainMod.directive('W33S7') != null && Memory.brain.frozen === true && brainMod.offlineMs() === 0,
     'config.brain.retired：过期指令冻结沿用、不算掉线（得 ' + JSON.stringify(brainMod.directive('W33S7')) + ' offline=' + brainMod.offlineMs() + '）');
 config.brain = { retired: false };
+Memory.brainRetiredAlert = { at: Game.time };
 world.time++;
 assert(Memory.map.W34S7.source === 'external', '过期只影响指令，已合并的情报保留');
 
@@ -4953,7 +4956,7 @@ world.creeps.scHa = makeCreep(scoutRoom, 'scHa', utils.makeBody('hauler', 800), 
 world.creeps.scUp = makeCreep(scoutRoom, 'scUp', utils.makeBody('upgrader', 800), { home: 'W33S7', role: 'upgrader' });
 require('brain').run();
 spawnMgr.run(scoutRoom);
-assert(Memory.rooms.W33S7.demand.targets.scout === 1, '无指令时 RCL4 按 roster 配 1 个 scout');
+assert(Memory.rooms.W33S7.demand.targets.scout === config.roster[4].scout && config.roster[4].scout === 0, '无指令时 RCL4 按 roster 配 scout（10-18 起 roster 的 scout 为 0）');
 world.time++;
 Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { W33S7: { remotes: [] } } };
 require('brain').run();
@@ -5129,6 +5132,9 @@ console.log('== 大脑掉线一整天：占领不停摆——自治兜底从 Mem
     seedMap();
     const ttl = 1800000;
     const offlineBrain = (extraMs, extra) => Object.assign({ version: 1, issuedAt: Date.now() - (ttl + extraMs), ttlMs: ttl, rooms: {} }, extra || {});
+    const savedAutoClaim = config.expansion.autoClaim;
+    assert(savedAutoClaim === false, '10-18：config.expansion.autoClaim 关闭（下面单测掉线兜底逻辑时临时打开）');
+    config.expansion.autoClaim = true;
     const day = config.expansion.autoClaimAfterMs;
     assert(day >= brainMod.STALE_GRACE_MS, 'autoClaimAfterMs 不短于大脑宽限');
 
@@ -5293,6 +5299,7 @@ console.log('== 大脑掉线一整天：占领不停摆——自治兜底从 Mem
     Memory.rooms.W33S7.remotes = {};
     delete Memory.rooms.W33S7.expansion;
     assert(remoteMod.run(home).W32S7, '没有开荒记录时 W32S7 照常按自治规则收成外矿');
+    config.expansion.autoClaim = savedAutoClaim;
 }
 
 console.log('== 扩张需求优先于外矿需求：同时存在时先孵化 claimer ==');
@@ -7248,11 +7255,14 @@ Memory.rooms.W33S7 = { sources: ['od0'], plan: scPlan, state: { at: Game.time, r
     W32S7: { room: 'W32S7', enabled: true, suspendedUntil: 0, sources: [] },
     W33S8: { room: 'W33S8', enabled: true, suspendedUntil: 0, sources: [] },
 } };
-Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { W33S7: { remotes: ['W33S8', 'W32S7'], scouts: 0, claim: null } } };
+Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { W33S7: { remotes: ['W32S7', 'W33S8'], scouts: 0, claim: null } } };
 require('brain').run();
+const odSavedAssign = config.remote.assign;
+config.remote.assign = Object.assign({}, odSavedAssign, { W33S7: ['W33S8', 'W32S7'] });
 const odDemands = remoteMod.getDemands(odHome);
 assert(odDemands.length >= 2 && odDemands[0].slot === 'reserver:W33S8' && odDemands[1].slot === 'reserver:W32S7',
-    '白名单 [W33S8, W32S7] ⇒ 先出 W33S8 的需求（得 ' + odDemands.map((d) => d.slot).join(',') + '）');
+    '10-18：按 config.remote.assign [W33S8, W32S7] 排、不读冻结指令的 [W32S7, W33S8] ⇒ 先出 W33S8 的需求（得 ' + odDemands.map((d) => d.slot).join(',') + '）');
+config.remote.assign = odSavedAssign;
 delete Memory.brain;
 
 console.log('== hauler 给工地上的 builder 送能量：builder 在工地登记 feedAt，broker 出投递任务，空载 builder 原地等而不是跑回容器 ==');
@@ -8041,6 +8051,8 @@ for (let i = 0; i < 2; i++) world.creeps['skUp' + i] = makeCreep(skHome, 'skUp' 
 for (let i = 0; i < 2; i++) world.creeps['skBu' + i] = makeCreep(skHome, 'skBu' + i, utils.makeBody('builder', 1800), { home: 'W33S7', role: 'builder' });
 Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { W33S7: { remotes: ['W33S6', 'W32S7'], scouts: 0, claim: null } } };
 require('brain').run();
+const skSavedAssign = config.remote.assign;
+config.remote.assign = Object.assign({}, skSavedAssign, { W33S7: ['W33S6', 'W32S7'] });
 const skDemands = remoteMod.getDemands(skHome);
 assert(skDemands.length === 2 && skDemands[0].slot === 'reserver:W33S6' && utils.bodyCost(skDemands[0].body) === 1300 &&
     skDemands[1].role === 'remoteMiner' && utils.bodyCost(skDemands[1].body) <= 800,
@@ -8065,6 +8077,7 @@ spawnMgr.run(skHome);
 const skNew2 = Object.values(world.creeps).filter((c) => !c.name.startsWith('sk') && c.memory.role !== 'remoteMiner' || (c.memory.role === 'remoteMiner' && c.memory.sourceId === 'sks1'));
 assert(skNew2.length === 0, 'pioneer 在队头买不起 ⇒ 不跳过它去孵 miner（得 ' + skNew2.map((c) => c.memory.role).join(',') + '）');
 assert(Memory.rooms.W33S7.spawnWaiting && Memory.rooms.W33S7.spawnWaiting.cost === utils.bodyCost(skPioneer.body), 'spawnWaiting 记的是 pioneer 的成本');
+config.remote.assign = skSavedAssign;
 delete Memory.brain;
 
 console.log('== upgrader 站位：storage 建成后站到 storage 相邻格直接取能，hauler 不再喂控制器容器（向 Kalgen 学：升级者静止在 storage 旁）==');
@@ -8766,6 +8779,8 @@ assert(sqvRes.actions.length === 1 && sqvRes.actions[0].request.key === 'core:ha
 console.log('== 核心替补预留按实际会接受的身体计价、窗口封顶：RCL6 hauler 理想 2300 但替补都按 1150 缩身孵出，预留 2300 只会冻住队列 ==');
 {
     resetWorld(9650);
+    const rsSavedScout = [4, 5, 6, 7, 8].map((l) => config.roster[l].scout);
+    for (const l of [4, 5, 6, 7, 8]) config.roster[l].scout = 1;
     const rsRoom = makeRoom('W34S7', { rcl: 6, energy: 1400, cap: 2300, owner: 'me', ctrl: { x: 34, y: 24 } });
     rsRoom._sources = [makeSource(rsRoom, 14, 6, 'rs0'), makeSource(rsRoom, 31, 12, 'rs1')];
     makeSpawn(rsRoom, 23, 21);
@@ -8794,6 +8809,7 @@ console.log('== 核心替补预留按实际会接受的身体计价、窗口封�
     const rsQ3 = Memory.rooms.W34S7.spawnQueue || {};
     assert(rsQ3.waiting && rsQ3.waiting.key === 'reserve:hauler:rsHa' && rsQ3.waiting.cost === 1150,
         '进入窗口：预留替补实际会接受的 1150（得 ' + JSON.stringify(rsQ3.waiting) + '）');
+    [4, 5, 6, 7, 8].forEach((l, i) => { config.roster[l].scout = rsSavedScout[i]; });
 }
 
 console.log('== 生存档等待挡住援建：家里 hauler 死光、能量 450/1300 时不再给弱房孵援建 creep；攒到 650 先缩身孵自己的 hauler ==');
@@ -14915,6 +14931,38 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     Memory.market.ledger.day -= 1;
     assert(mk.sellable({ name: 'W32S4', terminal: { store: { H: 30000 } } }, cfg, null)[0].amount === 20000, 'UTC 换日：额度重置为 2 万');
     Game.market = savedMarketApi; Memory.market = savedMem;
+}
+
+{
+    console.log('== 10-18 冻结指令护栏：retired 时不读 segment 90；retired 被删/为 false 报警一次；autoClaim 关、scout 0 ==');
+    const brainMod = require('brain');
+    const savedBrainCfg = config.brain, savedBrainMem = Memory.brain, savedRaw = global.RawMemory, savedNotify = Game.notify, savedErrors = Memory.errors, savedAlert = Memory.brainRetiredAlert;
+    assert(liveBrainCfg && liveBrainCfg.retired === true, 'config.brain.retired 为 true');
+    assert([4, 5, 6, 7, 8].every((l) => config.roster[l].scout === 0), 'roster 里的 scout 全为 0');
+    config.brain = { retired: true };
+    const frozen = { version: 1, issuedAt: 111, ttlMs: 1000, rooms: { W33S7: { remotes: ['W32S7'] } } };
+    Memory.brain = frozen;
+    global.RawMemory = { segments: { 90: JSON.stringify({ version: 1, issuedAt: 222, ttlMs: 1000, rooms: {} }) }, active: null, setActiveSegments(ids) { this.active = ids; } };
+    brainMod.ingestSegment();
+    assert(Memory.brain === frozen && Memory.brain.issuedAt === 111 && RawMemory.active.includes(91), 'retired：segment 90 的新指令不覆盖冻结指令（91 照常激活）');
+    config.brain = { retired: false };
+    global.RawMemory.segments[90] = JSON.stringify({ version: 1, issuedAt: 333, ttlMs: 1000, rooms: {} });
+    brainMod.ingestSegment();
+    assert(Memory.brain.issuedAt === 333, '对照：未 retired 时照旧读 segment 90');
+    const notes = [];
+    Game.notify = (m) => notes.push(m);
+    Memory.errors = [];
+    delete Memory.brainRetiredAlert;
+    brainMod.retiredGuard();
+    brainMod.retiredGuard();
+    assert(notes.length === 1 && Memory.errors.filter((e) => /brain\.retiredGuard/.test(JSON.stringify(e))).length === 1, 'retired 为 false：Game.notify + Memory.errors 各一次，不重复');
+    config.brain = {};
+    brainMod.retiredGuard();
+    assert(notes.length === 1, '改成被删掉：同一段告警期内不重复发');
+    config.brain = { retired: true };
+    brainMod.retiredGuard();
+    assert(!Memory.brainRetiredAlert, '恢复 retired:true：告警标记清除，下次再出问题会重新报警');
+    config.brain = savedBrainCfg; Memory.brain = savedBrainMem; global.RawMemory = savedRaw; Game.notify = savedNotify; Memory.errors = savedErrors; Memory.brainRetiredAlert = savedAlert;
 }
 
 console.log('== terminal 补能（2026-10-13，移植 overmind-absorb e4cae2f）：只从 storage 富余里补到 terminalTarget，storage 饥饿时一点都不补 ==');
