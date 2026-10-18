@@ -15541,6 +15541,50 @@ console.log('== 10-18 12:04 #2：W31S5 降升级强度（storage <1 万只保不
     if (hadCD) global.CONTROLLER_DOWNGRADE = savedCD; else delete global.CONTROLLER_DOWNGRADE;
 }
 
+console.log('== 10-18 12:04 #8：W31S5 修完墙的 builder 修沼泽路和 ≤500 的路，墙仍优先 ==');
+{
+    const wf = require('wallfix');
+    const savedTime = world.time, savedGet = Game.getObjectById;
+    world.time += 11;
+    const pos = (x, y) => ({ x, y, roomName: 'W31S5', inRangeTo: (t, r) => Math.max(Math.abs((t.pos || t).x - x), Math.abs((t.pos || t).y - y)) <= r,
+        isNearTo: (t) => Math.max(Math.abs((t.pos || t).x - x), Math.abs((t.pos || t).y - y)) <= 1, findClosestByRange: (l) => (Array.isArray(l) ? l[0] : null) });
+    const road = (id, x, y, hits, hitsMax) => ({ id, structureType: STRUCTURE_ROAD, hits, hitsMax, pos: pos(x, y) });
+    const swampLow = road('sw1', 10, 10, 4000, 25000), swampOk = road('sw2', 11, 10, 24000, 25000), plainCrit = road('pc', 30, 30, 400, 5000), plainLow = road('pl', 31, 30, 900, 5000);
+    const byId = { sw1: swampLow, sw2: swampOk, pc: plainCrit, pl: plainLow };
+    Game.getObjectById = (id) => byId[id] || null;
+    const terrain = { get: (x, y) => (y === 10 ? 2 : 0) };
+    const rams = [];
+    const room = { name: 'W31S5', controller: { my: true }, getTerrain: () => terrain, find: (k) => (k === FIND_STRUCTURES ? rams.concat([swampLow, swampOk, plainCrit, plainLow]) : []) };
+    const ids = wf.roadTargets(room).map((e) => e.s.id);
+    assert(ids.join(',') === 'pc,sw1', '目标：≤500 的先，再沼泽上 <80% 的；平地 900 和沼泽 96% 不算（得 ' + ids.join(',') + '）');
+    const repaired = [];
+    const mkC = (role, energy, x, y) => ({ name: role + x, spawning: false, room, memory: { home: 'W31S5', role }, body: [WORK, CARRY, MOVE].map((t) => ({ type: t, hits: 100 })),
+        pos: pos(x, y), store: { energy, getFreeCapacity: () => 50 - energy }, repair: (t) => (repaired.push(t.id), OK), withdraw: () => OK, pickup: () => OK, harvest: () => OK });
+    const b = mkC('builder', 40, 12, 10);
+    assert(wf.run(b) === true && b.memory.roadFixId === 'pc', 'builder 没墙可修：先去 ≤500 那段（远也去）');
+    b.pos = pos(29, 29);
+    world.time += 1;
+    assert(wf.run(b) === true && repaired[0] === 'pc', '到了就修');
+    plainCrit.hits = 1200;
+    world.time += 1;
+    assert(wf.run(b) === true && repaired[1] === 'pc', '过了 500 还没到 80%：接着修同一段');
+    plainCrit.hits = 4100;
+    world.time += 1;
+    wf.run(b);
+    assert(b.memory.roadFixId === 'sw1', '修到 80%：换沼泽那段');
+    const up = mkC('upgrader', 40, 10, 11);
+    world.time += 1;
+    assert(wf.run(up) === false, 'upgrader 不修路');
+    rams.push({ id: 'ram', structureType: STRUCTURE_RAMPART, my: true, hits: 1000, hitsMax: 1000000, pos: pos(10, 12) });
+    world.time += 1;
+    repaired.length = 0;
+    b.pos = pos(10, 11);
+    assert(wf.run(b) === true && repaired[0] === 'ram', '有 <3 万 rampart：墙优先');
+    const other = Object.assign({}, room, { name: 'W32S4' });
+    assert(wf.roadTargets(other).length === 0, '其它房不修路');
+    Game.getObjectById = savedGet; world.time = savedTime;
+}
+
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');
 {
     resetWorld(6900);

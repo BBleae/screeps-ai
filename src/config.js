@@ -353,7 +353,7 @@ module.exports = {
     towerMaintenanceWeight: 5,
     towerCriticalRange: 20,
     towerRepairReserve: 500,
-    wallFix: { enabled: true, target: 30000 },
+    wallFix: { enabled: true, target: 30000, roads: { W31S5: { roles: ['builder'], criticalHits: 500, fixTo: 0.8 } } },
     storageDeliverBacklogCap: 10000,
     upgrading: {
         alpha: 0.02,

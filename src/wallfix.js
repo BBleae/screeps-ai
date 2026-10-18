@@ -97,6 +97,64 @@ function gather(creep, room) {
     creep.harvest(source);
 }
 
+function roadCfg(room) {
+    const all = settings().roads || {};
+    return room && all[room.name] ? all[room.name] : null;
+}
+
+const roadCache = { t: -1, rooms: {} };
+function roadTargets(room) {
+    const cfg = roadCfg(room);
+    if (!cfg || !room.controller || !room.controller.my) return [];
+    if (roadCache.t !== Game.time) { roadCache.t = Game.time; roadCache.rooms = {}; }
+    const hit = roadCache.rooms[room.name];
+    if (hit && hit.room === room) return hit.list;
+    const share = Number(cfg.fixTo) > 0 ? Number(cfg.fixTo) : 0.8;
+    const critical = Number(cfg.criticalHits) > 0 ? Number(cfg.criticalHits) : 500;
+    const terrain = typeof room.getTerrain === 'function' ? room.getTerrain() : null;
+    const swampMask = typeof TERRAIN_MASK_SWAMP === 'undefined' ? 2 : TERRAIN_MASK_SWAMP;
+    const list = [];
+    for (const s of room.find(FIND_STRUCTURES)) {
+        if (s.structureType !== STRUCTURE_ROAD || !(s.hits < s.hitsMax * share)) continue;
+        const crit = s.hits <= critical;
+        const swamp = !!terrain && (terrain.get(s.pos.x, s.pos.y) & swampMask) !== 0;
+        if (crit || swamp) list.push({ s, crit });
+    }
+    list.sort((a, b) => (b.crit - a.crit) || (a.s.hits / a.s.hitsMax - b.s.hits / b.s.hitsMax));
+    roadCache.rooms[room.name] = { room, list };
+    return list;
+}
+
+function fixRoads(creep, room) {
+    const cfg = roadCfg(room);
+    if (!cfg || (cfg.roles || ['builder']).indexOf(creep.memory.role) < 0) return false;
+    const list = roadTargets(room);
+    if (!list.length) {
+        if (creep.memory.roadFix) delete creep.memory.roadFix;
+        return false;
+    }
+    const energy = creep.store[RESOURCE_ENERGY] || 0;
+    if (energy === 0) creep.memory.roadFix = 'get';
+    else if (creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0 || !creep.memory.roadFix) creep.memory.roadFix = 'fix';
+    if (creep.memory.roadFix === 'get') { gather(creep, room); return true; }
+    const share = Number(cfg.fixTo) > 0 ? Number(cfg.fixTo) : 0.8;
+    const held = creep.memory.roadFixId ? Game.getObjectById(creep.memory.roadFixId) : null;
+    const keep = held && held.pos && held.pos.roomName === room.name && held.hits < held.hitsMax * share ? { s: held } : null;
+    const crit = list.filter((e) => e.crit);
+    const pool = crit.length ? crit : list;
+    const range = (r) => Math.max(Math.abs(r.pos.x - creep.pos.x), Math.abs(r.pos.y - creep.pos.y));
+    const target = keep ? keep.s : pool.reduce((best, e) => (range(e.s) < range(best) ? e.s : best), pool[0].s);
+    creep.memory.roadFixId = target.id;
+    if (!creep.pos.inRangeTo(target, 3)) { movement.go(creep, target.pos, { range: 3, reusePath: 10 }); return true; }
+    if (creep.repair(target) === OK) {
+        const mem = Memory.rooms[room.name] || (Memory.rooms[room.name] = {});
+        const prev = mem.roadFix || {};
+        mem.roadFix = { at: Game.time, creep: creep.name, x: target.pos.x, y: target.pos.y, hits: target.hits,
+            n: (Number(prev.n) || 0) + 1, left: list.length, crit: crit.length };
+    }
+    return true;
+}
+
 function run(creep) {
     if (!enabled()) return false;
     const room = creep.room;
@@ -104,7 +162,7 @@ function run(creep) {
     const list = lowRamparts(room);
     if (!list.length) {
         if (creep.memory.wallFix) delete creep.memory.wallFix;
-        return false;
+        return fixRoads(creep, room);
     }
     const energy = creep.store[RESOURCE_ENERGY] || 0;
     if (energy === 0) creep.memory.wallFix = 'get';
@@ -118,4 +176,4 @@ function run(creep) {
     return true;
 }
 
-module.exports = { run, lowRamparts, needsWorker, eligible, targetHits };
+module.exports = { run, lowRamparts, needsWorker, eligible, targetHits, roadTargets };
