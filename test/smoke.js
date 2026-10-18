@@ -15665,13 +15665,13 @@ console.log('== 10-18 12:04 #3：ZH2O 一轮可卖两笔（合格深度 ≥2000�
     config.market = savedCfgMarket; Game.market = savedGM; Memory.market = savedMem; Game.rooms = savedRooms; world.time = savedTime;
 }
 
-console.log('== 10-18 12:04 #4：旧能量单（不在 book 里）未成交部分不占每房日额度，成交部分照常计入 ==');
+console.log('== 10-18 14:07：单房能量日额度 = 已成交 + 待成交承诺（含旧单）+ 手续费；到 50 万当天不再挂/补/涨价；有开着的能量单不再挂新单 ==');
 {
     const mk = require('market');
-    const savedMem = Memory.market, savedTime = world.time;
+    const savedMem = Memory.market, savedTime = world.time, savedGM = Game.market, savedRooms = Game.rooms;
     world.time = 88000;
     const day = Math.floor(Date.now() / 86400000);
-    Memory.market = { ledger: { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 600000, energyBuyByRoom: { W37S5: 499979, W34S7: 500000 }, deals: 0 }, orders: {} };
+    Memory.market = { ledger: { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 600000, energyBuyByRoom: { W37S5: 450000 }, deals: 0 }, orders: {} };
     const led = Memory.market.ledger;
     const book = { 'buy:W37S5:energy': { type: 'buy', resource: 'energy', room: 'W37S5', id: 'new', left: 585, amount: 585, price: 45 } };
     const live = {
@@ -15680,20 +15680,39 @@ console.log('== 10-18 12:04 #4：旧能量单（不在 book 里）未成交部�
         o2: { id: 'o2', type: 'buy', resourceType: 'energy', roomName: 'W37S5', price: 43.2, remainingAmount: 1000, created: 70000, createdTimestamp: day * 86400000 - 1000 },
         fresh: { id: 'fresh', type: 'buy', resourceType: 'energy', roomName: 'W34S7', price: 45, remainingAmount: 900, created: 87990, createdTimestamp: day * 86400000 + 9000 } };
     mk.trackOrphanEnergy(led, live, book, new Set(['new']));
-    assert(led.energyBuyByRoom.W37S5 === 499979 - 43200, '今天挂的旧单：未成交 1000×43.2 从 W37S5 额度里退回（得 ' + led.energyBuyByRoom.W37S5 + '）');
-    assert(led.energyBuyCredits === 600000 - 43200, '总额同样退回');
+    assert(led.energyBuyByRoom.W37S5 === 450000 + 43200, '今天挂的旧单挂单时已记承诺不动；昨天挂的旧单未成交部分记进今天（得 ' + led.energyBuyByRoom.W37S5 + '）');
     assert(!Memory.market.orphanEnergy.new && !Memory.market.orphanEnergy.fresh, 'book 里的新单和刚挂 <50 tick 的单不当旧单');
-    assert(Memory.market.orphanEnergy.o2 && Memory.market.orphanEnergy.o2.released === 0, '昨天挂的旧单今天本来没记账：不退');
     live.o1.remainingAmount = 400; live.o2.remainingAmount = 0;
     mk.trackOrphanEnergy(led, live, book, new Set(['new']));
-    assert(led.energyBuyByRoom.W37S5 === 499979 - 43200 + Math.round(600 * 43.2) + Math.round(1000 * 43.2), '旧单实际成交（600+1000）按成交额计入（得 ' + led.energyBuyByRoom.W37S5 + '）');
-    assert(led.bought.energy === 1600 && led.orphanFilled === 1600, '成交量记进 bought.energy');
-    mk.trackOrphanEnergy(led, live, book, new Set(['new']));
-    assert(led.orphanFilled === 1600, '同一笔成交不重复记');
+    assert(led.energyBuyByRoom.W37S5 === 450000 + 43200 && led.orphanFilled === 1600 && led.bought.energy === 1600, '旧单成交：承诺已算过，不重复加；成交量照记');
     delete live.o1;
     mk.trackOrphanEnergy(led, live, book, new Set(['new']));
-    assert(!Memory.market.orphanEnergy.o1, '单子消失：从登记表移除');
-    Memory.market = savedMem; world.time = savedTime;
+    assert(led.energyBuyByRoom.W37S5 === 450000 + 43200 - Math.round(400 * 43.2) && !Memory.market.orphanEnergy.o1, '旧单带余量消失（撤/过期）：退回未成交部分');
+    const mig = { day, sold: {}, bought: {}, energyBuyCredits: 0, energyBuyByRoom: { W35S7: 499989 } };
+    Memory.market.orphanEnergy = { m1: { room: 'W35S7', price: 43.201, left: 1157, at: 1, released: 49984 } };
+    mk.trackOrphanEnergy(mig, { m1: { id: 'm1', type: 'buy', resourceType: 'energy', roomName: 'W35S7', price: 43.201, remainingAmount: 1157, created: 1, createdTimestamp: day * 86400000 + 1 } }, {}, new Set());
+    assert(mig.energyBuyByRoom.W35S7 === 499989 + Math.round(1157 * 43.201) && mig.orphanRestored === Math.round(1157 * 43.201), '12:14 版退回过的旧单：把未成交承诺加回来');
+    const created = [], extended = [], repriced = [];
+    const mkStoreT = (energy) => ({ energy, getFreeCapacity: () => 300000 - energy });
+    Game.rooms = { W35S7: { name: 'W35S7', terminal: { my: true, store: mkStoreT(0) }, storage: { store: { energy: 0 } } }, W31S6: { name: 'W31S6', terminal: { my: true, store: mkStoreT(0) }, storage: { store: { energy: 0 } } } };
+    Game.market = { credits: 30000000, orders: {}, createOrder: (o) => (created.push(o), OK), extendOrder: (id, n) => (extended.push([id, n]), OK), changeOrderPrice: (id, p) => (repriced.push([id, p]), OK) };
+    Memory.market = { ledger: { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 549984, energyBuyByRoom: { W35S7: 549984, W31S6: 100000 }, deals: 0 }, orders: {
+        'buy:W35S7:energy': { type: 'buy', resource: 'energy', room: 'W35S7', id: 'd35', left: 100, amount: 100, price: 44, day, daily: true } } };
+    Game.market.orders = { d35: { id: 'd35', type: 'buy', resourceType: 'energy', roomName: 'W35S7', price: 44, remainingAmount: 100 } };
+    const budget = { key: 'energyBuyCredits', cap: 4000000, floor: 5000000, roomKey: 'energyBuyByRoom', roomCap: 500000, maxCredits: Infinity };
+    const cfgE = Object.assign({}, mk.settings(), { minDeal: 500 });
+    const e = { repriceStep: 0.01, maxPrice: 45 };
+    mk.runDailyEnergy(cfgE, Game.market, e, ['W35S7'], 45, budget, 10000, Memory.market.orders);
+    assert(extended.length === 0 && repriced.length === 0 && created.length === 0 && Memory.market.ledger.energyCapped.W35S7, '已超 50 万的房：不补额、不涨价、不挂新单，记 energyCapped');
+    Game.market.orders.small = { id: 'small', type: 'buy', resourceType: 'energy', roomName: 'W31S6', price: 43.2, remainingAmount: 1157 };
+    mk.runDailyEnergy(cfgE, Game.market, e, ['W31S6'], 45, budget, 10000, Memory.market.orders);
+    assert(created.length === 0 && Memory.market.ledger.energyOpenBlocked && Memory.market.ledger.energyOpenBlocked.room === 'W31S6', '房里还开着能量买单：不再挂新单（不叠小单）');
+    delete Game.market.orders.small;
+    mk.runDailyEnergy(cfgE, Game.market, e, ['W31S6'], 45, budget, 10000, Memory.market.orders);
+    const c = created[0];
+    const spent = Memory.market.ledger.energyBuyByRoom.W31S6;
+    assert(c && c.totalAmount * 45 * 1.05 <= 400000 + 1 && spent <= 500000, '没有开着的单：挂一张主单，挂完合计 ≤ 50 万（含 5% 手续费）（得 ' + JSON.stringify([c && c.totalAmount, spent]) + '）');
+    Memory.market = savedMem; world.time = savedTime; Game.market = savedGM; Game.rooms = savedRooms;
 }
 
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');

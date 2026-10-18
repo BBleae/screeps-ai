@@ -496,6 +496,10 @@ function trackOrphanEnergy(led, live, book, claimed) {
     const pending = new Set(Object.values(book).filter((o) => !o.id && o.type === 'buy' && o.resource === ENERGY).map((o) => o.room));
     const dayStart = Number(led.day) * 86400000;
     const by = led.energyBuyByRoom || (led.energyBuyByRoom = {});
+    const charge = (room, credits) => {
+        led.energyBuyCredits = Math.max(0, Math.round((Number(led.energyBuyCredits) || 0) + credits));
+        by[room] = Math.max(0, Math.round((Number(by[room]) || 0) + credits));
+    };
     const seen = new Set();
     for (const x of Object.values(live)) {
         if (!x || claimed.has(x.id) || x.type !== BUY() || x.resourceType !== ENERGY) continue;
@@ -504,27 +508,34 @@ function trackOrphanEnergy(led, live, book, claimed) {
         if (!r) {
             if (left <= 0 || pending.has(x.roomName) || Game.time - Number(x.created) < 50) continue;
             const today = Number(x.createdTimestamp) >= dayStart;
-            const release = today ? Math.round(left * x.price) : 0;
-            if (release > 0) {
-                led.energyBuyCredits = Math.max(0, Math.round((Number(led.energyBuyCredits) || 0) - release));
-                if (by[x.roomName] != null) by[x.roomName] = Math.max(0, Math.round((Number(by[x.roomName]) || 0) - release));
-                led.orphanReleased = Math.round((Number(led.orphanReleased) || 0) + release);
-            }
-            r = reg[x.id] = { room: x.roomName, price: x.price, left, at: Game.time, released: release };
+            r = reg[x.id] = { room: x.roomName, price: x.price, left, at: Game.time, day: led.day };
+            if (!today) charge(x.roomName, left * x.price);
+        } else if (r.day !== led.day) {
+            charge(r.room, r.left * r.price);
+            if (r.released != null && r.day == null) led.orphanRestored = Math.round((Number(led.orphanRestored) || 0) + r.left * r.price);
+            delete r.released;
+            r.day = led.day;
         }
         seen.add(x.id);
         const filled = Math.max(0, r.left - left);
         if (filled > 0) {
-            const credits = Math.round(filled * r.price);
-            led.energyBuyCredits = Math.round((Number(led.energyBuyCredits) || 0) + credits);
-            by[r.room] = Math.round((Number(by[r.room]) || 0) + credits);
             led.bought[ENERGY] = (led.bought[ENERGY] || 0) + filled;
             led.orphanFilled = (Number(led.orphanFilled) || 0) + filled;
             led.filled = (led.filled || 0) + filled;
             r.left = left;
         }
     }
-    for (const id of Object.keys(reg)) if (!seen.has(id)) delete reg[id];
+    for (const id of Object.keys(reg)) {
+        if (seen.has(id)) continue;
+        const r = reg[id];
+        if (r.day === led.day && r.left > 0 && !live[id]) charge(r.room, -r.left * r.price);
+        delete reg[id];
+    }
+}
+
+function roomEnergyOpen(market, roomName) {
+    return Object.values((market && market.orders) || {}).filter((x) => x && x.type === BUY() && x.resourceType === ENERGY &&
+        x.roomName === roomName && Number(x.remainingAmount) > 0);
 }
 
 function syncOrders(cfg, market) {
@@ -590,6 +601,10 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
     const book = orderBook();
     if (book[key] || !(amount > 0) || !(price > 0)) return null;
     const led = ledger();
+    if (type === 'buy' && resource === ENERGY && roomEnergyOpen(market, room).length) {
+        led.energyOpenBlocked = { at: Game.time, room, open: roomEnergyOpen(market, room).length };
+        return null;
+    }
     const fee = price * amount * own.fee;
     const credits = Number(market.credits) || 0;
     const floor = budget ? Number(budget.floor) || cfg.creditFloor : cfg.creditFloor;
@@ -643,6 +658,15 @@ function dailyEnergyUnits(cfg, market, budget, room, price, fee) {
     return Math.max(0, Math.min(Math.floor(left / (price * (1 + fee))), free));
 }
 
+function roomCapped(led, budget, roomName) {
+    if (!(budget.roomCap > 0) || !budget.roomKey) return false;
+    const spent = Number((led[budget.roomKey] || {})[roomName]) || 0;
+    if (spent < budget.roomCap) return false;
+    const capped = led.energyCapped || (led.energyCapped = {});
+    capped[roomName] = { at: Game.time, spent };
+    return true;
+}
+
 function runDailyEnergy(cfg, market, e, names, price, budget, below, book) {
     const own = ownSettings(cfg);
     const fee = Number(own.fee) || 0.05;
@@ -661,6 +685,7 @@ function runDailyEnergy(cfg, market, e, names, price, budget, below, book) {
             if (!o.daily) { o.daily = true; o.expires = Game.time + 10000000; }
             const left = Math.max(0, Number(o.left) || 0);
             if (o.day !== led.day) { chargeEnergy(led, budget, n, left * o.price); o.day = led.day; }
+            if (roomCapped(led, budget, n)) continue;
             if (price > 0 && Math.abs(price - o.price) >= step && typeof market.changeOrderPrice === 'function') {
                 const delta = price - o.price;
                 const extra = delta * left + Math.max(0, delta) * left * fee;
@@ -696,6 +721,7 @@ function runDailyEnergy(cfg, market, e, names, price, budget, below, book) {
             continue;
         }
         if (!(price > 0) || energyHave(room) >= below) continue;
+        if (roomCapped(led, budget, n)) continue;
         const amount = dailyEnergyUnits(cfg, market, budget, room, sizing, fee);
         if (amount < cfg.minDeal) continue;
         const r = postOrder(cfg, market, 'buy', ENERGY, n, price, amount, budget);
@@ -1031,4 +1057,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { run, trackOrphanEnergy, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
+module.exports = { run, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
