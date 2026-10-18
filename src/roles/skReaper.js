@@ -59,8 +59,7 @@ function noteCombat(creep, record, target, fired) {
 }
 
 function validateActive(homeName, targetRoom) {
-    const v = (require('config').sk || {}).validate;
-    return !!(v && v.enabled && v.home === homeName && v.room === targetRoom);
+    return require('conquest').skValidateOn(homeName, targetRoom);
 }
 
 function run(creep) {

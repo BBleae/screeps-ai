@@ -141,7 +141,7 @@ module.exports = {
         maxReaperLosses: 2,
         lossWindow: 3000,
         lossCooldown: 5000,
-        validate: { enabled: false, home: 'W33S7', room: 'W34S6', units: 12 },
+        validate: { enabled: false, home: 'W33S7', room: 'W34S6', units: 12, entryWindow: 300 },
     },
     defense: {
         minCapacity: 260,
@@ -176,7 +176,7 @@ module.exports = {
     },
     remote: {
         holdWhileAvoid: { W31S9: 'W30S8', W29S9: 'W30S8' },
-        ceded: ['W36S7'],
+        ceded: ['W36S7', 'W39S6'],
         holdReserver: { W31S9: 20000 },
         starvedHaulFirst: ['W29S3'],
         lowStorageHaulBelow: 5000,
@@ -187,7 +187,7 @@ module.exports = {
             W34S7: ['W34S8'],
             W33S8: ['W32S8'],
             W37S5: [],
-            W37S7: ['W39S6', 'W37S6'],
+            W37S7: ['W37S6'],
             W35S7: [],
             W33S7: ['W32S7', 'W33S6'],
             W31S8: ['W31S9', 'W29S9'],

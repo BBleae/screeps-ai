@@ -275,6 +275,7 @@ function towerAvoidCallback(targetRoom, extraTowers) {
 
 /** 全局每 tick：对每个指令依目标房视野推进阶段（无视野时保持当前阶段） */
 function run() {
+    skValidateFuseTick();
     for (const d of directives()) runOne(d);
 }
 function runOne(d) {
@@ -541,9 +542,47 @@ function demandsFor(d, home) {
 }
 
 /** 10-17 skReaper 单只验证模式（config.sk.validate，默认关）：指定 home 出 1 只 reaper 去 room，验证血量/击杀 */
+function skValidateOn(homeName, roomName) {
+    const v = (config.sk || {}).validate;
+    if (!v || !v.enabled || typeof v.room !== 'string') return false;
+    const fuse = typeof Memory !== 'undefined' && Memory ? Memory.skValidateFuse : null;
+    if (fuse && fuse.tripped) return false;
+    return (homeName === undefined || v.home === homeName) && (roomName === undefined || v.room === roomName);
+}
+
+function tripSkValidate(fuse, reason) {
+    const v = (config.sk || {}).validate || {};
+    fuse.tripped = { at: Game.time, reason, name: fuse.name || null, home: v.home || null, room: v.room || null };
+    const msg = '[sk.validate] fuse tripped: ' + reason + ' reaper=' + (fuse.name || '?') + ' ' + (v.home || '?') + '->' + (v.room || '?') + ' tick ' + Game.time + '; validate disabled via Memory.skValidateFuse';
+    if (typeof Game !== 'undefined' && typeof Game.notify === 'function') Game.notify(msg);
+    require('utils').logErr('sk.validateFuse', new Error(msg));
+}
+
+function skValidateFuseTick() {
+    if (!skValidateOn()) return null;
+    const v = config.sk.validate;
+    const fuse = Memory.skValidateFuse || (Memory.skValidateFuse = {});
+    if (!fuse.name) {
+        const found = Object.values(Game.creeps || {}).find((c) => c && c.memory && c.memory.role === 'skReaper' && c.memory.validate && c.memory.home === v.home);
+        if (!found) return fuse;
+        fuse.name = found.name;
+        fuse.seenAt = Game.time;
+    }
+    if (fuse.entered) return fuse;
+    const creep = Game.creeps[fuse.name];
+    if (!creep) { tripSkValidate(fuse, 'diedBeforeEntry'); return fuse; }
+    if (creep.spawning) return fuse;
+    if (!fuse.born) fuse.born = Game.time - Math.max(0, 1500 - (Number(creep.ticksToLive) || 1500));
+    if (creep.pos && creep.pos.roomName === v.room) { fuse.entered = Game.time; return fuse; }
+    const window = Math.max(1, Number(v.entryWindow) || 300);
+    if (Game.time - fuse.born >= window) tripSkValidate(fuse, 'noEntryWithin' + window);
+    return fuse;
+}
+
 function skValidateDemands(home) {
     const v = (config.sk || {}).validate;
-    if (!v || !v.enabled || v.home !== home.name || typeof v.room !== 'string') return [];
+    if (!skValidateOn(home.name)) return [];
+    if (Memory.skValidateFuse && Memory.skValidateFuse.name) return [];
     const n = Math.max(1, Number(v.units) || 9);
     const body = [];
     for (let i = 0; i < n; i++) body.push('ranged_attack');
@@ -596,4 +635,4 @@ function strongholdLootDemands(d, home, sponsors) {
     return demands;
 }
 
-module.exports = { run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands };
+module.exports = { run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick };

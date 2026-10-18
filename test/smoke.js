@@ -14819,6 +14819,52 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     config.remote.assign = savedAssign;
 }
 
+{
+    console.log('== 10-18 sk.validate 保险丝：只派 1 队，300 tick 内没进 W34S6（或先死）自动关并报警；W39S6 撤出 W37S7 ==');
+    const cq = require('conquest');
+    const remoteMod = require('remote');
+    const savedSk = config.sk, savedFuse = Memory.skValidateFuse, savedErrors = Memory.errors, savedNotify = Game.notify, savedCreeps = Game.creeps;
+    assert(savedSk.validate && savedSk.validate.enabled === false && savedSk.validate.entryWindow === 300, 'sk.validate 保持关闭，进房窗口 300 tick');
+    const notes = [];
+    Game.notify = (m) => notes.push(m);
+    Memory.errors = [];
+    delete Memory.skValidateFuse;
+    config.sk = Object.assign({}, savedSk, { validate: Object.assign({}, savedSk.validate, { enabled: true }) });
+    const home = { name: 'W33S7', controller: { my: true, level: 8 }, energyCapacityAvailable: 12900 };
+    assert(cq.skValidateDemands(home).length === 1, '重开后出 1 只验证 reaper 的需求');
+    const T = Game.time;
+    const reaper = { name: 'vr', spawning: false, ticksToLive: 1500, pos: { roomName: 'W33S7', x: 30, y: 27 }, memory: { role: 'skReaper', home: 'W33S7', remoteRoom: 'W34S6', validate: true } };
+    Game.creeps = { vr: reaper };
+    cq.skValidateFuseTick();
+    assert(Memory.skValidateFuse.name === 'vr' && Memory.skValidateFuse.born === T, '保险丝登记这只 reaper 与出生 tick');
+    assert(cq.skValidateDemands(home).length === 0, '已派过 1 队：不再出第二只');
+    reaper.ticksToLive = 1500 - 299;
+    Memory.skValidateFuse.born = T - 299;
+    cq.skValidateFuseTick();
+    assert(!Memory.skValidateFuse.tripped, '299 tick 未进房：还在窗口内');
+    Memory.skValidateFuse.born = T - 300;
+    cq.skValidateFuseTick();
+    assert(Memory.skValidateFuse.tripped && /noEntryWithin300/.test(Memory.skValidateFuse.tripped.reason), '300 tick 没进 W34S6：保险丝熔断');
+    assert(cq.skValidateOn() === false && cq.skValidateOn('W33S7', 'W34S6') === false && cq.skValidateDemands(home).length === 0, '熔断后 config 仍开着也视为关闭（Memory 覆盖，不会自己开回来）');
+    assert(notes.length === 1 && Memory.errors.some((e) => /sk\.validateFuse/.test(JSON.stringify(e))), '报警：Game.notify + Memory.errors（monitor 抓得到）');
+    cq.skValidateFuseTick();
+    assert(notes.length === 1, '熔断只报一次');
+    Memory.skValidateFuse = { name: 'gone', born: T };
+    Game.creeps = {};
+    cq.skValidateFuseTick();
+    assert(Memory.skValidateFuse.tripped && Memory.skValidateFuse.tripped.reason === 'diedBeforeEntry', '没进房就死：熔断');
+    Memory.skValidateFuse = { name: 'vr', born: T - 10 };
+    reaper.pos = { roomName: 'W34S6', x: 25, y: 25 };
+    Game.creeps = { vr: reaper };
+    cq.skValidateFuseTick();
+    Memory.skValidateFuse.born = T - 1000;
+    cq.skValidateFuseTick();
+    assert(Memory.skValidateFuse.entered && !Memory.skValidateFuse.tripped, '进过 W34S6：记 entered，之后不再熔断');
+    config.sk = savedSk; Game.creeps = savedCreeps; Game.notify = savedNotify; Memory.errors = savedErrors; Memory.skValidateFuse = savedFuse;
+
+    assert(!liveRemoteAssign.W37S7.includes('W39S6') && remoteMod.cededRoom('W39S6'), 'W39S6 撤出 W37S7 且进让出名单');
+}
+
 console.log('== terminal 补能（2026-10-13，移植 overmind-absorb e4cae2f）：只从 storage 富余里补到 terminalTarget，storage 饥饿时一点都不补 ==');
 {
     resetWorld(6800);
