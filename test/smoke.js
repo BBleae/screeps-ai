@@ -15691,19 +15691,20 @@ console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：
     assert(term.planTransfer([rich, mid], cfg) === null, '接收方不够饿（高于 receiveBelow）⇒ 不发');
     {
         const scfg = Object.assign({}, cfg, { terminalFeeReserve: {}, forward: [], priorityReceivers: ['W31S8', 'W35S7'], starvingBelow: 10000, starveSendAbove: 40000, starveKeep: 30000, starveMaxSend: 10000 });
+        const mkRecv = (name, storageEnergy, terminalEnergy) => { const r = mkTRoom(name, storageEnergy, terminalEnergy); r.controller.level = 7; return r; };
         const donor = mkTRoom('W32S4', 49000, 30000);
-        const starving = mkTRoom('W35S7', 0, 2000);
-        const first = mkTRoom('W31S8', 0, 0);
+        const starving = mkRecv('W35S7', 0, 2000);
+        const first = mkRecv('W31S8', 0, 0);
         const sp = term.planTransfer([donor, starving, first], scfg);
         assert(sp && sp.starving && sp.from.name === 'W32S4' && sp.to.name === 'W31S8', '救急：名单顺序先救 W31S8（得 ' + (sp && sp.from.name + '→' + sp.to.name) + '）');
         assert(sp.amount <= 10000 && 79000 - sp.amount - sp.cost >= 30000, '救急一笔 ≤ starveMaxSend、发送方留 starveKeep');
-        const fed = mkTRoom('W31S8', 12000, 0);
+        const fed = mkRecv('W31S8', 12000, 0);
         const sp2 = term.planTransfer([donor, starving, fed], scfg);
         assert(sp2 && sp2.to.name === 'W35S7', '≥ starvingBelow 的不救，轮到下一个（得 ' + (sp2 && sp2.to.name) + '）');
         assert(term.planTransfer([mkTRoom('W32S4', 30000, 5000), first], scfg) === null, '发送方低于 starveSendAbove ⇒ 不发');
         const fcfg = Object.assign({}, scfg, { terminalFeeReserve: { W34S7: 8000, W38S7: 8000 }, feeReserveStorageFloor: 2000 });
-        const feeRoom = mkTRoom('W34S7', 0, 0);
-        const okRoom = mkTRoom('W31S8', 20000, 0);
+        const feeRoom = mkRecv('W34S7', 0, 0);
+        const okRoom = mkRecv('W31S8', 20000, 0);
         const fp = term.planTransfer([mkTRoom('W32S4', 49000, 30000), feeRoom, okRoom], fcfg);
         assert(fp && fp.feeReserve && fp.to.name === 'W34S7' && fp.amount <= 8000, '救急之后：传送费储备房从发送方补到储备线（得 ' + JSON.stringify(fp && { to: fp.to.name, amount: fp.amount }) + '）');
         assert(term.planTransfer([mkTRoom('W32S4', 49000, 30000), mkTRoom('W34S7', 20000, 0), okRoom], fcfg) === null, 'storage 够自己补的储备房不靠调剂');
@@ -15904,8 +15905,8 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     const entry = items[0];
     const pick = mk.pickBuyOrder(orders, room, entry, cfg, 0.1);
     assert(pick && pick.order.id === 'o2', '挑有效价最高的买单；卖单和别的资源不参与（得 ' + (pick && pick.order.id) + '）');
-    assert(pick.amount >= cfg.minDeal && pick.amount <= cfg.maxDeal && pick.amount <= entry.amount, '成交量在 [minDeal, maxDeal] 且不超过可卖量（得 ' + pick.amount + '）');
-    assert(pick.effective < pick.order.price, '有效价扣了传送能量折价（得 ' + pick.effective + '）');
+    assert(!!pick && pick.amount >= cfg.minDeal && pick.amount <= cfg.maxDeal && pick.amount <= entry.amount, '成交量在 [minDeal, maxDeal] 且不超过可卖量（得 ' + (pick && pick.amount) + '）');
+    assert(!!pick && pick.effective < pick.order.price, '有效价扣了传送能量折价（得 ' + (pick && pick.effective) + '）');
     assert(mk.pickBuyOrder(orders, room, entry, cfg, 2) === null, '买单价低于底线 ⇒ 不卖');
     const broke = mkMRoom('W33S7', 1, { L: 10000 });
     assert(mk.pickBuyOrder(orders, broke, entry, cfg, 0.1) === null, 'terminal 付不起传送能量 ⇒ 不卖');
@@ -16107,7 +16108,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         const zk = Memory.market.orders['buy:W32S4:Z'];
         assert(zk && zk.id === 'oid1' && Memory.market.ledger.bought.Z === 100, '认领挂单 id、按成交量记账（得 ' + JSON.stringify(Memory.market.ledger.bought) + '）');
         const before = Memory.market.ledger.buyCredits;
-        zk.expires = world.time;
+        if (zk) zk.expires = world.time;
         mk.syncOrders(ocfg, Game.market);
         assert(cancelled.indexOf('oid1') >= 0 && !Memory.market.orders['buy:W32S4:Z'] && Memory.market.ledger.buyCredits === before - 400 * 50, '到期撤单、退回未成交的预占额度');
         Game.market.credits = 1990000;
