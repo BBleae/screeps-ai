@@ -1,8 +1,3 @@
-"""Independent outcome checks and durable incident state for sparse live observations.
-
-No snapshot-derived exact profit, exact drop age, or continuous uptime claims.
-Rules use stable IDs; missing observations cannot close incidents.
-"""
 import hashlib
 import json
 import os
@@ -19,8 +14,6 @@ def active(remote, tick):
 
 
 def prior(mon, history):
-    # Prefer a >=30 tick window within this deployment, so a 3-sample burst can
-    # compare its endpoints instead of repeatedly comparing two adjacent ticks.
     newest = None
     for row in reversed(history):
         old = row.get('mon') or {}
@@ -36,17 +29,10 @@ def prior(mon, history):
     return newest
 
 
-# bucket 低于这个值，下一次尖峰就可能付不起：引擎在 bucket 用尽后按 cpuLimit 硬切，脚本中途被打断。
 CPU_BUCKET_FLOOR = 1000
 
 
 def cpu_emergency(mon, history, check):
-    """Sustained over-limit CPU or a drained bucket.
-
-    The single-tick reading in monitor.py tolerates spikes a healthy bucket can fund;
-    this rule looks at the statsTail window (several 30-tick averages written in game),
-    so a probe-inflated sample alone cannot raise it. Missing data is not a clean check.
-    """
     limit = number(mon.get('cpuLimit'))
     tail = [s for s in mon.get('statsTail') or [] if isinstance(s, dict)]
     cpus = [number(s.get('cpu'), None) for s in tail]
@@ -55,7 +41,6 @@ def cpu_emergency(mon, history, check):
     if not limit or not cpus or not isinstance(bucket, (int, float)) or isinstance(bucket, bool):
         return
     average = sum(cpus) / len(cpus)
-    # generatePixel 一次扣 10000 bucket：本轮像素增加、且平均 CPU 没超限时，低 bucket 是正在回填，不是透支
     previous = (history[-1].get('mon') or {}) if history else {}
     pixel = (isinstance(mon.get('px'), (int, float)) and isinstance(previous.get('px'), (int, float)) and
              mon['px'] > previous['px'])
@@ -69,18 +54,12 @@ def cpu_emergency(mon, history, check):
 
 
 def relief_hint(room, prev, upgraders, old, now):
-    """两次采样同 ID 空载升级者站在 link 迁移目标上、且房间迁移计数增长：是一条线索，不是动作轨迹。
-
-    2026-10-13 起 linkReliefSpot 对已在 link 旁的升级者早返回、原地取能（记 linkReliefInPlace），
-    不再给它派位；再出现这个形状说明修复没在线上或回归了。
-    """
     if not prev or not old:
         return ''
     current = room.get('linkRelief')
     earlier = prev.get('linkRelief')
     if not isinstance(current, dict) or not isinstance(earlier, dict):
         return ''
-    # 两个事件都必须是各自采样时刻 5 tick 内的新鲜记录，坐标在房间内
     for event, tick in [(current, now), (earlier, number(old.get('t')))]:
         if not 0 <= tick - number(event.get('at'), -1e9) <= 5:
             return ''
@@ -134,7 +113,6 @@ def assess(mon, history):
           '距上次成功采集超过90分钟，监控存在空窗', '核对定时任务执行记录/主机在线情况，补采样并记录空窗')
     check('monitor', 'tick', bool(history and now <= number((history[-1].get('mon') or {}).get('t'))),
           '游戏tick没有前进，可能暂停/回退/重复采样', '检查服务器与探针；不据此关闭旧告警')
-    # 固定的覆盖声明，每轮都成立：记为 info（observing），常驻账本但不触发退出码。
     check('monitor', 'economy-coverage', True,
           '线上完整能量账不可用；交付或回收计数不能证明净收益',
           '查看最新固定源码私服账本；异常外矿用同快照连续窗口按真实ID核算出生、交付、维护与防御，记录报告路径',
@@ -155,8 +133,6 @@ def assess(mon, history):
                 measured_rate = progress / dt
         if mon.get('schema') == 4:
             leg = room.get('upgraderLeg')
-            # Cache refresh is 100 ticks; a 50-part spawn can occupy another 150.
-            # Missing/stale telemetry is not evidence that an old route issue recovered.
             if (work > 0 and isinstance(leg, dict) and isinstance(leg.get('complete'), bool) and
                     0 <= now - number(leg.get('at'), -1e9) <= 300):
                 check(name, 'upgrader-route', not leg['complete'] or number(leg.get('ticks'), -1) < 0,
@@ -165,10 +141,6 @@ def assess(mon, history):
             wait = room.get('spawnWaiting') or {}
             spawn_waiting = (number(wait.get('cost')) > number(room.get('energy')) and
                              0 <= now - number(wait.get('at')) <= 5)
-            # A deliberate spawn reservation is not positive evidence of recovered supply.
-            # Defer this rule; queue timeout and development checks still run independently.
-            # A walking successor is not a consumer at the controller yet.
-            # Unknown positions or an empty station cannot establish recovery.
             ranges_known = all(0 <= number(c.get('ctrlRange'), -1) <= 49 for c in upgraders)
             stationed = [c for c in upgraders if 0 <= number(c.get('ctrlRange'), -1) <= 3]
             station_work = sum(number(c.get('work')) for c in stationed)
@@ -193,14 +165,12 @@ def assess(mon, history):
                 check(name, 'development-stalled', work > 0 and rate == 0 and dt >= 100,
                       f'同版本{dt}ticks升级无进展，已建/在建工地不屏蔽此项',
                       '核对建设预算与升级目标，检查供能和行走停滞，保存快照复现')
-                # WORK is a capacity upper bound; boost and travel are reasons to investigate, not assert a bug.
                 check(name, 'upgrade-underuse', work > 0 and rate < work * .35 and buffer >= 1000 and dt >= 100,
                       f'同版本升级{rate:.2f}/tick，当前WORK={work}、缓存={buffer}，吞吐利用偏低',
                       '比较多窗口WORK编制变化/搬运/建设支出；固定快照A/B验证，不把WORK上界当保证产量')
         for remote in room.get('remotes', []):
             scope = name + '/' + remote['room']
             if not active(remote, now):
-                # Deliberate suspension retires applicability, not proof the original bug was fixed.
                 continue
             if mon.get('schema') != 4:
                 continue
@@ -226,11 +196,11 @@ def assess(mon, history):
             reservers = [c for c in workers if c.get('role') == 'reserver' and c.get('remoteRoom') == remote['room']]
             stationed = [c for c in reservers if c.get('room') == remote['room'] and
                           c.get('ctrlRange') is not None and c['ctrlRange'] <= 1 and number(c.get('claim')) > 0]
-            # A present CLAIM can sustain a countdown while alive; merely being in the room cannot.
             coverage_ticks = remaining + max([number(c.get('ttl')) for c in stationed] or [0])
             lead = max(50, number(remote.get('controllerDistance'))) + 12 + 60 + 20
             incoming = [c.get('id') or c.get('name') for c in reservers if c not in stationed]
-            check(scope, 'reserve-handoff', not remote.get('owner') and coverage_ticks <= lead,
+            no_reserver = remote.get('demandKnown') is True and number((remote.get('want') or {}).get('reserver'), 1) <= 0 and not reservers
+            check(scope, 'reserve-handoff', not remote.get('owner') and not no_reserver and coverage_ticks <= lead,
                   f'预定余量{remaining}，有效在岗{len(stationed)}，覆盖估计{coverage_ticks} <= 接班最低预算{lead}ticks；在途{incoming}，需核实交接',
                   '核查队列、实际出生耗时、在途reserver位置/疲劳与到位时刻；预算只是下界，及时复现接班断档', urgent=remaining == 0)
             drops = remote.get('drops') or []
@@ -251,11 +221,10 @@ def assess(mon, history):
 
 
 def legacy_findings(entry):
-    """Keep earlier rules in the same lifecycle; normalize changing numeric evidence."""
     out = []
     for message in entry.get('issues', []):
         if re.search(r'\[[a-z-]+\]', message):
-            continue  # structured health finding is already present
+            continue
         scope = message.split(' ')[0] if re.match(r'^[WE]\d+[NS]\d+ ', message) else 'global'
         label = re.split(r'[:：（(]', message, maxsplit=1)[0]
         key = scope + ':legacy-' + hashlib.sha256(re.sub(r'\d+', '#', label).encode()).hexdigest()[:12]
@@ -283,22 +252,15 @@ def save_state(path, state):
     os.replace(temp, path)
 
 
-# 只有"主动且长期"的停用才算范围已撤销：白名单移除 / 距离过远是大脑或游戏内规划的决定，
-# 不会自己恢复；敌情暂停（hostileCreep、suspendedUntil）是临时的，仍等新证据。
 RETIRED_REMOTE_REASONS = {'notWhitelisted', 'tooFar'}
 
 
 def scope_gone(scope, mon):
-    """Return why an incident's scope provably no longer exists in this snapshot, else None.
-
-    Only applies to rooms/remotes. A rule that silently stopped running (crash,
-    missing field) keeps its incident open: absence of a check is not evidence.
-    """
     rooms = {r.get('name'): r for r in mon.get('rooms') or [] if isinstance(r, dict)}
     if mon.get('schema') != 4 or not rooms or not isinstance(scope, str):
-        return None  # 空/旧快照不能证明任何东西消失
+        return None
     if not re.match(r'^[WE]\d+[NS]\d+(/[WE]\d+[NS]\d+)?$', scope):
-        return None  # global / monitor / 其他范围永不自动撤销
+        return None
     home, _, remote_name = scope.partition('/')
     if home not in rooms:
         return 'room-not-owned'
@@ -315,29 +277,20 @@ def scope_gone(scope, mon):
     return None
 
 
-# 不再计入未结的状态：obsolete 只表示适用范围消失，同一规则再次命中即按新事件重开。
 CLOSED = ('resolved', 'obsolete')
 
 
 def alert_reason(item, before, distinct):
-    """Why this observation needs attention now, or None for a long-standing, known incident.
-
-    - new: first sighting, or a recurrence after resolved/obsolete (a new episode)
-    - escalated: reached 'escalated' for the first time in this episode
-    - urgent: an urgent condition that nobody has attached investigation evidence to yet
-    Repeated samples of the same tick never alert twice; info findings never alert.
-    """
     if not distinct or item.get('severity') == 'info':
         return None
     if before is None or before in CLOSED:
         item.pop('escalatedAt', None)
-        item['episodeAt'] = time.time()  # 本次事件开始的墙钟时间；调查笔记早于它的不算认领了这一次
+        item['episodeAt'] = time.time()
         if item['status'] == 'escalated':
             item['escalatedAt'] = item['lastTick']
         return 'new'
     if item['status'] == 'escalated' and not item.get('escalatedAt'):
         item['escalatedAt'] = item['lastTick']
-        # 旧账本里本来就是 escalated 的事件没有 escalatedAt：补记，不当作本轮升级
         if before != 'escalated':
             return 'escalated'
     if item.get('severity') == 'urgent' and not acknowledged(item):
@@ -346,7 +299,6 @@ def alert_reason(item, before, distinct):
 
 
 def acknowledged(item):
-    """urgent 事件是否已有属于本次事件的调查笔记（几周前上一次事件的笔记不算）。"""
     notes = [n for n in item.get('investigation') or [] if isinstance(n, dict)]
     if not notes:
         return False
@@ -354,16 +306,10 @@ def acknowledged(item):
     return start is None or max(n.get('at', 0) for n in notes) >= start
 
 
-# 待确认告警的上限：心跳长期不来时只保留最近的，防止账本无限增长。
 PENDING_ALERT_LIMIT = 200
 
 
 def add_pending(state, alerts, now):
-    """把本轮告警累积进 pendingAlerts，直到真正处理退出码的消费者（每小时心跳）确认。
-
-    launchd 每 30 分钟的 cron 采集与心跳共用同一账本；若告警只记在本轮，cron 先看到的
-    新增/升级会被它"花掉"，心跳拿到 0。同一事件同一原因只保留一条（首见 tick + 最近 tick）。
-    """
     pending = [a for a in state.get('pendingAlerts') or [] if isinstance(a, dict)]
     index = {(a.get('key'), a.get('reason')): a for a in pending}
     for alert in alerts:
@@ -378,7 +324,6 @@ def add_pending(state, alerts, now):
 
 
 def ack_alerts(path):
-    """消费者已看到全部待确认告警：清空 pendingAlerts，返回被确认的条数。"""
     state = read_state(path)
     count = len(state.get('pendingAlerts') or [])
     if count:
@@ -401,7 +346,7 @@ def update_state(path, entry):
         item = state['incidents'].get(key, {})
         before = item.get('status')
         if item.get('workStatus') == 'verified' and item.get('status') == 'resolved':
-            item['workStatus'] = 'fix-required'  # recurrence needs a new investigation, not an old verification
+            item['workStatus'] = 'fix-required'
         distinct = item.get('lastTick') != now or item.get('lastVersion') != version
         count = item.get('observations', 0) + int(distinct)
         item.update(finding, firstTick=item.get('firstTick', now), lastTick=now,
@@ -419,17 +364,14 @@ def update_state(path, entry):
     for key, item in state['incidents'].items():
         if key in seen or item.get('status') in CLOSED:
             continue
-        # Legacy silence is not coverage. Every structured rule must actually run.
         legacy_covered = (item.get('rule') == 'legacy' and mon.get('schema') == 4 and
                           health['coverage']['sameVersionTicks'] >= 100 and
                           (item.get('scope') == 'global' or item.get('scope') in {r['name'] for r in mon.get('rooms', [])}))
         if key not in health['checked'] and not legacy_covered:
             gone = scope_gone(item.get('scope', key.rsplit(':', 1)[0]), mon)
             if gone and item.get('workStatus') == 'fix-required':
-                # 已确认的源码缺陷不随范围消失而出账：代码还在，换个外矿照样会犯。
                 item.update(status='awaiting-fix', scopeGone={'tick': now, 'reason': gone})
             elif gone:
-                # 范围已被撤销（外矿移出白名单/房间不再归我们）：规则不再适用，不是"已修复"。
                 item.update(status='obsolete', resolution={
                     'tick': now, 'version': version, 'reason': 'scope-gone:' + gone})
             else:
@@ -446,15 +388,12 @@ def update_state(path, entry):
         if item['status'] == 'resolved':
             item['resolution'] = {'tick': now, 'version': version, 'reason': '同版本两个可比较样本恢复；并非证明所有区间无异常'}
     state['lastSuccess'] = {'tick': now, 'version': version, 'at': time.time()}
-    # Successful collection clears transport failure only, never economic incidents.
     state.pop('collectionFailure', None)
     state['summary'] = {'open': sum(i.get('status') not in CLOSED for i in state['incidents'].values()),
                         'escalated': sum(i.get('status') == 'escalated' for i in state['incidents'].values()),
                         'obsolete': sum(i.get('status') == 'obsolete' for i in state['incidents'].values()),
                         'alerts': len(alerts),
                         'file': path}
-    # 本轮的新增/升级事件只用于打印；monitor.py 的退出码看累积的 pendingAlerts（未被心跳确认的），
-    # 不看历史未结总数。
     state['lastSample'] = {'tick': now, 'version': version, 'alerts': alerts}
     add_pending(state, alerts, now)
     state['summary']['pending'] = len(state['pendingAlerts'])
@@ -466,7 +405,6 @@ def record_failure(path, error):
     try:
         state = read_state(path)
     except (ValueError, OSError):
-        # Never replace a corrupt ledger with an empty one.
         with open(path + '.failure', 'w') as stream:
             json.dump({'at': time.time(), 'error': error}, stream)
         return

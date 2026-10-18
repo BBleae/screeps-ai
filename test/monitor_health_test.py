@@ -39,7 +39,6 @@ class OutcomeTest(unittest.TestCase):
                         if x['rule'] == 'supply-mismatch')
         hinted = finding()
         self.assertIn('原地迁移', hinted['action'])
-        # 线索只追加到建议文本：事件 key/严重度不变，不会因此新开事件或改变退出码
         self.assertEqual((hinted['key'], hinted['severity']), ('W1N1:supply-mismatch', 'investigate'))
         for field, value in [('id', 'replacement'), ('pos', '12,42')]:
             with self.subTest(field=field):
@@ -135,6 +134,15 @@ class OutcomeTest(unittest.TestCase):
         remote['suspendedUntil'] = 1100
         self.assertNotIn('reserve-handoff', rules(mon))
 
+    def test_reserver_not_wanted_skips_handoff(self):
+        mon = sample(); remote = mon['rooms'][0]['remotes'][0]
+        remote['reservation'] = None
+        self.assertIn('reserve-handoff', rules(mon))
+        remote.update(demandKnown=True, want={'remoteMiner': 1, 'reserver': 0, 'remoteHauler': 1})
+        self.assertNotIn('reserve-handoff', rules(mon))
+        remote['want']['reserver'] = 1
+        self.assertIn('reserve-handoff', rules(mon))
+
     def test_invisible_is_unknown_not_zero(self):
         mon = sample(); remote = mon['rooms'][0]['remotes'][0]
         remote.update(visible=False, drops=None, reservation=None)
@@ -197,14 +205,13 @@ class OutcomeTest(unittest.TestCase):
         return mon
 
     def test_cpu_emergency_on_sustained_overrun_or_drained_bucket(self):
-        # 2026-10-08 线上：平均 140-172/150，bucket 50-300
         live = self.cpu_mon([171.9, 128.8, 160, 150.5, 145], 303)
         result = health.assess(live, [])
         finding = next(f for f in result['findings'] if f['rule'] == 'cpu-emergency')
         self.assertEqual((finding['scope'], finding['severity']), ('global', 'urgent'))
-        self.assertIn('cpu-emergency', rules(self.cpu_mon([160, 155, 158], 9000)))   # 平均超限
-        self.assertIn('cpu-emergency', rules(self.cpu_mon([120, 110, 130], 800)))    # bucket 见底
-        healthy = self.cpu_mon([120, 110, 130, 175], 4000)                            # 单个尖峰、bucket 充足
+        self.assertIn('cpu-emergency', rules(self.cpu_mon([160, 155, 158], 9000)))
+        self.assertIn('cpu-emergency', rules(self.cpu_mon([120, 110, 130], 800)))
+        healthy = self.cpu_mon([120, 110, 130, 175], 4000)
         self.assertIn('global:cpu-emergency', health.assess(healthy, [])['checked'])
         self.assertNotIn('cpu-emergency', rules(healthy))
 
@@ -212,7 +219,7 @@ class OutcomeTest(unittest.TestCase):
         old = self.cpu_mon([100], 10000, px=5)
         refill = self.cpu_mon([110, 120], 200, px=6)
         self.assertNotIn('cpu-emergency', {f['rule'] for f in health.assess(refill, [{'mon': old}])['findings']})
-        overrun = self.cpu_mon([160, 170], 200, px=6)  # 像素换不来超限
+        overrun = self.cpu_mon([160, 170], 200, px=6)
         self.assertIn('cpu-emergency', {f['rule'] for f in health.assess(overrun, [{'mon': old}])['findings']})
         for broken in (self.cpu_mon([], 200), self.cpu_mon([160], None), dict(self.cpu_mon([160], 200), cpuLimit=None)):
             with self.subTest(broken=broken.get('statsTail')):
@@ -238,7 +245,6 @@ class LifecycleTest(unittest.TestCase):
             mon['t'] = tick; state = self.update(mon)
         key = 'W1N1:supply-mismatch'
         self.assertEqual(state['incidents'][key]['status'], 'escalated')
-        # Duplicate observations do not increase count.
         state = self.update(mon)
         self.assertEqual(state['incidents'][key]['observations'], 3)
         mon['creeps'][0]['energy'] = 50; mon['t'] = 1030
@@ -328,17 +334,14 @@ class LifecycleTest(unittest.TestCase):
 
     def test_temporary_suspension_or_crashed_check_stays_open(self):
         mon, key = self.reserve_incident()
-        # 敌情暂停是临时的：等新证据，不撤销
         mon['rooms'][0]['remotes'][0].update(enabled=False, suspendReason='hostileCreep', suspendedUntil=5000)
         mon['t'] = 1100
         self.assertEqual(self.update(mon)['incidents'][key]['status'], 'awaiting-evidence')
-        # 规则没跑（例如检查崩了）而范围仍在：不能当作消失
         mon = sample(1200); mon['t'] = 1200
         entry = {'mon': mon, 'issues': [], 'health': {'findings': [], 'checked': [],
                  'coverage': {'sameVersionTicks': 0}}}
         state = health.update_state(self.path, entry)
         self.assertEqual(state['incidents'][key]['status'], 'awaiting-evidence')
-        # 空快照不能证明房间没了
         mon['rooms'] = []; mon['t'] = 1300
         entry['mon'] = mon
         self.assertEqual(health.update_state(self.path, entry)['incidents'][key]['status'], 'awaiting-evidence')
@@ -355,7 +358,7 @@ class LifecycleTest(unittest.TestCase):
         self.assertEqual(self.update(mon)['incidents'][key]['status'], 'obsolete')
         mon['rooms'][0]['remotes'][0].update(enabled=True, suspendReason=None); mon['t'] = 1300
         item = self.update(mon)['incidents'][key]
-        self.assertEqual(item['status'], 'escalated'); self.assertNotIn('scopeGone', item)  # reservation 已丢 = urgent
+        self.assertEqual(item['status'], 'escalated'); self.assertNotIn('scopeGone', item)
 
     def alerts(self, mon):
         return {a['key']: a['reason'] for a in self.update(mon)['lastSample']['alerts']}
@@ -363,17 +366,15 @@ class LifecycleTest(unittest.TestCase):
     def test_alerts_only_on_new_escalated_or_unacknowledged_urgent(self):
         mon = sample(); mon['creeps'][0]['energy'] = 0
         key = 'W1N1:supply-mismatch'
-        self.assertEqual(self.alerts(mon), {key: 'new'})  # economy-coverage 是 info，不报
-        self.assertEqual(self.alerts(mon), {})            # 同 tick 重复采样不重复报
+        self.assertEqual(self.alerts(mon), {key: 'new'})
+        self.assertEqual(self.alerts(mon), {})
         mon['t'] = 1010; self.assertEqual(self.alerts(mon), {})
         mon['t'] = 1020; self.assertEqual(self.alerts(mon), {key: 'escalated'})
         mon['t'] = 1030; self.assertEqual(self.alerts(mon), {})
         state = health.read_state(self.path)
-        self.assertEqual(state['summary']['open'], 2); self.assertEqual(state['summary']['alerts'], 0)  # 含常驻的 economy-coverage
-        # 恢复中又命中（抖动）不算新升级
+        self.assertEqual(state['summary']['open'], 2); self.assertEqual(state['summary']['alerts'], 0)
         mon['creeps'][0]['energy'] = 50; mon['t'] = 1040; self.alerts(mon)
         mon['creeps'][0]['energy'] = 0; mon['t'] = 1050; self.assertEqual(self.alerts(mon), {})
-        # 解决后复发是新一轮
         mon['creeps'][0]['energy'] = 50
         for tick in (1100, 1140): mon['t'] = tick; self.alerts(mon)
         self.assertEqual(health.read_state(self.path)['incidents'][key]['status'], 'resolved')
@@ -395,7 +396,6 @@ class LifecycleTest(unittest.TestCase):
         key = 'W1N1/W1N2:reserve-handoff'
         self.alerts(mon)
         state = health.read_state(self.path)
-        # 上一次事件（早于本次 episodeAt）留下的笔记不算认领了这一次
         state['incidents'][key]['investigation'] = [{'at': state['incidents'][key]['episodeAt'] - 86400 * 14,
                                                      'note': 'old episode'}]
         health.save_state(self.path, state)
@@ -424,7 +424,6 @@ class LifecycleTest(unittest.TestCase):
         state['incidents'][key].pop('escalatedAt', None)
         health.save_state(self.path, state)
         mon['t'] = 1100; self.assertEqual(self.alerts(mon), {})
-        # awaiting-fix 的已确认缺陷再次出现并升级：报一次
         state = health.read_state(self.path)
         state['incidents'][key].update(status='awaiting-fix', workStatus='fix-required')
         state['incidents'][key].pop('escalatedAt', None)
