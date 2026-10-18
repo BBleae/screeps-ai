@@ -15744,8 +15744,46 @@ console.log('== 10-18 14:17：全帐号当天买能量实际花费（成交 + �
     cancelled.length = 0;
     Game.market.orders = openOrders();
     mk.runOwnOrders(mk.settings(), Game.market);
-    assert(!created.some((o) => o.resourceType === 'energy') && !cancelled.includes('a') && !cancelled.includes('b'), '当天不再挂能量单、不重复撤（得 ' + JSON.stringify([created.map((o) => o.resourceType), cancelled]) + '）');
+    assert(!created.some((o) => o.resourceType === 'energy') && cancelled.includes('a') && cancelled.includes('b') && led.energyStopped.recancelled === 2, '当天不再挂能量单；撤单后仍开着的能量单下一次再撤（得 ' + JSON.stringify([created.map((o) => o.resourceType), cancelled]) + '）');
     config.market = savedCfg; Memory.market = savedMem; Game.market = savedGM; Game.rooms = savedRooms;
+}
+
+console.log('== 10-18 18:26：能量实际花费改为每 tick 从 incomingTransactions 按成交去重累计（含 deal），护栏留一张单最大金额的提前量 ==');
+{
+    const mk = require('market');
+    const savedMem = Memory.market, savedGM = Game.market, savedCfg = config.market, savedTime = world.time;
+    config.market = structuredClone(liveMarketCfg);
+    config.market.ownOrders.energy.actualStopCredits = 4000000;
+    config.market.ownOrders.energy.actualStopMargin = 50000;
+    const day = Math.floor(Date.now() / 86400000);
+    const cancelled = [];
+    const txs = [];
+    const orders = {
+        a: { id: 'a', type: 'buy', resourceType: 'energy', roomName: 'W37S5', price: 43.201, remainingAmount: 1157 },
+        b: { id: 'b', type: 'buy', resourceType: 'energy', roomName: 'W31S5', price: 45, remainingAmount: 2000 } };
+    Game.market = { credits: 30000000, orders, incomingTransactions: txs, getHistory: () => [], getAllOrders: () => [], cancelOrder: (id) => (cancelled.push(id), OK) };
+    Memory.market = { ledger: { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 9000000, energyBuyByRoom: {}, energySpent: 3000000, energyFees: 200000, deals: 0 }, orders: {} };
+    world.time = 1000;
+    txs.push({ transactionId: 't0', time: 990, resourceType: 'energy', amount: 5000, order: { id: 'b', type: 'buy', price: 45 } });
+    assert(mk.guardTick() === false && Memory.market.ledger.energySpent === 3000000 && Memory.market.energyTx.time === 1000, '首次只记起点，不补算历史成交');
+    world.time = 1001;
+    txs.unshift({ transactionId: 't1', time: 1001, resourceType: 'energy', amount: 1000, order: { id: 'b', type: 'buy', price: 45 } },
+        { transactionId: 't2', time: 1001, resourceType: 'energy', amount: 1174, order: { id: 'zz', type: 'sell', price: 42.571 } },
+        { transactionId: 't3', time: 1001, resourceType: 'energy', amount: 25000, from: 'W32S4', to: 'W34S7' });
+    mk.guardTick();
+    const led = Memory.market.ledger;
+    assert(led.energySpent === 3000000 + 45000 + Math.round(1174 * 42.571), '同一 tick 记进挂单成交和应急 deal，终端内部转运不算（得 ' + led.energySpent + '）');
+    assert(led.energyDealCredits === Math.round(1174 * 42.571), 'deal 部分单独记 energyDealCredits');
+    world.time = 1002;
+    mk.guardTick();
+    assert(led.energySpent === 3000000 + 45000 + Math.round(1174 * 42.571), '同一笔成交不重复记');
+    assert(led.energyStopAt === 4000000 - 90000 && cancelled.length === 0, '提前量取「一张开着的单最大剩余金额」和 5 万中的大者（9 万），未到不撤');
+    led.energySpent = 3711000;
+    world.time = 1003;
+    assert(mk.guardTick() === true && cancelled.sort().join() === 'a,b', '实际 + 提前量 ≥ 400 万：撤掉所有开着的能量买单');
+    const log = Memory.market.daily[new Date().toISOString().slice(0, 10)].energyStop;
+    assert(log && log.margin === 90000 && log.actual === 3911000 && log.cancelled === 2, '日志带实际花费和提前量');
+    config.market = savedCfg; Memory.market = savedMem; Game.market = savedGM; world.time = savedTime;
 }
 
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');

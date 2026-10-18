@@ -533,6 +533,7 @@ module.exports = {
                 creditFloor: 5000000,
                 perRoomDailyCredits: 500000,
                 actualStopCredits: 4000000,
+                actualStopMargin: 50000,
                 preferSenders: ['W29S3'],
             },
         },

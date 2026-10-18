@@ -496,23 +496,73 @@ function energyActual(led, spent, fees) {
     return (Number(led.energySpent) || 0) + (Number(led.energyFees) || 0);
 }
 
+function scanEnergyTx(led, market) {
+    const mem = Memory.market || (Memory.market = {});
+    const txs = (market && Array.isArray(market.incomingTransactions)) ? market.incomingTransactions : [];
+    const st = mem.energyTx;
+    if (!st || !(Number(st.time) > 0)) {
+        mem.energyTx = { time: Game.time, ids: txs.filter((t) => t && Number(t.time) === Game.time).map((t) => t.transactionId) };
+        return 0;
+    }
+    const seen = new Set(st.ids || []);
+    let top = Number(st.time);
+    let topIds = (st.ids || []).slice();
+    let added = 0;
+    for (const t of txs) {
+        if (!t || Number(t.time) < Number(st.time)) continue;
+        if (Number(t.time) === Number(st.time) && seen.has(t.transactionId)) continue;
+        if (Number(t.time) > top) { top = Number(t.time); topIds = []; }
+        if (Number(t.time) === top) topIds.push(t.transactionId);
+        if (t.resourceType !== ENERGY || !t.order || !(Number(t.order.price) > 0) || !(Number(t.amount) > 0)) continue;
+        added += Number(t.amount) * Number(t.order.price);
+        led.energyTxCount = (Number(led.energyTxCount) || 0) + 1;
+        if (t.order.type === 'sell') led.energyDealCredits = Math.round((Number(led.energyDealCredits) || 0) + Number(t.amount) * Number(t.order.price));
+    }
+    mem.energyTx = { time: top, ids: topIds };
+    if (added) { energyActual(led, added, 0); led.energyTxAt = Game.time; }
+    return added;
+}
+
+function openEnergyBuys(market) {
+    return Object.values((market && market.orders) || {}).filter((x) => x && x.type === BUY() && x.resourceType === ENERGY && Number(x.remainingAmount) > 0);
+}
+
 function energyStopCheck(e, market) {
     const led = ledger();
-    if (led.energyStopped) return true;
+    const ok = typeof OK !== 'undefined' ? OK : 0;
+    const cancelAll = (open) => { let n = 0; for (const x of open) if (market && typeof market.cancelOrder === 'function' && market.cancelOrder(x.id) === ok) n++; return n; };
+    if (led.energyStopped) {
+        const left = openEnergyBuys(market);
+        if (left.length) led.energyStopped.recancelled = (Number(led.energyStopped.recancelled) || 0) + cancelAll(left);
+        return true;
+    }
     const stop = Number(e && e.actualStopCredits) || 0;
     if (!(stop > 0)) return false;
     const actual = energyActual(led, 0, 0);
-    if (actual < stop) return false;
-    const open = Object.values((market && market.orders) || {}).filter((x) => x && x.type === BUY() && x.resourceType === ENERGY && Number(x.remainingAmount) > 0);
-    let cancelled = 0;
-    for (const x of open) if (typeof market.cancelOrder === 'function' && market.cancelOrder(x.id) === (typeof OK !== 'undefined' ? OK : 0)) cancelled++;
-    const rec = { at: Game.time, actual, spent: Number(led.energySpent) || 0, fees: Number(led.energyFees) || 0, stop, open: open.length, cancelled };
+    const open = openEnergyBuys(market);
+    const biggest = open.reduce((m, x) => Math.max(m, Number(x.remainingAmount) * Number(x.price) || 0), 0);
+    const margin = Math.max(Number(e.actualStopMargin) || 0, biggest);
+    led.energyStopAt = Math.round(stop - margin);
+    if (actual + margin < stop) return false;
+    const cancelled = cancelAll(open);
+    const rec = { at: Game.time, actual, spent: Number(led.energySpent) || 0, fees: Number(led.energyFees) || 0, stop, margin: Math.round(margin), open: open.length, cancelled };
     led.energyStopped = rec;
     const mem = Memory.market || (Memory.market = {});
     const daily = mem.daily || (mem.daily = {});
     const day = daily[dayKey()] || (daily[dayKey()] = {});
     day.energyStop = rec;
     return true;
+}
+
+function guardTick() {
+    const cfg = settings();
+    const own = ownSettings(cfg);
+    const e = own && own.energy;
+    const market = marketApi();
+    if (!e || !market) return false;
+    const led = ledger();
+    scanEnergyTx(led, market);
+    return energyStopCheck(e, market);
 }
 
 function trackOrphanEnergy(led, live, book, claimed) {
@@ -545,7 +595,6 @@ function trackOrphanEnergy(led, live, book, claimed) {
         const filled = Math.max(0, r.left - left);
         if (filled > 0) {
             led.bought[ENERGY] = (led.bought[ENERGY] || 0) + filled;
-            energyActual(led, filled * r.price, 0);
             led.orphanFilled = (Number(led.orphanFilled) || 0) + filled;
             led.filled = (led.filled || 0) + filled;
             r.left = left;
@@ -599,7 +648,6 @@ function syncOrders(cfg, market) {
                 led.soldCredits = Math.round(led.soldCredits + filled * o.price);
             } else {
                 led.bought[o.resource] = (led.bought[o.resource] || 0) + filled;
-                if (o.resource === ENERGY) energyActual(led, filled * o.price, 0);
             }
             led.filled = (led.filled || 0) + filled;
         }
@@ -1087,4 +1135,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { run, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
+module.exports = { run, guardTick, scanEnergyTx, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };

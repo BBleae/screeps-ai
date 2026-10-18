@@ -318,6 +318,7 @@ module.exports.loop = function () {
             if (sampleDisp) mark = dispLap('finish', mark);
         }
         cpuLap(cpuProf.mod, 'creeps');
+        try { market.guardTick(); } catch (e) { logErr('market.guardTick', e); }
         if (!(shed && (shed.active || shed.stopped)) && !cpuFused('terminal')) {
             try { market.run(shed); } catch (e) { logErr('market.run', e); }
             try { terminalNetwork.run(shed); } catch (e) { logErr('terminal.run', e); }
