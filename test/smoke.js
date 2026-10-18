@@ -1808,7 +1808,6 @@ base.moveTo(target, { costCallback: callbackB });
 const afterCallbackB = searches.length;
 base.moveTo(target, { costCallback: callbackB });
 const afterCallbackBRepeat = searches.length;
-// 项目补丁 resetCreepPath：只让这一只重新寻路（缓存命中时不再 search，重置后下一次 moveTo 必 search；不碰别的 creep 的缓存）
 movement.clear();
 const other = new Creep('other', [{ type: MOVE, hits: 100 }], room);
 other.pos = new RoomPosition(30, 30, 'W1N1');
@@ -15271,6 +15270,36 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     world.time += 1;
     assert(wf.run(up) === false && !up.memory.wallFix, '都到 3 万：回去做原来的事');
     assert(config.wallFix && config.wallFix.target === 30000, 'config.wallFix.target = 3 万');
+    Game.creeps = savedCreeps; world.time = savedTime;
+}
+
+{
+    console.log('== 10-18 12:50 wallfix 迟滞：最低的 rampart 掉到 2.5 万以下才开修，开修后全部补到 3 万再停 ==');
+    const wf = require('wallfix');
+    const savedCreeps = Game.creeps, savedTime = world.time;
+    world.time += 13;
+    const pos = (x, y) => ({ x, y, roomName: 'W37S7', inRangeTo: (t, r) => Math.max(Math.abs((t.pos || t).x - x), Math.abs((t.pos || t).y - y)) <= r,
+        isNearTo: (t) => Math.max(Math.abs((t.pos || t).x - x), Math.abs((t.pos || t).y - y)) <= 1, findClosestByRange: (l) => (Array.isArray(l) ? l[0] : null) });
+    const ram = (x, y, hits) => ({ id: 'h' + x + y, structureType: STRUCTURE_RAMPART, my: true, hits, hitsMax: 30000000, pos: pos(x, y) });
+    const a = ram(10, 10, 29001), b = ram(12, 10, 29500);
+    const room = { name: 'W37S7', controller: { my: true }, find: (k) => (k === FIND_STRUCTURES ? [a, b] : []) };
+    const repaired = [];
+    const up = { name: 'upH', spawning: false, room, memory: { home: 'W37S7', role: 'upgrader' }, body: [WORK, CARRY, MOVE].map((t) => ({ type: t, hits: 100 })),
+        pos: pos(10, 11), store: { energy: 40, getFreeCapacity: () => 10 }, repair: (t) => (repaired.push(t.id), OK), withdraw: () => OK, pickup: () => OK, harvest: () => OK };
+    delete Memory.rooms.W37S7;
+    assert(config.wallFix.trigger === 25000 && wf.triggerHits() === 25000, 'config.wallFix.trigger = 2.5 万');
+    assert(wf.run(up) === false && !Memory.rooms.W37S7.wallFixOn, '2.9 万的 rampart 不触发：upgrader 继续升级');
+    Game.creeps = {};
+    assert(wf.needsWorker(room) === false, '没触发时不额外孵 builder');
+    a.hits = 24900; world.time += 1;
+    assert(wf.run(up) === true && repaired[0] === a.id && Memory.rooms.W37S7.wallFixOn, '掉到 2.5 万以下：开修');
+    a.hits = 30000; world.time += 1; repaired.length = 0;
+    assert(wf.run(up) === true && repaired[0] === b.id, '开修后把 <3 万的都补上（2.95 万那个也修）');
+    b.hits = 30000; world.time += 1;
+    assert(wf.run(up) === false && !Memory.rooms.W37S7.wallFixOn, '都到 3 万：关闸，回去升级');
+    a.hits = 29700; world.time += 1;
+    assert(wf.run(up) === false, '自然衰减到 2.97 万不再追着修');
+    delete Memory.rooms.W37S7;
     Game.creeps = savedCreeps; world.time = savedTime;
 }
 

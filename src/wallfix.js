@@ -14,6 +14,26 @@ function targetHits() {
     return v > 0 ? v : 30000;
 }
 
+function triggerHits() {
+    const v = Number(settings().trigger);
+    return v > 0 ? Math.min(v, targetHits()) : targetHits();
+}
+
+function activeRamparts(room) {
+    const list = lowRamparts(room);
+    if (!room || !room.name) return list;
+    const rooms = Memory.rooms || (Memory.rooms = {});
+    const mem = rooms[room.name] || (rooms[room.name] = {});
+    if (!list.length) {
+        if (mem.wallFixOn) delete mem.wallFixOn;
+        return list;
+    }
+    if (mem.wallFixOn) return list;
+    if (list[0].hits >= triggerHits()) return [];
+    mem.wallFixOn = Game.time;
+    return list;
+}
+
 function enabled() {
     return settings().enabled !== false;
 }
@@ -60,7 +80,7 @@ function workers(room) {
 }
 
 function needsWorker(room) {
-    if (!enabled() || !lowRamparts(room).length) return false;
+    if (!enabled() || !activeRamparts(room).length) return false;
     return workers(room).length === 0;
 }
 
@@ -159,7 +179,7 @@ function run(creep) {
     if (!enabled()) return false;
     const room = creep.room;
     if (!eligible(creep, room)) return false;
-    const list = lowRamparts(room);
+    const list = activeRamparts(room);
     if (!list.length) {
         if (creep.memory.wallFix) delete creep.memory.wallFix;
         return fixRoads(creep, room);
@@ -176,4 +196,4 @@ function run(creep) {
     return true;
 }
 
-module.exports = { run, lowRamparts, needsWorker, eligible, targetHits, roadTargets };
+module.exports = { run, lowRamparts, activeRamparts, needsWorker, eligible, targetHits, triggerHits, roadTargets };
