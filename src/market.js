@@ -585,7 +585,6 @@ function run(shed) {
     if (mil && mil.result === (typeof OK !== 'undefined' ? OK : 0)) return mil;
     let posted = null;
     try { posted = runOwnOrders(cfg, market); } catch (error) { utils.logErr('market.ownOrders', error); }
-    if (posted && posted.result === (typeof OK !== 'undefined' ? OK : 0)) return posted;
     if (overBudget()) return posted;
     const bought = tryBuy(cfg, market, () => scans++);
     if (bought) return bought;
