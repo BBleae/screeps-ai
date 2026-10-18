@@ -490,6 +490,20 @@ function plannedStructure(room, structure) {
     return true;
 }
 
+function removeSite(site, reason) {
+    if (!site || typeof site.remove !== 'function') return false;
+    if ((Number(site.progress) || 0) > 0) return false;
+    const ret = site.remove();
+    const ok = ret == null || ret === OK;
+    if (ok && site.pos && typeof Memory !== 'undefined' && Memory) {
+        const all = Memory.siteRemovals || (Memory.siteRemovals = {});
+        const r = all[site.pos.roomName] || (all[site.pos.roomName] = {});
+        r[reason] = (Number(r[reason]) || 0) + 1;
+        r.at = Game.time;
+    }
+    return ok;
+}
+
 const armedCache = { time: -1, rooms: {} };
 function armedHostiles(room) {
     if (!room || typeof room.find !== 'function') return false;
@@ -1043,6 +1057,7 @@ module.exports = {
     plannedStructure,
     needsRepair,
     armedHostiles,
+    removeSite,
     wallFloorHits,
     rampartRaiseAllowed,
     criticallyDamaged,

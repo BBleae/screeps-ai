@@ -5,7 +5,7 @@ const brain = require('brain');
 const wheelLayout = require('wheel_layout');
 const defense = require('defense');
 const movement = require('movement');
-const { logErr, bodyCost, bodyPartCount, roomCoords, roomDistance, isRetiring, roomPhase, creepsHomeRole } = require('utils');
+const { logErr, bodyCost, bodyPartCount, roomCoords, roomDistance, isRetiring, roomPhase, creepsHomeRole, removeSite } = require('utils');
 
 function positiveSetting(name, fallback) {
     const value = config.remote && config.remote[name];
@@ -808,7 +808,7 @@ function trimRemoteSites(homeName, roomName) {
     let removed = 0;
     for (const site of Object.values(Game.constructionSites || {})) {
         if (!site.pos || site.pos.roomName !== roomName || site.structureType === STRUCTURE_SPAWN) continue;
-        if (typeof site.remove === 'function' && site.remove() === OK) removed++;
+        if (removeSite(site, 'remoteOff')) removed++;
     }
     return removed;
 }
@@ -818,7 +818,7 @@ function yieldRoadSite(roomName, remotes) {
         remotes && remotes[site.pos.roomName] && !(site.progress > 0));
     candidates.sort((left, right) => (left.pos.roomName === roomName ? 0 : 1) - (right.pos.roomName === roomName ? 0 : 1));
     for (const site of candidates) {
-        if (typeof site.remove === 'function' && site.remove() === OK) return true;
+        if (removeSite(site, 'remoteYield')) return true;
     }
     return false;
 }
@@ -846,7 +846,7 @@ function pruneOrphanRoadSites(room, record) {
     for (const site of room.find(FIND_MY_CONSTRUCTION_SITES).slice()) {
         if (site.structureType !== STRUCTURE_ROAD || wanted.has(site.pos.x + '.' + site.pos.y)) continue;
         const progress = Number(site.progress) || 0;
-        if (typeof site.remove === 'function' && site.remove() === OK) { removed++; lost += progress; }
+        if (removeSite(site, 'orphanRoad')) { removed++; lost += progress; }
     }
     if (removed) {
         const log = record.orphanRoadSites || (record.orphanRoadSites = { n: 0, lost: 0 });
@@ -912,8 +912,12 @@ function placeInfrastructure(room, record, remotes) {
         if (at(room, LOOK_STRUCTURES, source.spot, STRUCTURE_CONTAINER) ||
             at(room, LOOK_CONSTRUCTION_SITES, source.spot, STRUCTURE_CONTAINER)) continue;
         if (sites.length >= MAX_REMOTE_SITES || globalSiteCount() >= 100) {
-            if (yieldRoadSite(room.name, remotes)) record.roadSitesYielded = (Number(record.roadSitesYielded) || 0) + 1;
-            else record.containerBlockedAt = Game.time;
+            const cooldown = positiveSetting('roadYieldCooldown', 1500);
+            const recent = Number.isFinite(Number(record.roadYieldAt)) && Game.time - Number(record.roadYieldAt) < cooldown;
+            if (!recent && yieldRoadSite(room.name, remotes)) {
+                record.roadSitesYielded = (Number(record.roadSitesYielded) || 0) + 1;
+                record.roadYieldAt = Game.time;
+            } else record.containerBlockedAt = Game.time;
             return;
         }
         if (room.createConstructionSite(source.spot.x, source.spot.y, STRUCTURE_CONTAINER) === OK) record.containerSiteAt = Game.time;

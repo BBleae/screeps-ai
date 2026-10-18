@@ -2,7 +2,7 @@
 const config = require('config');
 const layout = require('layout');
 const wheelLayout = require('wheel_layout');
-const { logErr, rampartProtectsCore, isRoomPhaseTick } = require('utils');
+const { logErr, rampartProtectsCore, isRoomPhaseTick, removeSite } = require('utils');
 
 function settings() {
     return Object.assign({ interval: 25, minEnergy: 300, logSize: 20, batch: 4, keepStoredBelow: 0 }, config.demolition || {});
@@ -67,7 +67,7 @@ function removeOffPlanSites(room, index, log) {
     for (const site of room.find(FIND_MY_CONSTRUCTION_SITES)) {
         if (plannedHere(index, site.structureType, site.pos)) continue;
         if (site.structureType === rampartType && rampartProtectsCore(room, site.pos.x, site.pos.y)) continue;
-        if (typeof site.remove === 'function' && site.remove() === OK) {
+        if (removeSite(site, 'offPlan')) {
             removed++;
             log({ type: site.structureType, x: site.pos.x, y: site.pos.y, reason: 'site-off-plan' });
         }

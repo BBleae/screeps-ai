@@ -355,9 +355,7 @@ function canAdoptExistingContainer(site) {
 }
 
 function removeDuplicateContainerSite(site) {
-    if (!site || typeof site.remove !== 'function') return false;
-    const result = site.remove();
-    return result == null || result === OK;
+    return utils.removeSite(site, 'dupContainer');
 }
 
 function compatibleWorkSpot(spot, target, container) {
@@ -400,7 +398,8 @@ function normalizeContainers(room, plan, sources, anchor) {
         const built = existingContainer(room, target, spot, anchor, taken);
         const duplicate = duplicateContainerSite(room, target, spot, built);
         if (built && duplicate) {
-            if (canAdoptExistingContainer(duplicate) && removeDuplicateContainerSite(duplicate)) {
+            if (canAdoptExistingContainer(duplicate)) {
+                removeDuplicateContainerSite(duplicate);
                 spot = built;
             } else {
                 spot = { x: duplicate.pos.x, y: duplicate.pos.y };
@@ -591,22 +590,24 @@ function trimSites(room, plan) {
             const highProgress = total > 0 && progress > total - progress;
             if (planned[type].has(key) && highProgress) continue;
             if (keep < keepMax && planned[type].has(key)) { keep++; continue; }
-            if (typeof s.remove === 'function') s.remove();
+            utils.removeSite(s, 'trim' + type);
         }
     }
-    if (!ringAllowed(room, plan)) {
+    if (!ringKeep(room, plan)) {
         const core = new Set(coreRampartSpots(room).map((p) => p.x + '.' + p.y));
+        let trimmed = 0;
         for (const s of room.find(FIND_MY_CONSTRUCTION_SITES).slice()) {
             if (s.structureType !== STRUCTURE_RAMPART || (Number(s.progress) || 0) > 0) continue;
             if (core.has(s.pos.x + '.' + s.pos.y)) continue;
-            if (typeof s.remove === 'function') s.remove();
+            if (utils.removeSite(s, 'ringTrim')) trimmed++;
         }
+        if (trimmed) roomMem(room).ringTrimAt = Game.time;
     }
     if (room.controller.level < Math.max(1, Number(config.roadsMinRcl) || 1)) {
         let trimmed = 0;
         for (const s of room.find(FIND_MY_CONSTRUCTION_SITES).slice()) {
             if (s.structureType !== STRUCTURE_ROAD || (Number(s.progress) || 0) > 0) continue;
-            if (typeof s.remove === 'function' && s.remove() === OK) trimmed++;
+            if (utils.removeSite(s, 'roadsMinRcl')) trimmed++;
         }
         if (trimmed) {
             const mem = roomMem(room);
@@ -636,18 +637,30 @@ function rampartsAllowed(room) {
     return towers.some((t) => t.store && Number(t.store[RESOURCE_ENERGY] || 0) >= minEnergy);
 }
 
-function rampartRingAffordable(room, mem) {
-    const need = Math.max(0, Number(config.rampartRingMinIncome) || 0);
+function rampartRingAffordable(room, mem, share) {
+    const need = Math.max(0, Number(config.rampartRingMinIncome) || 0) * (share == null ? 1 : share);
     if (!(need > 0)) return true;
     const track = mem && mem.spawnIncome;
     const samples = Math.max(1, Number((config.spawnQueue || {}).incomeSamples) || 200);
     return !!track && Number(track.n) >= samples && Number(track.ema || 0) >= need;
 }
 
-function ringAllowed(room, plan) {
+function ringPlanned(room, plan) {
     const minRcl = Math.max(1, Number(config.rampartRingMinRcl) || 1);
-    if (!(plan && Array.isArray(plan.ramparts) && plan.ramparts.length && room.controller.level >= minRcl)) return false;
-    return rampartRingAffordable(room, roomMem(room));
+    return !!(plan && Array.isArray(plan.ramparts) && plan.ramparts.length && room.controller.level >= minRcl);
+}
+
+function ringAllowed(room, plan) {
+    if (!ringPlanned(room, plan)) return false;
+    const mem = roomMem(room);
+    const retry = Math.max(0, Number(config.rampartRingRetryTicks) || 0);
+    if (mem.ringTrimAt != null && Game.time - Number(mem.ringTrimAt) < retry) return false;
+    return rampartRingAffordable(room, mem);
+}
+
+function ringKeep(room, plan) {
+    if (!ringPlanned(room, plan)) return false;
+    return rampartRingAffordable(room, roomMem(room), Number(config.rampartRingKeepShare) || 1);
 }
 
 function coreRampartSpots(room) {
@@ -681,7 +694,7 @@ function trimDeadRoomSites(room) {
         .sort((a, b) => (Number(b.progress) || 0) - (Number(a.progress) || 0));
     let removed = 0;
     for (const site of sites.slice(keep)) {
-        if (typeof site.remove === 'function' && site.remove() === OK) removed++;
+        if (utils.removeSite(site, 'deadRoom')) removed++;
     }
     return removed;
 }
@@ -730,12 +743,15 @@ function place(room, mem) {
 }
 
 function highPriorityNeeds(room, plan, allow) {
+    const luxuryOk = utils.luxuryAllowed(room);
+    const terminalMin = utils.terminalMinStorageFor(room);
+    const storageEnergy = room.storage ? Number(room.storage.store[RESOURCE_ENERGY] || 0) : 0;
     const highTypes = [
         ['extension', STRUCTURE_EXTENSION, plan.ext || []],
         ['tower', STRUCTURE_TOWER, plan.towers || []],
         ['storage', STRUCTURE_STORAGE, plan.storage ? [plan.storage] : []],
-        ['terminal', STRUCTURE_TERMINAL, plan.terminal ? [plan.terminal] : []],
-        ['lab', STRUCTURE_LAB, plan.labs || []],
+        ['terminal', STRUCTURE_TERMINAL, plan.terminal && !(terminalMin > 0 && storageEnergy < terminalMin) ? [plan.terminal] : []],
+        ['lab', STRUCTURE_LAB, luxuryOk ? plan.labs || [] : []],
         ['spawn', STRUCTURE_SPAWN, plan.spawns || []],
         ['link', STRUCTURE_LINK, ['ctrl', 'src0', 'src1', 'store', 'aux0', 'aux1'].map((key) => linkSpot(plan, key)).filter(Boolean)],
     ];
@@ -744,21 +760,37 @@ function highPriorityNeeds(room, plan, allow) {
         const remaining = (allow[key] || 0) - countType(room, type);
         if (remaining <= 0) continue;
         const free = spots.filter((spot) => spot && !structureAt(room, spot.x, spot.y, type) && !siteAt(room, spot.x, spot.y, type) &&
+            !(room.lookForAt(LOOK_CONSTRUCTION_SITES, spot.x, spot.y) || []).length &&
             !room.lookForAt(LOOK_STRUCTURES, spot.x, spot.y).some((s) => !structuresCanShare(s.structureType, type))).length;
         needs += Math.min(remaining, free);
     }
     return needs;
 }
 
+function yieldStalled(mem, kind, need) {
+    const last = mem.layoutYieldBy && mem.layoutYieldBy[kind];
+    const cooldown = Math.max(0, Number(config.layoutYieldCooldown) || 0);
+    return !!last && Game.time - Number(last.at) < cooldown && need >= Number(last.need);
+}
+
+function noteYield(mem, kind, need) {
+    const by = mem.layoutYieldBy || (mem.layoutYieldBy = {});
+    by[kind] = { at: Game.time, need };
+}
+
 function yieldLowPrioritySites(room, plan, allow) {
-    if (highPriorityNeeds(room, plan, allow) <= 0) return false;
+    const need = highPriorityNeeds(room, plan, allow);
+    if (need <= 0) return false;
+    const mem = roomMem(room);
+    if (yieldStalled(mem, 'high', need)) return false;
     const lowTypes = new Set([STRUCTURE_ROAD, STRUCTURE_RAMPART, STRUCTURE_WALL]);
     let freed = 0;
     for (const site of room.find(FIND_MY_CONSTRUCTION_SITES).slice()) {
         if (freed >= 2) break;
-        if (!lowTypes.has(site.structureType) || (site.progress || 0) > 0 || typeof site.remove !== 'function') continue;
-        if (site.remove() === OK) freed++;
+        if (!lowTypes.has(site.structureType) || (site.progress || 0) > 0) continue;
+        if (utils.removeSite(site, 'yieldHigh')) freed++;
     }
+    if (freed) noteYield(mem, 'high', need);
     return freed > 0;
 }
 
@@ -780,16 +812,20 @@ function missingRoadTiles(room, plan) {
 }
 
 function yieldRampartSitesForRoads(room, plan) {
-    if (missingRoadTiles(room, plan) <= 0) return false;
+    const need = missingRoadTiles(room, plan);
+    if (need <= 0) return false;
+    const mem = roomMem(room);
+    if (yieldStalled(mem, 'road', need)) return false;
     const core = new Set(coreRampartSpots(room).map((p) => p.x + '.' + p.y));
     let freed = 0;
     for (const site of room.find(FIND_MY_CONSTRUCTION_SITES).slice()) {
         if (freed >= 2) break;
         if (site.structureType !== STRUCTURE_RAMPART && site.structureType !== STRUCTURE_WALL) continue;
-        if ((site.progress || 0) > 0 || typeof site.remove !== 'function') continue;
+        if ((site.progress || 0) > 0) continue;
         if (core.has(site.pos.x + '.' + site.pos.y)) continue;
-        if (site.remove() === OK) freed++;
+        if (utils.removeSite(site, 'yieldRoad')) freed++;
     }
+    if (freed) noteYield(mem, 'road', need);
     return freed > 0;
 }
 
@@ -1003,4 +1039,4 @@ function run(room) {
 }
 
 module.exports = { run, roomMem, structureAt, allowance, linkSpot, resolveSources, sourceOrderStats, remapHarvesterSources, normalizeLinkPlan, normalizeLabPlan, maybeGenerateWheelPlan,
-    upgraderStorageStations, controllerFedByStorage, upgraderStation, atUpgraderStation };
+    upgraderStorageStations, controllerFedByStorage, upgraderStation, atUpgraderStation, ringAllowed, ringKeep, highPriorityNeeds, yieldLowPrioritySites };

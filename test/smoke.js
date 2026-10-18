@@ -2788,8 +2788,8 @@ console.log('== 外矿路线失配自愈：满载腿的真实走线连续对不�
         siteAt(20, 20).progress = 120;
         siteAt(31, 31).progress = 145;
         const removed = remoteMod.pruneOrphanRoadSites(pruneRoom, Memory.rooms.W33S7.remotes.W33S6);
-        assert(removed === 2, '旧走廊上的工地全部清掉，不管有没有进度（得 ' + removed + '）');
-        assert(!siteAt(30, 30) && !siteAt(31, 31), '零进度与半成品的孤儿都清掉');
+        assert(removed === 1, '旧走廊上只清零进度的工地，有进度的留着（得 ' + removed + '）');
+        assert(!siteAt(30, 30) && siteAt(31, 31) && siteAt(31, 31).progress === 145, '零进度孤儿清掉，半成品孤儿保留进度');
         assert(siteAt(20, 20) && siteAt(20, 20).progress === 120, '路线上的工地不动，进度保留');
     }
 }
@@ -10034,9 +10034,10 @@ console.log('== 两跳外矿的入口按外矿房自己的出口取边（findRou
     for (let i = 0; i < 3 * orInterval; i++) { remoteMod.run(orHome); world.time++; }
     const orLeft = orSites().map((s) => s.pos.x + '.' + s.pos.y);
     const orRec = Memory.rooms.W33S7.remotes.W33S6;
-    assert(!orLeft.some((key) => orOrphans.includes(key)) && !orLeft.includes('30.30') &&
-        orRec.orphanRoadSites && orRec.orphanRoadSites.n === 7 && orRec.orphanRoadSites.lost === 50,
-        '名额被孤儿占满：零进度与半成品的孤儿一起清掉，丢掉的进度记进遥测（得 ' + JSON.stringify([orLeft, orRec.orphanRoadSites]) + '）');
+    assert(!orLeft.some((key) => orOrphans.includes(key)) &&
+        orRec.orphanRoadSites && orRec.orphanRoadSites.n === 6 && orRec.orphanRoadSites.lost === 0,
+        '名额被孤儿占满：只清零进度孤儿，遥测不丢进度（得 ' + JSON.stringify([orLeft, orRec.orphanRoadSites]) + '）');
+    assert(orLeft.includes('30.30') && orSites().find((s) => s.pos.x === 30 && s.pos.y === 30).progress === 50, '半成品孤儿保留，进度 50 还在');
     assert(orRoute.split(';').every((key) => orLeft.includes(key)), '清完之后路线上的工地放得出来（得 ' + JSON.stringify(orLeft) + '）');
 }
 
@@ -10120,6 +10121,10 @@ console.log('== 外矿容器工地优先：外矿没有容器时，本外矿 / �
         rcDummies.push(id);
     }
     assert(Object.keys(Game.constructionSites).length === 100, '前提：全局 100 个工地');
+    for (let i = 0; i < 3 * rcInterval; i++) { remoteMod.run(rcHome); world.time++; }
+    assert(rcSites(rcA, C.STRUCTURE_CONTAINER).length === 0 && rcSites(rcB, C.STRUCTURE_ROAD).length === 3 && rcRec.roadSitesYielded === 1,
+        '让路冷却内不再撤别的路，避免撤了又放的循环（得 container ' + rcSites(rcA, C.STRUCTURE_CONTAINER).length + ' road ' + rcSites(rcB, C.STRUCTURE_ROAD).length + '）');
+    world.time = rcRec.roadYieldAt + require('../src/config').remote.roadYieldCooldown;
     for (let i = 0; i < 3 * rcInterval; i++) { remoteMod.run(rcHome); world.time++; }
     assert(rcSites(rcA, C.STRUCTURE_CONTAINER).length === 1, '全局名额占满：撤本母房另一外矿的零进度路工地，容器工地放出（得 container ' + rcSites(rcA, C.STRUCTURE_CONTAINER).length + '，W32S7 路 ' + rcSites(rcB, C.STRUCTURE_ROAD).length + '）');
     assert(rcSites(rcB, C.STRUCTURE_ROAD).length === 2, '另一外矿只撤了一条路、且在别人缺容器时不再补放路（得 ' + rcSites(rcB, C.STRUCTURE_ROAD).length + '）');
@@ -15075,6 +15080,51 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     wt.repairCalls.length = 0; ringLow.hits = 1000; world.time++;
     (towerMod.resetCache(), towerMod.run)(wr);
     assert(wt.repairCalls.length === 0, '塔里至少留 500 能量的底线不变');
+}
+
+{
+    console.log('== 10-18 体检：有进度的工地永不删；rampart 外圈收入回滞＋重试冷却；让位不见效就冷却 ==');
+    resetWorld(7800);
+    const sr = makeRoom('W37S7', { rcl: 7, energy: 5600, cap: 5600, ctrl: { x: 34, y: 24 }, owner: 'me' });
+    makeSpawn(sr, 23, 21);
+    sr.createConstructionSite(10, 10, C.STRUCTURE_ROAD);
+    sr.createConstructionSite(11, 10, C.STRUCTURE_RAMPART);
+    const srSites = () => sr.find(C.FIND_MY_CONSTRUCTION_SITES);
+    const srBusy = srSites().find((x) => x.pos.x === 10);
+    srBusy.progress = 5;
+    delete Memory.siteRemovals;
+    assert(utils.removeSite(srBusy, 't') === false && srSites().includes(srBusy), 'removeSite：progress>0 的工地不删');
+    const srIdle = srSites().find((x) => x.pos.x === 11);
+    assert(utils.removeSite(srIdle, 't') === true && !srSites().includes(srIdle), 'removeSite：零进度工地照删');
+    assert(Memory.siteRemovals.W37S7.t === 1 && Memory.siteRemovals.W37S7.at === Game.time, '删工地记进 Memory.siteRemovals（得 ' + JSON.stringify(Memory.siteRemovals) + '）');
+    const srPlan = { ramparts: [{ x: 30, y: 30 }] };
+    const srNeed = config.rampartRingMinIncome;
+    Memory.rooms.W37S7 = { sources: [], spawnIncome: { ema: srNeed * 0.8, n: 100000 } };
+    assert(!layout.ringAllowed(sr, srPlan) && layout.ringKeep(sr, srPlan), '收入在 60%~100% 之间：不新放外圈，但已有的外圈工地不撤');
+    Memory.rooms.W37S7.spawnIncome.ema = srNeed * 1.2;
+    assert(layout.ringAllowed(sr, srPlan), '收入够：放外圈');
+    Memory.rooms.W37S7.ringTrimAt = Game.time - 10;
+    assert(!layout.ringAllowed(sr, srPlan), '刚撤过外圈：冷却内不重放');
+    Memory.rooms.W37S7.ringTrimAt = Game.time - config.rampartRingRetryTicks;
+    assert(layout.ringAllowed(sr, srPlan), '冷却过了：收入够就重放');
+    Memory.rooms.W37S7.spawnIncome.ema = srNeed * 0.5;
+    assert(!layout.ringKeep(sr, srPlan), '收入跌破 60%：外圈零进度工地才撤');
+    resetWorld(7810);
+    const yr = makeRoom('W33S7', { rcl: 7, energy: 5600, cap: 5600, ctrl: { x: 34, y: 24 }, owner: 'me' });
+    makeSpawn(yr, 23, 21);
+    yr.storage = makeStructure(yr, C.STRUCTURE_STORAGE, 21, 20, { energy: 1000, capacity: 1000000 });
+    Memory.rooms.W33S7 = { sources: [] };
+    const yrPlan = { labs: [{ x: 5, y: 5 }, { x: 6, y: 5 }, { x: 7, y: 5 }], terminal: { x: 8, y: 8 }, ext: [{ x: 40, y: 40 }] };
+    assert(layout.highPriorityNeeds(yr, yrPlan, { lab: 3, terminal: 1 }) === 0, '能量不够、lab/terminal 本来就不会放：不算高优先缺口，不为它们撤路');
+    for (const [x, y] of [[12, 12], [13, 12], [14, 12], [15, 12]]) yr.createConstructionSite(x, y, C.STRUCTURE_ROAD);
+    assert(layout.yieldLowPrioritySites(yr, yrPlan, { extension: 1 }) === true && yr.find(C.FIND_MY_CONSTRUCTION_SITES).length === 2, '缺 extension：撤 2 个零进度路工地让位');
+    assert(layout.yieldLowPrioritySites(yr, yrPlan, { extension: 1 }) === false && yr.find(C.FIND_MY_CONSTRUCTION_SITES).length === 2, '上次让位没换来进展：冷却内不再撤');
+    world.time += config.layoutYieldCooldown;
+    yr.createConstructionSite(16, 12, C.STRUCTURE_ROAD);
+    assert(layout.yieldLowPrioritySites(yr, yrPlan, { extension: 1 }) === true, '冷却过后可以再让位');
+    yr.find(C.FIND_MY_CONSTRUCTION_SITES).forEach((x) => { x.progress = 1; });
+    world.time += config.layoutYieldCooldown;
+    assert(layout.yieldLowPrioritySites(yr, yrPlan, { extension: 1 }) === false && yr.find(C.FIND_MY_CONSTRUCTION_SITES).length === 1, '剩下的都有进度：让位也不删');
 }
 
 console.log('== terminal 补能（2026-10-13，移植 overmind-absorb e4cae2f）：只从 storage 富余里补到 terminalTarget，storage 饥饿时一点都不补 ==');
