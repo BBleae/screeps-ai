@@ -704,6 +704,8 @@ function resetWorld(time) {
 const config = require('../src/config');
 config.sk.validate.enabled = false;
 const liveRemoteAssign = config.remote.assign;
+const liveMarketCfg = structuredClone(config.market);
+const liveHaulingCfg = structuredClone(config.hauling);
 config.remote.assign = {};
 const liveIndustry = { labRooms: config.industry.labRooms, boostTargets: config.industry.boostTargets, boostUpgraders: config.industry.boostUpgraders, labOpportunistic: config.industry.labOpportunistic };
 config.industry.labOpportunistic = true;
@@ -14863,6 +14865,56 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     config.sk = savedSk; Game.creeps = savedCreeps; Game.notify = savedNotify; Memory.errors = savedErrors; Memory.skValidateFuse = savedFuse;
 
     assert(!liveRemoteAssign.W37S7.includes('W39S6') && remoteMod.cededRoom('W39S6'), 'W39S6 撤出 W37S7 且进让出名单');
+}
+
+{
+    console.log('== 10-18 卖 H、卖单按到手价：H 只接到手 ≥450，日 2 万、单笔 5000；能量价取实际买能量均价；到手为负不接；K/O 停卖 ==');
+    const mk = require('market');
+    const liveMarket = liveMarketCfg;
+    const liveHauling = liveHaulingCfg;
+    assert(liveMarket.keepBy.H === 10000 && liveMarket.keepBy.K === Infinity && liveMarket.keepBy.O === Infinity, 'keepBy：H 1 万，K/O 永不卖');
+    assert(liveMarket.dailySellUnits.H === 20000 && liveMarket.maxDeal === 5000 && liveMarket.minEffective.H === 450, 'H 日上限 2 万、单笔 5000、到手下限 450');
+    assert(liveMarket.energyPrice === 44 && liveMarket.energyPriceAuto, '能量价兜底 44，开自动计算');
+    assert(liveHauling.unstash.W32S4.resource === 'H' && liveHauling.unstash.W32S4.target > liveMarket.keepBy.H, 'W32S4 storage 的 H 分批搬进 terminal（目标高于保留量）');
+    const savedMarketApi = Game.market, savedMem = Memory.market;
+    Memory.market = {};
+    const T = Game.time;
+    Game.market = { incomingTransactions: [
+        { time: T - 100, resourceType: 'energy', amount: 1000, order: { type: 'buy', price: 42 } },
+        { time: T - 200, resourceType: 'energy', amount: 3000, order: { type: 'sell', price: 46 } },
+        { time: T - 300, resourceType: 'energy', amount: 5000, from: 'W1N1' },
+        { time: T - 90000, resourceType: 'energy', amount: 9000, order: { type: 'buy', price: 1 } },
+        { time: T - 50, resourceType: 'H', amount: 9000, order: { type: 'buy', price: 500 } } ],
+        calcTransactionCost: (n) => Math.ceil(n * 0.8) };
+    const savedCfgMarket = config.market;
+    config.market = liveMarket;
+    const cfg = Object.assign({}, mk.settings());
+    config.market = savedCfgMarket;
+    const px = mk.energyPriceNow(cfg);
+    assert(Math.abs(px - 45) < 1e-9 && Memory.market.energyPx.source === 'tx', '能量价 = 最近成交的能量买入加权均价（不含内部发送、过旧成交、非能量）（得 ' + px + '）');
+    Memory.market = {};
+    Game.market.incomingTransactions = [{ time: T - 10, resourceType: 'energy', amount: 200, order: { type: 'buy', price: 1000 } }];
+    assert(mk.energyPriceNow(cfg) === 44 && Memory.market.energyPx.source === 'fallback', '成交量不足：用兜底 44');
+    cfg.energyPrice = 44;
+    const room = { name: 'W32S4', terminal: { store: { energy: 30000, H: 20000 } } };
+    const orders = [
+        { id: 'a', type: 'buy', resourceType: 'H', price: 531, amount: 3746, roomName: 'E21N9' },
+        { id: 'b', type: 'buy', resourceType: 'H', price: 480, amount: 20000, roomName: 'E1N1' } ];
+    const pick = mk.pickBuyOrder(orders, room, { resource: 'H', amount: 10000 }, cfg, mk.sellFloorFor('H', null, cfg));
+    assert(pick && pick.order.id === 'a' && Math.abs(pick.effective - (531 - 0.8 * 44)) < 0.01, 'H：531 的单扣传送费到手约 495.8 ≥ 450 接；480 的单到手 444.8 < 450 不接');
+    assert(mk.pickBuyOrder([orders[1]], room, { resource: 'H', amount: 10000 }, cfg, 450) === null, '到手低于 450 的 H 单不接');
+    const big = mk.pickBuyOrder([{ id: 'c', type: 'buy', resourceType: 'H', price: 600, amount: 20000, roomName: 'E1N1' }], room, { resource: 'H', amount: 20000 }, cfg, 450);
+    assert(big && big.amount === 5000, '单笔最多 5000');
+    const kRoom = { name: 'W37S7', terminal: { store: { energy: 30000, K: 30000 } } };
+    assert(mk.pickBuyOrder([{ id: 'k', type: 'buy', resourceType: 'K', price: 12.86, amount: 4000, roomName: 'E31S49' }], kRoom, { resource: 'K', amount: 4000 }, cfg, 0) === null,
+        '到手为负（12.86 − 0.8×44）一律不接，即使没有价格下限');
+    assert(mk.sellable(kRoom, cfg, null).length === 0 && mk.sellable({ name: 'W35S7', terminal: { store: { O: 21520 } } }, cfg, null).length === 0, 'K、O 停卖');
+    Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: { H: 18000 }, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 } };
+    const hs = mk.sellable({ name: 'W32S4', terminal: { store: { H: 30000 } } }, cfg, null);
+    assert(hs.length === 1 && hs[0].amount === 2000, '按 UTC 日计数：今天已卖 1.8 万，只剩 2000 额度');
+    Memory.market.ledger.day -= 1;
+    assert(mk.sellable({ name: 'W32S4', terminal: { store: { H: 30000 } } }, cfg, null)[0].amount === 20000, 'UTC 换日：额度重置为 2 万');
+    Game.market = savedMarketApi; Memory.market = savedMem;
 }
 
 console.log('== terminal 补能（2026-10-13，移植 overmind-absorb e4cae2f）：只从 storage 富余里补到 terminalTarget，storage 饥饿时一点都不补 ==');

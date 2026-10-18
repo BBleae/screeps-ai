@@ -84,6 +84,47 @@ function keepFor(resource, cfg) {
     return k != null ? Number(k) : cfg.keep;
 }
 
+function minEffectiveFor(resource, cfg) {
+    const v = cfg.minEffective && cfg.minEffective[resource];
+    return Number(v) > 0 ? Number(v) : null;
+}
+
+function sellFloorFor(resource, avg, cfg) {
+    const min = minEffectiveFor(resource, cfg);
+    if (min != null) return min;
+    return avg == null ? null : sellFloor(avg, cfg);
+}
+
+function energyPriceNow(cfg) {
+    const fallback = Number(cfg.energyPrice) > 0 ? Number(cfg.energyPrice) : 44;
+    const auto = cfg.energyPriceAuto;
+    if (!auto) return fallback;
+    const mem = Memory.market || (Memory.market = {});
+    const hit = mem.energyPx;
+    if (hit && Game.time - Number(hit.at || 0) < (Number(cfg.cacheTicks) || 500)) return Number(hit.price) || fallback;
+    const market = marketApi();
+    const txs = (market && Array.isArray(market.incomingTransactions)) ? market.incomingTransactions : [];
+    const lookback = Number(auto.lookback) || 40000;
+    let amount = 0;
+    let credits = 0;
+    for (const tx of txs) {
+        if (!tx || tx.resourceType !== ENERGY || !tx.order || !(Number(tx.order.price) > 0) || !(Number(tx.amount) > 0)) continue;
+        if (Game.time - Number(tx.time || 0) > lookback) continue;
+        amount += Number(tx.amount);
+        credits += Number(tx.amount) * Number(tx.order.price);
+    }
+    let price = fallback;
+    let source = 'fallback';
+    if (amount >= (Number(auto.minAmount) || 1000)) {
+        const lo = Number(auto.min) || 5;
+        const hi = Number(auto.max) || 200;
+        price = Math.min(hi, Math.max(lo, credits / amount));
+        source = 'tx';
+    }
+    mem.energyPx = { at: Game.time, price: Math.round(price * 1000) / 1000, amount, source };
+    return price;
+}
+
 function sellFloor(avg, cfg) {
     return cfg.priceBand != null ? avg * (1 - cfg.priceBand) : avg * cfg.priceFloorShare;
 }
@@ -150,6 +191,7 @@ function pickBuyOrder(orders, room, entry, cfg, floorPrice) {
             : Math.ceil(amount * 0.1);
         // 有效价格：买单价扣掉每单位烧掉的能量折价
         const effective = order.price - (cost / amount) * cfg.energyPrice;
+        if (!(effective > 0)) continue;
         if (effective < floorPrice) continue;
         if (cost > terminalEnergy) continue;
         if (!best || effective > best.effective) best = { order, amount, cost, effective };
@@ -578,6 +620,7 @@ function run(shed) {
     try { const dep = require('deposit'); if (!dep.cpuOk(dep.settings())) return null; } catch (error) { /* 闸本身出错不挡市场 */ }
     const market = marketApi();
     if (!market || typeof market.deal !== 'function' || typeof market.getAllOrders !== 'function') return null;
+    cfg.energyPrice = energyPriceNow(cfg);
     const tickBudget = Number(cfg.tickCpuBudget) || 0;
     const tickT0 = Game.cpu.getUsed();
     const overBudget = () => tickBudget > 0 && (Game.cpu.getUsed() - tickT0) >= tickBudget;
@@ -601,19 +644,20 @@ function run(shed) {
             if (ownSell.has(room.name + ':' + entry.resource)) continue;   // 这份走自挂卖单
             if (room._depositOnly && depositGoods({ [entry.resource]: 1 }).length === 0) continue;
             const avg = recentAvgPrice(entry.resource, cfg);
-            if (avg == null) continue;
+            const floor = sellFloorFor(entry.resource, avg, cfg);
+            if (floor == null) continue;
             if (!ordersBy[entry.resource]) {
                 if (scans >= cfg.maxScans || overBudget()) continue;
                 scans++;
                 try { ordersBy[entry.resource] = market.getAllOrders({ type: BUY(), resourceType: entry.resource }) || []; }
                 catch (error) { utils.logErr('market.getAllOrders', error); ordersBy[entry.resource] = []; }
             }
-            const pick = pickBuyOrder(ordersBy[entry.resource], room, entry, cfg, sellFloor(avg, cfg));
+            const pick = pickBuyOrder(ordersBy[entry.resource], room, entry, cfg, floor);
             if (!pick) continue;
             const ret = market.deal(pick.order.id, pick.amount, room.name);
             terminalNet.markUsed(room.name);
             const record = { at: Game.time, room: room.name, resource: entry.resource, amount: pick.amount, cost: pick.cost,
-                price: pick.order.price, effective: Math.round(pick.effective * 1000) / 1000, floor: Math.round(avg * cfg.priceFloorShare * 1000) / 1000, result: ret };
+                price: pick.order.price, effective: Math.round(pick.effective * 1000) / 1000, floor: Math.round(floor * 1000) / 1000, energyPrice: Math.round(cfg.energyPrice * 1000) / 1000, result: ret };
             const mem = Memory.market || (Memory.market = {});
             mem.last = record;
             if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
@@ -630,4 +674,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { run, settings, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
+module.exports = { run, settings, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
