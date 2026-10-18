@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-"""定时监控 Screeps bot 发育状态。
-
-每轮：console 写探针取实时快照 + 读历史趋势，追加到 logs/status.jsonl；
-所有异常（运行时错误 / 武装敌人 / 关键角色缺失 / 工地停滞 / 升级回退 / CPU 紧急等）都并入
-logs/monitor-incidents.json 的事件账本（scripts/monitor_health.py）。
-
-退出码：
-  0  本轮没有新增或升级的事件（账本里可能仍有长期未结、已知的事件，照样要读）
-  1  本轮有新增事件（首次出现或解决/撤销后复发）、首次升级为 escalated 的事件，
-     或尚未附调查证据的 urgent 事件
-  2  本轮没采到可靠结果（采集/分析失败、已有采集进程持锁），不是健康
-
-用法: python3 scripts/monitor.py
-"""
+DESCRIPTION = '定时监控 Screeps bot 发育状态。\n\n每轮：console 写探针取实时快照 + 读历史趋势，追加到 logs/status.jsonl；\n所有异常（运行时错误 / 武装敌人 / 关键角色缺失 / 工地停滞 / 升级回退 / CPU 紧急等）都并入\nlogs/monitor-incidents.json 的事件账本（scripts/monitor_health.py）。\n\n退出码：\n  0  本轮没有新增或升级的事件（账本里可能仍有长期未结、已知的事件，照样要读）\n  1  本轮有新增事件（首次出现或解决/撤销后复发）、首次升级为 escalated 的事件，\n     或尚未附调查证据的 urgent 事件\n  2  本轮没采到可靠结果（采集/分析失败、已有采集进程持锁），不是健康\n\n用法: python3 scripts/monitor.py\n'
 import argparse
 import json
 import statistics
@@ -157,7 +144,6 @@ PROBE = r"""
       creep.getActiveBodyparts(WORK) > 0 ||
       creep.getActiveBodyparts(CLAIM) > 0;
   }
-  // 武装敌人按房计数；armedHostiles 是它的合计（同一过滤只算一次）
   var hostileRooms = _.reduce(Game.rooms, function(acc, r) {
     var n = _.filter(r.find(FIND_HOSTILE_CREEPS), dangerousHostile).length;
     if (n) acc[r.name] = n;
@@ -236,7 +222,6 @@ PROBE = r"""
           storageConsumerFallback: mem.storageConsumerFallback || 0,
           remoteEnergySalvaged: mem.remoteEnergySalvaged || null,
           remoteRoadBudget: mem.remoteRoadBudget || null,
-          // These counters cover only selected actions, never a complete net-income ledger.
           ledgerComplete: false
         },
         drops: _.map(r.find(FIND_DROPPED_RESOURCES).filter(function(d) { return d.resourceType === RESOURCE_ENERGY; }), function(d) {
@@ -335,7 +320,7 @@ PROBE = r"""
             var table = require('config').rampartTargetHits || {};
             if (table[r.controller.level] != null) rampartTarget = table[r.controller.level];
           } catch (e) { rampartTarget = null; }
-          var ctrlFeed = null;   // 'link' / 'storage' / null（hauler 喂容器）：与 task_broker.controllerFeedContainer 同一判定
+          var ctrlFeed = null;
           try { ctrlFeed = require('task_broker').controllerFeedMode(r); } catch (e) { ctrlFeed = null; }
           return {
             ctrlFeed: ctrlFeed,
@@ -358,15 +343,13 @@ PROBE = r"""
             }
           };
         })(),
-        // 道路与维修（2026-09-10 起的观察面）：方案内的路是必须养的（塔射程外只有 builder 能修），
-        // 方案外的旧路按规则任其衰减——所以 onPlan/offPlan 分开统计，别把"旧路在烂"当成故障
         roads: (function() {
           var planSet = {};
           var packed = plan.roads || {};
           Object.keys(packed).forEach(function(key) {
             if (typeof packed[key] !== 'string' || !packed[key]) return;
             var parts = String(key).split(':');
-            if (parts[0] === 'remote' && parts[1] !== r.name) return;   // 外矿路网的坐标属于那个房
+            if (parts[0] === 'remote' && parts[1] !== r.name) return;
             packed[key].split(';').forEach(function(point) { if (point) planSet[point] = true; });
           });
           var roads = _.filter(r.find(FIND_STRUCTURES), function(s) { return s.structureType === STRUCTURE_ROAD; });
@@ -391,18 +374,12 @@ PROBE = r"""
             minOnPlanRatio: ratioOf(onPlan)
           };
         })(),
-        // 控制器取能预算（utils.upgraderWorkCap 的遥测）：能量吃紧且有竞争需求时 work > cap、duty < 1
         upgrade: mem.upgradeBudget || null,
-        // 最近一次升级者接班路径估算；不完整时保留 null/false，不能变成零距离。
         upgraderLeg: mem.upgraderLeg || null,
-        // 房间级"派去 ctrl link 旁"的决策计数（upgrader.linkReliefSpot）；只是派位尝试，不证明真的移动或拿到能量，
-        // 要结合同 ID 升级者的位置/载量判断。linkReliefInPlace 是已在 link 旁原地取能的计数（2026-10-13 修复的遥测）。
         linkRelief: mem.linkRelief ? { at: mem.linkRelief.at, n: mem.linkRelief.n,
           x: mem.linkRelief.x, y: mem.linkRelief.y } : null,
         linkReliefInPlace: mem.linkReliefInPlace ? { at: mem.linkReliefInPlace.at, n: mem.linkReliefInPlace.n } : null,
-        // 竞争需求（utils.upgradeCompeting）：最近一次看到的 tick 与原因；吃紧但没有竞争需求时限流放开（capFree）
         upgradeCompete: mem.upgradeSupply ? { at: mem.upgradeSupply.competeAt, why: mem.upgradeSupply.competeWhy, free: mem.upgradeSupply.capFree || null } : null,
-        // builder 的取能节奏（等投递 / 自己去取）与射程外维修债的决策事件
         builderFeed: mem.builderFeed || null,
         outOfReachRepair: mem.outOfReachRepair || null,
         outOfReachBelowFloor: mem.outOfReachBelowFloor || null,
@@ -421,7 +398,6 @@ PROBE = r"""
         spawnQueue: mem.spawnQueue || null,
         spawnWaiting: mem.spawnWaiting || null,
         defenseLog: mem.defenseLog || null,
-        // 升级者卡死看门狗（含连续退役无进度的退避 backoffUntil/backoffs/held）与 spawn 出生口遥测（让路 vacate/cannotVacate、兜底放开 n、口袋回收 trapped、出生 born）
         upgraderStuck: mem.upgraderStuck ? { at: mem.upgraderStuck.at, retire: mem.upgraderStuck.retire || 0, streak: mem.upgraderStuck.streak || 0,
           backoffs: mem.upgraderStuck.backoffs || 0, backoffUntil: mem.upgraderStuck.backoffUntil || 0, held: mem.upgraderStuck.held || 0 } : null,
         spawnStall: mem.spawnStallLog || null,
@@ -504,7 +480,6 @@ PROBE = r"""
     cpu: Game.cpu.getUsed(),
     cpuLimit: Game.cpu.limit,
     tickLimit: Game.cpu.tickLimit,
-    // creep 循环越过 tickLimit − endReserve 的硬停（cpu_shed）与 CPU 吃紧时放弃产 pixel 的次数（main.pixelGate）
     hardStop: Memory.cpuHardStop || null,
     pixelGate: Memory.pixelGate || null,
     statsTail: (Memory.stats || []).slice(-5)
@@ -515,9 +490,6 @@ PROBE = r"""
 
 
 def chunk_expression(expression, limit=700):
-    """按**转义后**的长度切分 console 表达式：整条命令是 Memory.<key> = "<json 字符串>"，
-    引号/反斜杠会翻倍，按原始长度切分时某些分片会超引擎的 expression 上限（1200 字符，实测 900 可以、1200 报
-    "expression size is too large"）。每片留出前缀与转义余量。"""
     chunks = []
     current = ''
     escaped = 0
@@ -593,7 +565,6 @@ def room_creeps(mon, room_name):
 
 
 def aid_summary(creeps):
-    """援建 creep（memory.aid=母房）一行：母房→弱房 角色@当前房 位置 ttl"""
     parts = []
     for creep in creeps:
         if not creep.get('aid'):
@@ -630,7 +601,6 @@ REMOTE_ROLE_TAGS = (('remoteMiner', 'm'), ('reserver', 'r'), ('remoteHauler', 'h
 
 
 def remote_active(remote, now):
-    """启用且不在暂停期的外矿记录"""
     if not isinstance(remote, dict) or not remote.get('enabled'):
         return False
     until = remote.get('suspendedUntil') or 0
@@ -638,7 +608,6 @@ def remote_active(remote, now):
 
 
 def remote_shortfall(remote, now):
-    """启用中的外矿缺矿工或缺 reserver（当前有需求槽位但活着的比需求少）：返回缺的角色"""
     if not remote_active(remote, now):
         return []
     want = remote.get('want') if isinstance(remote.get('want'), dict) else {}
@@ -653,7 +622,6 @@ def remote_shortfall(remote, now):
 
 
 def remote_staffing(room, prev_room, now, dt):
-    """每个外矿的编制对账（want 来自 remote.getDemands，have 是活着的 creep），连续两次快照都缺才告警"""
     remotes = room.get('remotes') if isinstance(room.get('remotes'), list) else []
     prev = {}
     for prev_remote in ((prev_room or {}).get('remotes') or []):
@@ -693,7 +661,6 @@ def remote_staffing(room, prev_room, now, dt):
 
 
 def remote_text(remote):
-    """一个外矿的一段：W33S6 m2/2 r1/1 h4/4 预定540；缺编的角色后面带 !；停用/暂停带原因"""
     name = remote.get('room')
     if not remote.get('active'):
         reason = remote.get('reason') or '?'
@@ -851,7 +818,6 @@ def issue(text, room=None):
 
 
 def inferred_harvester_work(room):
-    """Infer source WORK demand for deployments that predate Memory.demand."""
     sources = room.get('sources')
     if not isinstance(sources, list) or not sources:
         return None
@@ -1188,9 +1154,6 @@ def analyze_room(mon, room, history):
 
 
 def deploy_info(mon, prev_mon):
-    """线上代码版本及其变化。SCRIPT_VERSION 是 grunt 构建时的 Date.now()（Gruntfile versioning），
-    游戏内第一次 global reset 才写进 Memory：上传后、reset 前采到的仍是旧版本，这是真实状态不是陈旧缓存。
-    所以只报"版本变了/构建时间"，由人对照上传时间判断；不读某个 worktree 的 dist/version.js（各处不同、会被重建）。"""
     current = mon.get('scriptV')
     previous = (prev_mon or {}).get('scriptV')
     numeric = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v > 1e12
@@ -1488,7 +1451,7 @@ ALERT_LABELS = {'new': '新增', 'escalated': '升级', 'urgent': '紧急未认�
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=DESCRIPTION)
     parser.add_argument('--samples', type=int, default=1)
     parser.add_argument('--interval', type=float, default=60, help='seconds between samples')
     parser.add_argument('--no-ack', action='store_true',
