@@ -460,7 +460,7 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
         if (budget) {
             const roomSpent = budget.roomKey ? (Number((led[budget.roomKey] || {})[room]) || 0) : 0;
             if (credits - commit < floor || (Number(led[budget.key]) || 0) + commit > Number(budget.cap)
-                || (budget.roomCap > 0 && roomSpent + commit > budget.roomCap) || price * amount > cfg.maxOrderCredits) return null;
+                || (budget.roomCap > 0 && roomSpent + commit > budget.roomCap) || price * amount > (budget.maxCredits != null ? budget.maxCredits : cfg.maxOrderCredits)) return null;
         } else {
             if (credits - commit < cfg.creditFloor || led.buyCredits + commit > cfg.dailyBuyCredits || price * amount > cfg.maxOrderCredits) return null;
             if (resource !== ENERGY && !buyShareOk(cfg, led, resource, commit)) return null;
@@ -482,6 +482,87 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
     led.orders = (led.orders || 0) + 1;
     book[key] = { type, resource, room, price, amount, posted: Game.time, expires: Game.time + own.expireTicks, id: null, left: amount, day: led.day };
     return rec;
+}
+
+function chargeEnergy(led, budget, roomName, credits) {
+    led[budget.key] = Math.max(0, Math.round((Number(led[budget.key]) || 0) + credits));
+    if (budget.roomKey) {
+        const by = led[budget.roomKey] || (led[budget.roomKey] = {});
+        by[roomName] = Math.max(0, Math.round((Number(by[roomName]) || 0) + credits));
+    }
+}
+
+function dailyEnergyUnits(cfg, market, budget, room, price, fee) {
+    const led = ledger();
+    const roomSpent = budget.roomKey ? Number((led[budget.roomKey] || {})[room.name]) || 0 : 0;
+    const left = Math.min(
+        Number(budget.cap) - (Number(led[budget.key]) || 0),
+        budget.roomCap > 0 ? budget.roomCap - roomSpent : Infinity,
+        (Number(market.credits) || 0) - (Number(budget.floor) || 0));
+    const free = room.terminal.store && typeof room.terminal.store.getFreeCapacity === 'function' ? Number(room.terminal.store.getFreeCapacity()) : Infinity;
+    if (!(left > 0) || !(price > 0)) return 0;
+    return Math.max(0, Math.min(Math.floor(left / (price * (1 + fee))), free));
+}
+
+function runDailyEnergy(cfg, market, e, names, price, budget, below, book) {
+    const own = ownSettings(cfg);
+    const fee = Number(own.fee) || 0.05;
+    const led = ledger();
+    const okCode = typeof OK !== 'undefined' ? OK : 0;
+    const step = Math.max(0.001, Number(e.repriceStep) || 0.01);
+    const sizing = Math.max(price, Number(e.maxPrice) || 0);
+    let last = null;
+    for (const n of names) {
+        const room = Game.rooms[n];
+        if (!room || !room.terminal) continue;
+        const key = 'buy:' + n + ':' + ENERGY;
+        const o = book[key];
+        if (o) {
+            if (!o.daily || !o.id) continue;
+            const left = Math.max(0, Number(o.left) || 0);
+            if (o.day !== led.day) { chargeEnergy(led, budget, n, left * o.price); o.day = led.day; }
+            if (price > 0 && Math.abs(price - o.price) >= step && typeof market.changeOrderPrice === 'function') {
+                const delta = price - o.price;
+                const extra = delta * left + Math.max(0, delta) * left * fee;
+                const roomSpent = Number((led[budget.roomKey] || {})[n]) || 0;
+                const fits = delta < 0 || ((Number(led[budget.key]) || 0) + extra <= Number(budget.cap) &&
+                    !(budget.roomCap > 0 && roomSpent + extra > budget.roomCap) && (Number(market.credits) || 0) - extra >= Number(budget.floor));
+                if (fits) {
+                    const ret = market.changeOrderPrice(o.id, Math.round(price * 1000) / 1000);
+                    last = { at: Game.time, type: 'reprice', resource: ENERGY, room: n, from: o.price, price, left, result: ret };
+                    Memory.market.lastReprice = last;
+                    if (ret === okCode) {
+                        chargeEnergy(led, budget, n, extra);
+                        if (delta > 0) led.fees = Math.round((led.fees || 0) + delta * left * fee);
+                        led.reprices = (led.reprices || 0) + 1;
+                        o.price = price;
+                    }
+                }
+            }
+            if (energyHave(room) < below && typeof market.extendOrder === 'function') {
+                const want = dailyEnergyUnits(cfg, market, budget, room, sizing, fee);
+                if (want >= cfg.minDeal) {
+                    const ret = market.extendOrder(o.id, want);
+                    last = { at: Game.time, type: 'extend', resource: ENERGY, room: n, price: o.price, amount: want, result: ret };
+                    Memory.market.lastExtend = last;
+                    if (ret === okCode) {
+                        chargeEnergy(led, budget, n, want * o.price * (1 + fee));
+                        led.fees = Math.round((led.fees || 0) + want * o.price * fee);
+                        o.amount = (Number(o.amount) || 0) + want;
+                        o.left = left + want;
+                    }
+                }
+            }
+            continue;
+        }
+        if (!(price > 0) || energyHave(room) >= below) continue;
+        const amount = dailyEnergyUnits(cfg, market, budget, room, sizing, fee);
+        if (amount < cfg.minDeal) continue;
+        const r = postOrder(cfg, market, 'buy', ENERGY, n, price, amount, budget);
+        if (r && book[key]) { book[key].daily = true; book[key].expires = Game.time + 10000000; }
+        if (r) last = r;
+    }
+    return last;
 }
 
 function runOwnOrders(cfg, market) {
@@ -540,16 +621,21 @@ function runOwnOrders(cfg, market) {
             const budget = { key: 'energyBuyCredits', cap: energyBuyCap(e), floor: eFloor,
                 roomKey: 'energyBuyByRoom', roomCap: Number(e.perRoomDailyCredits) || 0 };
             const below = Number(e.below || 10000);
-            const candidates = (price > 0 ? names : []).filter((n) => {
-                const room = Game.rooms[n];
-                return room && room.terminal && !book['buy:' + n + ':' + ENERGY] && energyHave(room) < below;
-            }).sort((a, b) => energyHave(Game.rooms[a]) - energyHave(Game.rooms[b]));
-            for (const n of candidates) {
-                const room = Game.rooms[n];
-                const amount = Math.min(Number(e.amount) || 4500, Math.floor(cfg.maxOrderCredits / price), room.terminal.store.getFreeCapacity ? room.terminal.store.getFreeCapacity() : Infinity);
-                if (amount < cfg.minDeal) continue;
-                const r = postOrder(cfg, market, 'buy', ENERGY, n, price, amount, budget);
+            if (e.dailyOrder) {
+                const r = runDailyEnergy(cfg, market, e, names, price, Object.assign(budget, { maxCredits: Infinity }), below, book);
                 if (r) return r;
+            } else {
+                const candidates = (price > 0 ? names : []).filter((n) => {
+                    const room = Game.rooms[n];
+                    return room && room.terminal && !book['buy:' + n + ':' + ENERGY] && energyHave(room) < below;
+                }).sort((a, b) => energyHave(Game.rooms[a]) - energyHave(Game.rooms[b]));
+                for (const n of candidates) {
+                    const room = Game.rooms[n];
+                    const amount = Math.min(Number(e.amount) || 4500, Math.floor(cfg.maxOrderCredits / price), room.terminal.store.getFreeCapacity ? room.terminal.store.getFreeCapacity() : Infinity);
+                    if (amount < cfg.minDeal) continue;
+                    const r = postOrder(cfg, market, 'buy', ENERGY, n, price, amount, budget);
+                    if (r) return r;
+            }
             }
         }
     }

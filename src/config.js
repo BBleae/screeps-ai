@@ -514,6 +514,8 @@ module.exports = {
                 rooms: ['W34S7', 'W35S7', 'W37S5', 'W31S5', 'W37S7', 'W31S6', 'W33S7'],
                 below: 10000,
                 followHighestBuy: true,
+                dailyOrder: true,
+                repriceStep: 0.01,
                 maxPrice: 45,
                 amount: 4500,
                 dailyBuyCredits: 2000000,

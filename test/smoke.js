@@ -15272,6 +15272,43 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     Game.creeps = savedCreeps; world.time = savedTime;
 }
 
+{
+    console.log('== 10-18 ④ 能量买单：每房一次挂当天剩余额度，价格变了只 changeOrderPrice，不重挂 ==');
+    const mk = require('market');
+    const savedRooms = Game.rooms, savedMem = Memory.market, savedGM = Game.market;
+    const base = mk.settings();
+    const e = Object.assign({}, base.ownOrders.energy, { rooms: ['W31S5'], preferSenders: [], dailyOrder: true, perRoomDailyCredits: 500000, dailyBuyCredits: 2000000, creditFloor: 1000000 });
+    const cfg = Object.assign({}, base, { ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, sell: [], energy: e }) });
+    const tstore = (energy) => ({ energy, getFreeCapacity: () => 300000 - energy });
+    Game.rooms = { W31S5: { name: 'W31S5', terminal: { my: true, store: tstore(0) }, storage: { store: { energy: 100 } } } };
+    const today = Math.floor(Date.now() / 86400000);
+    Memory.market = { ledger: { day: today, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
+    const created = [], changed = [], extended = [];
+    let top = 43.2;
+    const m = { credits: 9000000, orders: {},
+        getAllOrders: () => [{ price: top, amount: 50000, type: 'buy' }],
+        getHistory: () => [{ avgPrice: 44 }, { avgPrice: 44 }, { avgPrice: 44 }, { avgPrice: 44 }, { avgPrice: 44 }],
+        createOrder: (o) => { created.push(o); m.orders.o1 = { id: 'o1', type: o.type, resourceType: o.resourceType, roomName: o.roomName, remainingAmount: o.totalAmount, price: o.price }; return OK; },
+        changeOrderPrice: (id, price) => { changed.push([id, price]); m.orders[id].price = price; return OK; },
+        extendOrder: (id, add) => { extended.push([id, add]); m.orders[id].remainingAmount += add; return OK; } };
+    Game.market = m;
+    mk.runOwnOrders(cfg, m);
+    const want = Math.floor(500000 / (45 * 1.05));
+    assert(created.length === 1 && created[0].totalAmount === want, '一次挂当天剩余额度（50 万 cr 按封顶价 45 留出改价余量 ⇒ ' + want + '，得 ' + (created[0] && created[0].totalAmount) + '），不是 1157');
+    world.time += 100;
+    m.orders.o1.remainingAmount -= 3000;
+    mk.runOwnOrders(cfg, m);
+    assert(created.length === 1 && changed.length === 0 && extended.length === 0, '部分成交、价格没变：不重挂、不改价');
+    top = 43.9; world.time += 100;
+    mk.runOwnOrders(cfg, m);
+    assert(created.length === 1 && changed.length === 1 && changed[0][1] === 43.9, '最高买价变了：changeOrderPrice 改价（得 ' + JSON.stringify(changed) + '）');
+    m.orders.o1.remainingAmount = 0; world.time += 100;
+    mk.runOwnOrders(cfg, m);
+    assert(created.length === 1, '当天额度挂完、单子吃满：不再新挂');
+    assert(config.market.ownOrders.energy.dailyOrder === true, 'config 打开 dailyOrder');
+    Game.rooms = savedRooms; Memory.market = savedMem; Game.market = savedGM;
+}
+
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');
 {
     resetWorld(6900);
