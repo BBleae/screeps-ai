@@ -1,20 +1,4 @@
 'use strict';
-/**
- * 市场：把用不掉的矿物卖成 credit（移植 overmind-absorb 2133dc2 + 6112d42，Overmind 的 TraderJoe）。
- *
- * 只做「吃掉别人挂的买单」（Game.market.deal），不自己挂单：
- *   - 挂单要付 5% 手续费并占用 credit，收益要等别人来吃；直接成交是即时的、无手续费
- *   - 我们的矿物是副产品（矿脉挖出来、打捞收回来），labs 用不掉的部分换成 credit 就是净赚；有 lab 的房缺着的基础矿不卖（terminal.mineralHolds）
- *
- * 三道闸，避免贱卖和白烧能量：
- *   1. 价格底线：Game.market.getHistory(资源) 最近 historyDays 天的均价 × priceFloorShare，买单价低于它就不卖
- *      （Overmind 用的是 2018 年硬编码价格表，今天早已失真）；没有成交史 = 没有底线 = 不卖
- *   2. 有效价格：买单价要扣掉每单位的传送能量成本（calcTransactionCost / amount × energyPrice）
- *   3. terminal 要付得起传送能量，每种矿物留 keep；房间 storage 不富余（storageRich 滞回关）时不卖——传送费是从 terminal 的能量里出的
- *
- * CPU：getAllOrders 是 CPU 3 档的重操作。每 interval tick 才考虑一次、一轮只做一笔、最多 maxScans 次 getAllOrders
- * （同一资源一轮只查一次）；getHistory 的均价按资源缓存 cacheTicks。bucket 降载（cpu_shed）中、硬停过、bucket < minBucket 时整轮跳过。
- */
 const config = require('config');
 const utils = require('utils');
 const terminalNet = require('terminal');
@@ -36,21 +20,20 @@ function settings() {
         energyPrice: 0.02,
         minBucket: 5000,
         maxScans: 3,
-        tickCpuBudget: 5,         // 10-16：一轮 getAllOrders/挂单合计超过这么多 CPU 就停（单 tick 预算）
-        priceBand: null,          // 设了就取代 priceFloorShare：卖 ≥ 均价×(1−band)、买 ≤ 均价×(1+band)
-        keepBy: {},               // 按资源的保留量（覆盖 keep）；Infinity = 永不卖
-        dailySellUnits: {},       // 按资源每日最多卖多少
-        creditFloor: 0,           // credits 低于它只卖不买
+        tickCpuBudget: 5,
+        priceBand: null,
+        keepBy: {},
+        dailySellUnits: {},
+        creditFloor: 0,
         maxOrderCredits: Infinity,
         dailyBuyCredits: 0,
-        buy: null,                // { resources: ['Z','X'], target: 3000, rooms: [...] }
+        buy: null,
         buyEnergy: null,
         ownOrders: null,
         dealBuyMinerals: true,
     }, config.market || {});
 }
 
-/** 当日账本（按 UTC 日切）：sold/bought 按资源计单位，soldCredits/buyCredits 计 credit；前一天留在 ledgerPrev */
 function ledger() {
     const mem = Memory.market || (Memory.market = {});
     const day = Math.floor(Date.now() / 86400000);
@@ -61,8 +44,6 @@ function ledger() {
     return mem.ledger;
 }
 
-// 每种资源占当日买入额度的份额（cfg.buyShare：{ cap: {Z:0.4}, reserve: {O:0.2, X:0.2} }，2026-10-16）：
-// cap = 该资源当日最多花 dailyBuyCredits × cap；reserve = 给该资源预留的份额，别的资源不得挤占它还没花掉的那部分
 function buyShareOk(cfg, led, res, commit) {
     const sh = cfg.buyShare;
     if (!sh) return true;
@@ -133,7 +114,6 @@ function marketApi() {
     return (typeof Game !== 'undefined' && Game.market) || null;
 }
 
-/** 近期均价（getHistory 是 CPU 1 档，按资源缓存在 Memory.market.avg[资源]）；没有成交史返回 null */
 function recentAvgPrice(resource, cfg) {
     const market = marketApi();
     if (!market || typeof market.getHistory !== 'function') return null;
@@ -143,19 +123,15 @@ function recentAvgPrice(resource, cfg) {
     if (entry && Game.time - Number(entry.at || 0) < cfg.cacheTicks) return typeof entry.avg === 'number' ? entry.avg : null;
     let rows;
     try { rows = market.getHistory(resource); } catch (error) { return null; }
-    // 没有成交史时引擎返回的是空对象而不是空数组（engine game/market.js：history[资源] || {}），直接 .slice 会抛 TypeError
     let avg = null;
     if (Array.isArray(rows)) {
         const priced = rows.slice(-Math.max(1, cfg.historyDays)).filter((row) => row && typeof row.avgPrice === 'number' && row.avgPrice > 0);
         if (priced.length) avg = priced.reduce((sum, row) => sum + row.avgPrice, 0) / priced.length;
     }
-    // 没有均价也缓存（avg: null）：从没成交过的资源不必每轮都问一次
     cache[resource] = { at: Game.time, avg };
     return avg;
 }
 
-/** terminal 里可卖的资源（超过 keep 的部分，不含能量与 power——power 是 powerSpawn 的料），按可卖量降序。
- *  hold：有 lab 的己方房正缺着的基础矿（terminal.mineralHolds）——卖掉的正是终端调剂要送去反应的那份，不卖 */
 function sellable(room, cfg, hold) {
     const terminal = room && room.terminal;
     const store = terminal && terminal.my !== false && terminal.store;
@@ -176,7 +152,6 @@ function sellable(room, cfg, hold) {
     return out.sort((a, b) => b.amount - a.amount);
 }
 
-/** 给定资源，挑一张最划算的买单；不合算返回 null（纯函数，orders 由调用方传入，便于单测） */
 function pickBuyOrder(orders, room, entry, cfg, floorPrice) {
     const market = marketApi();
     const terminalEnergy = Number((room.terminal.store || {})[ENERGY] || 0);
@@ -189,7 +164,6 @@ function pickBuyOrder(orders, room, entry, cfg, floorPrice) {
         const cost = market && typeof market.calcTransactionCost === 'function'
             ? market.calcTransactionCost(amount, room.name, order.roomName)
             : Math.ceil(amount * 0.1);
-        // 有效价格：买单价扣掉每单位烧掉的能量折价
         const effective = order.price - (cost / amount) * cfg.energyPrice;
         if (!(effective > 0)) continue;
         if (effective < floorPrice) continue;
@@ -199,7 +173,6 @@ function pickBuyOrder(orders, room, entry, cfg, floorPrice) {
     return best;
 }
 
-/** 能卖货的房：己方 terminal、不在冷却、本 tick 没被终端网络用过、storage 富余（storageRich 滞回开） */
 function sellerRooms(cfg) {
     cfg = cfg || settings();
     const out = [];
@@ -210,7 +183,6 @@ function sellerRooms(cfg) {
         if (!terminal || terminal.my === false || !terminal.store || terminal.cooldown > 0) continue;
         if (terminalNet.usedThisTick(room.name)) continue;
         if (!cfg.anyRoom && !utils.storageRichState(room, Memory.rooms && Memory.rooms[room.name], config.upgrading || {})) {
-            // storage 不富余的房也卖 deposit 产出（silicon/mist：不卖就只是堆着，factory 以后再说）；run() 里只卖这几种
             if (depositGoods(terminal.store).length) { room._depositOnly = true; out.push(room); }
             continue;
         }
@@ -224,13 +196,10 @@ function depositGoods(store) {
     return types.filter((t) => Number(store && store[t] || 0) > 0);
 }
 
-/** 买 labs 链缺的基础矿（cfg.buy.resources，默认只 Z/X）：credits ≥ creditFloor、当日买入 < dailyBuyCredits、
- *  单价 ≤ 均价×(1+priceBand)、单笔 ≤ maxOrderCredits；补到 target 为止。一轮最多一笔 */
 function energyHave(room) {
     return Number(room.terminal.store[ENERGY] || 0) + Number((room.storage && room.storage.store[ENERGY]) || 0);
 }
 
-/** spawn 卡死：队头是经济 creep（矿工/hauler）且已等 ≥ emergencyWaitTicks */
 function spawnStuckEconomy(room, waitTicks) {
     const mem = Memory.rooms && Memory.rooms[room.name];
     const w = mem && mem.spawnWaiting;
@@ -240,7 +209,6 @@ function spawnStuckEconomy(room, waitTicks) {
     return role === 'harvester' || role === 'hauler' || role === 'remoteHarvester' || role === 'remoteHauler';
 }
 
-/** 买能量：普通路径要求到手价 ≤ maxEffective（be.enabled）；救急路径只给 spawn 卡死房、按均价±priceBand、日量 emergencyDailyEnergy。一轮最多一笔 */
 function tryBuyEnergy(cfg, market, countScan) {
     const be = cfg.buyEnergy;
     if (!be) return null;
@@ -249,8 +217,6 @@ function tryBuyEnergy(cfg, market, countScan) {
     if (!(Number(market.credits) >= cfg.creditFloor)) return null;
     const led = ledger();
     const left = cfg.dailyBuyCredits - led.buyCredits;
-    // 10-16 战略：救急买能量（spawn 卡死）可以不占 dailyBuyCredits（be.emergencyOutsideDaily），只受 emergencyDailyEnergy 与 maxOrderCredits 约束，
-    // 免得原料额度压低/花光后把救急路径一起误杀
     const emergOutside = !!be.emergencyOutsideDaily;
     if (!(left > 0) && !(emergencyOn && emergOutside)) return null;
     const waitTicks = Number(be.emergencyWaitTicks) || 200;
@@ -383,7 +349,6 @@ function tryBuy(cfg, market, countScan) {
     return null;
 }
 
-// ---- 自挂单（2026-10-15 16:01）----
 function ownSettings(cfg) { return cfg.ownOrders || null; }
 
 function orderBook() {
@@ -391,7 +356,6 @@ function orderBook() {
     return mem.orders || (mem.orders = {});
 }
 
-/** 同步自己的挂单：认领新挂出的单（createOrder 当 tick 拿不到 id）、按成交量记账、到期撤单、退回未成交的预占额度 */
 function syncOrders(cfg, market) {
     const book = orderBook();
     const led = ledger();
@@ -422,7 +386,7 @@ function syncOrders(cfg, market) {
         if (!x || left <= 0 || expired) {
             if (x && left > 0 && typeof market.cancelOrder === 'function') market.cancelOrder(o.id);
             if (o.type === 'buy' && left > 0) {
-                if (o.resource === ENERGY) {   // 10-17：能量买单走单独额度，退款退回 energyBuyCredits 和 energyBuyByRoom[房]
+                if (o.resource === ENERGY) {
                     led.energyBuyCredits = Math.max(0, Math.round((Number(led.energyBuyCredits) || 0) - left * o.price));
                     const by = led.energyBuyByRoom || (led.energyBuyByRoom = {});
                     if (by[o.room] != null) by[o.room] = Math.max(0, Math.round((Number(by[o.room]) || 0) - left * o.price));
@@ -444,7 +408,6 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
     const led = ledger();
     const fee = price * amount * own.fee;
     const credits = Number(market.credits) || 0;
-    // 10-17：带 budget 的买单（能量）走单独的 creditFloor / 日额度账本，不占普通 buyCredits/dailyBuyCredits
     const floor = budget ? Number(budget.floor) || cfg.creditFloor : cfg.creditFloor;
     if (credits - fee < floor) return null;
     if (type === 'buy') {
@@ -476,7 +439,6 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
     return rec;
 }
 
-/** 每轮最多挂一张新单（createOrder 也是 CPU 档操作） */
 function runOwnOrders(cfg, market) {
     const own = ownSettings(cfg);
     if (!own || !own.enabled || typeof market.createOrder !== 'function') return null;
@@ -489,7 +451,6 @@ function runOwnOrders(cfg, market) {
         for (const roomName of b.rooms || []) {
             const room = Game.rooms[roomName];
             if (!room || !room.terminal) continue;
-            // 10-17：lab 被能量闸（labStorageReserve）挡住的房不补原料——只给在跑的 lab 链买
             let labsOk = true;
             try { labsOk = require('industry').labsAllowed(room); } catch (error) { labsOk = true; }
             if (!labsOk) continue;
@@ -499,7 +460,6 @@ function runOwnOrders(cfg, market) {
                 const avg = recentAvgPrice(res, cfg);
                 if (avg == null) continue;
                 const amount = Math.min(Number(b.target || 3000) - have, Number(b.orderAmount) || Infinity, Math.floor(cfg.maxOrderCredits / avg));
-                // 对方付传送，小单不亏；minDeal 500 × 均价超过单笔上限的资源（X）按上限截量照挂
                 if (amount < Math.min(cfg.minDeal, Number(own.minBuyAmount) || cfg.minDeal)) continue;
                 const r = postOrder(cfg, market, 'buy', res, roomName, avg, amount);
                 if (r) return r;
@@ -509,8 +469,6 @@ function runOwnOrders(cfg, market) {
     const e = own.energy;
     if (e) {
         const eFloor = Number(e.creditFloor) || cfg.creditFloor;
-        // 10-17：优先内部发送——preferSenders 里有带 terminal、storage+terminal 仍高于 terminalNetwork.sendAbove 的房时，
-        // 本轮不市场买能量（让终端网络先发），等它发到跌破 sendAbove（发完/不够）再买
         const tn = config.terminalNetwork || {};
         const sendAbove = Number(tn.sendAbove) || 0;
         const senderReady = (e.preferSenders || []).some((n) => {
@@ -523,7 +481,6 @@ function runOwnOrders(cfg, market) {
             const cap = Number(e.maxPrice) || 45;
             let price;
             if (e.followHighestBuy) {
-                // 10-17：价格 = min(市场最高买价, maxPrice 45, 5 日均价 × (1+band 0.15))
                 let buyOrders = [];
                 try { buyOrders = market.getAllOrders({ type: BUY(), resourceType: ENERGY }) || []; }
                 catch (error) { utils.logErr('market.energyBuy getAllOrders', error); buyOrders = []; }
@@ -537,7 +494,6 @@ function runOwnOrders(cfg, market) {
             }
             const budget = { key: 'energyBuyCredits', cap: Number(e.dailyBuyCredits) || 0, floor: eFloor,
                 roomKey: 'energyBuyByRoom', roomCap: Number(e.perRoomDailyCredits) || 0 };
-            // 10-17：按最缺能优先（energyHave 升序），不再每轮都挑名单第一个房；每房单日上限 perRoomDailyCredits 由 postOrder 把超额房挡掉
             const below = Number(e.below || 10000);
             const candidates = (price > 0 ? names : []).filter((n) => {
                 const room = Game.rooms[n];
@@ -561,7 +517,6 @@ function runOwnOrders(cfg, market) {
         if (cap != null) amount = Math.min(amount, Number(cap) - Number(sold[s.resource] || 0));
         const avg = recentAvgPrice(s.resource, cfg);
         if (avg == null) continue;
-        // 挂单费计入日额度：卖单量受剩余额度 / (价 × 费率) 限制
         amount = Math.min(amount, Math.floor(((Number(own.dailySellFeeCredits) || 0) - (ledger().sellFees || 0)) / (avg * own.fee)));
         if (amount < cfg.minDeal) continue;
         const r = postOrder(cfg, market, 'sell', s.resource, s.room, avg, Math.floor(amount));
@@ -570,8 +525,6 @@ function runOwnOrders(cfg, market) {
     return null;
 }
 
-/** 10-17 军事 boost 买入（cfg.militaryBoost，默认关）：买现成 XZH2O/XGHO2/XLHO2 送进指定房 terminal，
- *  每种累计花费封顶 budgetEach，记进 ledger.militaryCredits，不占 dailyBuyCredits。一轮最多一笔。 */
 function buyMilitaryBoosts(cfg, market) {
     const mb = cfg.militaryBoost;
     if (!mb || !mb.enabled || !Array.isArray(mb.compounds) || !mb.compounds.length) return null;
@@ -616,15 +569,14 @@ function run(shed) {
     const cfg = settings();
     if (!cfg.enabled || !(cfg.interval > 0) || Game.time % cfg.interval !== 0) return null;
     if (!terminalNet.cpuAllows(cfg, shed)) return null;
-    // 与 deposit 同一道 CPU 闸（近 10 条均值 ≤ 145、bucket ≥ 3000）
-    try { const dep = require('deposit'); if (!dep.cpuOk(dep.settings())) return null; } catch (error) { /* 闸本身出错不挡市场 */ }
+    try { const dep = require('deposit'); if (!dep.cpuOk(dep.settings())) return null; } catch (error) {  }
     const market = marketApi();
     if (!market || typeof market.deal !== 'function' || typeof market.getAllOrders !== 'function') return null;
     cfg.energyPrice = energyPriceNow(cfg);
     const tickBudget = Number(cfg.tickCpuBudget) || 0;
     const tickT0 = Game.cpu.getUsed();
     const overBudget = () => tickBudget > 0 && (Game.cpu.getUsed() - tickT0) >= tickBudget;
-    const ordersBy = {};   // 一轮之内同一资源只查一次
+    const ordersBy = {};
     let scans = 0;
     let hold = null;
     try { hold = terminalNet.mineralHolds(); } catch (error) { utils.logErr('market.mineralHolds', error); hold = null; }
@@ -641,7 +593,7 @@ function run(shed) {
     const ownSell = new Set(((ownSettings(cfg) && ownSettings(cfg).enabled && ownSettings(cfg).sell) || []).map((s) => s.room + ':' + s.resource));
     for (const room of sellerRooms(cfg)) {
         for (const entry of sellable(room, cfg, hold)) {
-            if (ownSell.has(room.name + ':' + entry.resource)) continue;   // 这份走自挂卖单
+            if (ownSell.has(room.name + ':' + entry.resource)) continue;
             if (room._depositOnly && depositGoods({ [entry.resource]: 1 }).length === 0) continue;
             const avg = recentAvgPrice(entry.resource, cfg);
             const floor = sellFloorFor(entry.resource, avg, cfg);
@@ -668,7 +620,7 @@ function run(shed) {
                 led.soldCredits = Math.round(led.soldCredits + pick.amount * pick.order.price);
                 led.deals++;
             }
-            return record;   // 一轮只做一笔
+            return record;
         }
     }
     return null;
