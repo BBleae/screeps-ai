@@ -15352,13 +15352,14 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     Game.market = m;
     Game.rooms = { W34S7: { name: 'W34S7', terminal: { my: true, store: { ZH2O: 60000, energy: 10000 } } } };
     Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
-    const capCfg = Object.assign({}, base, { ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null }) });
+    assert(!(base.ownOrders.sell || []).some((x) => x.resource === 'ZH2O'), '10-18 11:40：ZH2O 不再自挂卖单（改直接 deal）；下面只回归改价机制');
+    const capCfg = Object.assign({}, base, { ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, sell: [{ resource: 'ZH2O', room: 'W34S7' }] }) });
     mk.runOwnOrders(capCfg, m);
     const feeCap = Math.floor(base.ownOrders.dailySellFeeCredits / (2015 * 0.05));
     assert(created[0] && created[0].totalAmount === Math.min(5000, feeCap), '挂单费日上限照旧封顶数量（得 ' + (created[0] && created[0].totalAmount) + '）');
     created.length = 0; delete m.orders.z1;
     Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
-    const cfg = Object.assign({}, base, { ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, dailySellFeeCredits: 600000 }) });
+    const cfg = Object.assign({}, base, { ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, dailySellFeeCredits: 600000, sell: [{ resource: 'ZH2O', room: 'W34S7' }] }) });
     mk.runOwnOrders(cfg, m);
     assert(created[0] && created[0].price === 2015 && created[0].totalAmount === 5000, 'ZH2O 按最高买价 2015 挂（不再守 2704），一天 5000 个（得 ' + JSON.stringify(created[0]) + '）');
     world.time += 600; top = 2300;
@@ -15405,6 +15406,37 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     assert(mm.forced({ name: 'W35S7' }, oPlan).enabled === false && Memory.mineralDrained.W35S7 > 0, '重生后也不再开（记在 Memory.mineralDrained）');
     Game.getObjectById = savedGet; Memory.mineralDrained = savedDrained;
     assert(config.minerals.maxStock.W32S4 === 30000 && config.minerals.maxStock.W33S3 === 30000, 'H maxStock 3 万/房（keep 5000 + 约一天的卖量），由 config 覆盖指令里的 5 万');
+}
+
+{
+    console.log('== 10-18 11:40 ZH2O 直接 deal：每天 ≤5000、每笔 ≤1000、到手价 ≥ 5 日均价×0.6；记买单深度和当天成交 ==');
+    const mk = require('market');
+    const savedCfgMarket = config.market, savedGM = Game.market, savedMem = Memory.market;
+    config.market = structuredClone(liveMarketCfg);
+    const cfg = Object.assign({}, mk.settings(), { energyPrice: 44 });
+    assert(cfg.minEffectiveShare.ZH2O === 0.6 && cfg.maxDealBy.ZH2O === 1000 && cfg.dailySellUnits.ZH2O === 5000 && !(cfg.ownOrders.sell || []).some((x) => x.resource === 'ZH2O'), 'config：ZH2O 每笔 1000、每天 5000、×0.6 下限、不再自挂');
+    Game.market = { calcTransactionCost: (n) => Math.ceil(n * 0.5), getHistory: () => [1, 2, 3, 4, 5].map(() => ({ avgPrice: 2700 })) };
+    Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 } };
+    const floor = mk.sellFloorFor('ZH2O', 2700, cfg);
+    assert(Math.abs(floor - 1620) < 1e-6, '下限 = 5 日均价 2700 × 0.6 = 1620');
+    const room = { name: 'W34S7', terminal: { store: { ZH2O: 60000, energy: 20000 } } };
+    const orders = [
+        { id: 'a', type: 'buy', resourceType: 'ZH2O', price: 2015, amount: 5130, roomName: 'W7S35' },
+        { id: 'b', type: 'buy', resourceType: 'ZH2O', price: 1630, amount: 3000, roomName: 'W14S28' },
+        { id: 'c', type: 'buy', resourceType: 'ZH2O', price: 1500, amount: 2000, roomName: 'W11S31' } ];
+    const pick = mk.pickBuyOrder(orders, room, { resource: 'ZH2O', amount: 5000 }, cfg, floor);
+    assert(pick && pick.order.id === 'a' && pick.amount === 1000, '挑到手价最高的单，每笔最多 1000（得 ' + JSON.stringify(pick && [pick.order.id, pick.amount]) + '）');
+    assert(Math.abs(pick.effective - (2015 - 0.5 * 44)) < 1e-6, '到手价 = 买单价 − 每个传送能量 × energyPrice');
+    const rec = mk.recordDepth('ZH2O', room, orders, floor, cfg);
+    assert(rec.depthLast === 5130 && rec.depthMax === 5130, '深度只算合格买单（1630−22 < 1620 的不算）：5130（得 ' + rec.depthLast + '）');
+    assert(Memory.market.daily && Memory.market.daily[new Date().toISOString().slice(0, 10)].ZH2O === rec, '记在 Memory.market.daily[UTC 日期].ZH2O，观察猫可读');
+    assert(mk.pickBuyOrder([orders[2]], room, { resource: 'ZH2O', amount: 5000 }, cfg, floor) === null, '到手价低于下限不卖');
+    Memory.market.ledger.sold.ZH2O = 4500;
+    const can = mk.sellable({ name: 'W34S7', terminal: { store: { ZH2O: 60000 } } }, cfg, null).find((e) => e.resource === 'ZH2O');
+    assert(can && can.amount === 500, '今天已卖 4500：只剩 500 额度');
+    Memory.market.ledger.sold.ZH2O = 5000;
+    assert(!mk.sellable({ name: 'W34S7', terminal: { store: { ZH2O: 60000 } } }, cfg, null).some((e) => e.resource === 'ZH2O'), '满 5000 停卖，UTC 换日重置');
+    config.market = savedCfgMarket; Game.market = savedGM; Memory.market = savedMem;
 }
 
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');

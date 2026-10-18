@@ -160,6 +160,8 @@ function minEffectiveFor(resource, cfg) {
 function sellFloorFor(resource, avg, cfg) {
     const min = minEffectiveFor(resource, cfg);
     if (min != null) return min;
+    const share = cfg.minEffectiveShare && Number(cfg.minEffectiveShare[resource]);
+    if (share > 0) return avg == null ? null : avg * share;
     return avg == null ? null : sellFloor(avg, cfg);
 }
 
@@ -248,7 +250,7 @@ function pickBuyOrder(orders, room, entry, cfg, floorPrice) {
     for (const order of orders || []) {
         if (!order || order.type !== BUY() || order.resourceType !== entry.resource) continue;
         if (!(order.amount > 0) || !(order.price > 0) || !order.roomName) continue;
-        const amount = Math.min(entry.amount, order.amount, cfg.maxDeal);
+        const amount = Math.min(entry.amount, order.amount, dealCap(entry.resource, cfg));
         if (amount < cfg.minDeal) continue;
         const cost = market && typeof market.calcTransactionCost === 'function'
             ? market.calcTransactionCost(amount, room.name, order.roomName)
@@ -260,6 +262,49 @@ function pickBuyOrder(orders, room, entry, cfg, floorPrice) {
         if (!best || effective > best.effective) best = { order, amount, cost, effective };
     }
     return best;
+}
+
+function dealCap(resource, cfg) {
+    const v = cfg.maxDealBy && Number(cfg.maxDealBy[resource]);
+    return v > 0 ? v : cfg.maxDeal;
+}
+
+function dayKey() {
+    return new Date().toISOString().slice(0, 10);
+}
+
+function dailyBook(resource) {
+    const mem = Memory.market || (Memory.market = {});
+    const daily = mem.daily || (mem.daily = {});
+    const key = dayKey();
+    const day = daily[key] || (daily[key] = {});
+    const keys = Object.keys(daily).sort();
+    while (keys.length > 7) delete daily[keys.shift()];
+    return day[resource] || (day[resource] = { depthMax: 0, depthLast: 0, best: 0, floor: 0, sold: 0, deals: 0, scans: 0 });
+}
+
+function recordDepth(resource, room, orders, floor, cfg) {
+    const track = cfg.depthTrack;
+    if (!Array.isArray(track) || !track.includes(resource)) return null;
+    const market = marketApi();
+    let units = 0;
+    let best = 0;
+    for (const order of orders || []) {
+        if (!order || order.type !== BUY() || order.resourceType !== resource || !(order.amount > 0) || !order.roomName) continue;
+        const probe = Math.min(order.amount, dealCap(resource, cfg));
+        const cost = market && typeof market.calcTransactionCost === 'function' ? market.calcTransactionCost(probe, room.name, order.roomName) : Math.ceil(probe * 0.1);
+        const effective = order.price - (cost / probe) * cfg.energyPrice;
+        if (effective > best) best = effective;
+        if (effective >= floor) units += order.amount;
+    }
+    const rec = dailyBook(resource);
+    rec.depthLast = units;
+    rec.depthMax = Math.max(rec.depthMax || 0, units);
+    rec.best = Math.round(best * 1000) / 1000;
+    rec.floor = Math.round(floor * 1000) / 1000;
+    rec.scans = (rec.scans || 0) + 1;
+    rec.at = Game.time;
+    return rec;
 }
 
 function sellerRooms(cfg) {
@@ -844,6 +889,7 @@ function run(shed) {
                 try { ordersBy[entry.resource] = market.getAllOrders({ type: BUY(), resourceType: entry.resource }) || []; }
                 catch (error) { utils.logErr('market.getAllOrders', error); ordersBy[entry.resource] = []; }
             }
+            try { recordDepth(entry.resource, room, ordersBy[entry.resource], floor, cfg); } catch (error) { utils.logErr('market.recordDepth', error); }
             const pick = pickBuyOrder(ordersBy[entry.resource], room, entry, cfg, floor);
             if (!pick) continue;
             const ret = market.deal(pick.order.id, pick.amount, room.name);
@@ -859,6 +905,11 @@ function run(shed) {
                 led.sold[entry.resource] = (led.sold[entry.resource] || 0) + pick.amount;
                 led.soldCredits = Math.round(led.soldCredits + pick.amount * pick.order.price);
                 led.deals++;
+                if (Array.isArray(cfg.depthTrack) && cfg.depthTrack.includes(entry.resource)) {
+                    const rec = dailyBook(entry.resource);
+                    rec.sold = (rec.sold || 0) + pick.amount;
+                    rec.deals = (rec.deals || 0) + 1;
+                }
             }
             return record;
         }
@@ -866,4 +917,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { run, storageFalling, trackStorage, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
+module.exports = { run, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };

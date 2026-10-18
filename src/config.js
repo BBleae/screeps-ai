@@ -465,6 +465,9 @@ module.exports = {
         energyPrice: 44,
         energyPriceAuto: { lookback: 40000, minAmount: 1000, min: 5, max: 200 },
         minEffective: { H: 450 },
+        minEffectiveShare: { ZH2O: 0.6 },
+        maxDealBy: { ZH2O: 1000 },
+        depthTrack: ['ZH2O'],
         minBucket: 5000,
         maxScans: 3,
         tickCpuBudget: 15,
@@ -509,7 +512,7 @@ module.exports = {
             fee: 0.05,
             minBuyAmount: 100,
             dailySellFeeCredits: 300000,
-            sell: [{ resource: 'ZH2O', room: 'W34S7' }],
+            sell: [],
             sellFollow: { ZH2O: { floorShare: 0.6, step: 0.02, everyTicks: 500 } },
             buyMinerals: true,
             energy: {
