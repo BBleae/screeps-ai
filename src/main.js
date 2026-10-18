@@ -1,8 +1,4 @@
 'use strict';
-/**
- * 主循环：房间调度（spawn/布局/塔/link）+ creep 角色分发 + 内存维护 + 统计。
- * 错误兜底：任何异常进 Memory.errors（console API 可查），单点故障不拖垮整 tick。
- */
 const config = require('config');
 const utils = require('utils');
 const movement = require('movement');
@@ -15,7 +11,7 @@ const aidMod = require('aid');
 const spawnExit = require('spawn_exit');
 const layout = require('layout');
 const demolition = require('demolition');
-require('soak_probe');   // 私服 soak 采样用的全局 soakProbe()，线上零开销
+require('soak_probe');
 const tower = require('tower');
 const links = require('links');
 const remote = require('remote');
@@ -143,21 +139,16 @@ function runEmergencyHarvest(creep, room) {
     }
 }
 
-// 部署版本标记：grunt file_append 注入 SCRIPT_VERSION，变更时在 console 提示
 require('version');
 if (!Memory.SCRIPT_VERSION || Memory.SCRIPT_VERSION !== SCRIPT_VERSION) {
     Memory.SCRIPT_VERSION = SCRIPT_VERSION;
     console.log('New code uploaded: ' + SCRIPT_VERSION);
 }
 
-module.exports.gcProbeKeys = gcProbeKeys;   // 单测用：gcMemory 只在 501 tick 边界跑，回归不该等 3000 tick
+module.exports.gcProbeKeys = gcProbeKeys;
 module.exports.pixelGate = pixelGate;
-module.exports.sampleStats = sampleStats;   // 单测用：直接采一次样，不必跑整个 loop
+module.exports.sampleStats = sampleStats;
 
-// 已解析 Memory 跨 tick 复用。引擎每 tick 把 Memory 装成 getter，首次访问 JSON.parse
-// 进 RawMemory._parsed，tick 末从 _parsed stringify 回去（driver runtime.js）。
-// 连续 tick 且 isolate 还在时，删掉 getter、把上一 tick 的对象塞回去，跳过 parse。
-// 线上实测约 364 KB / 2.755 CPU/tick。RawMemory.set() 会清掉 _parsed，代码里不能调用。
 let lastMemory = null;
 let lastMemoryTick = -1;
 function reuseParsedMemory() {
@@ -183,19 +174,17 @@ module.exports.loop = function () {
     const spkT0 = Game.cpu.getUsed();
     spkTick = {}; spkRoom = {};
     reuseParsedMemory();
-    // segment 90 = 外部大脑；91 = cpuSpikes 等遥测（不进 Memory，避免每 tick 解析）
     try {
         if (typeof RawMemory !== 'undefined' && RawMemory && typeof RawMemory.setActiveSegments === 'function') {
             RawMemory.setActiveSegments([90, 91]);
         }
-    } catch (e) { /* segment 激活失败不挡主循环 */ }
-    // Memory 结构兜底（respawn/手动清空后 Memory 为空对象，缺一崩全 tick）
+    } catch (e) {  }
     Memory.creeps = Memory.creeps || {};
     Memory.rooms = Memory.rooms || {};
     Memory.map = Memory.map || {};
     Memory.errors = Memory.errors || [];
 
-    let shed = null;   // creep 降载/硬停上下文：finally 里要知道这一 tick 有没有硬停
+    let shed = null;
     try {
         cpuProf.ticks++;
         cpuStart();
@@ -215,30 +204,23 @@ module.exports.loop = function () {
         cpuLap(cpuProf.mod, 'wheel');
 
         if (Game.time % 501 === 0) gcMemory();
-        // 探针残渣（尤其 monitor.py 的 _mon，~260 KB 的 JSON 字符串）每 tick 被引擎序列化一遍：线上实测 stringify 它一项 10 CPU/tick。
-        // 每 50 tick 查一次，内容 memoryProbeTtl tick 没变就删
         else if (Game.time % 50 === 0) { try { gcProbeKeys(); } catch (e) { logErr('gcProbeKeys', e); } }
-        // 清理死亡 creep 的内存（defender 阵亡记进母房 defenseLog，再看到敌情前不续派）
         for (const name in Memory.creeps) {
             if (Game.creeps[name]) continue;
             try { defense.noteLoss(name, Memory.creeps[name]); } catch (e) { logErr('defense.noteLoss', e); }
-            // SK 外矿的 reaper 被打死（不是寿终）：连着死就把这个 keeper 房停一阵（remote.noteReaperLoss，config.sk）
             try { remote.noteReaperLoss(name, Memory.creeps[name]); } catch (e) { logErr('remote.noteReaperLoss', e); }
             delete Memory.creeps[name];
         }
 
-        // 可视化默认关（config.visuals）：诊断走 monitor/probe，不值得每 tick 花 ~10 CPU
         let drawVisuals = false;
         try { drawVisuals = visuals.enabled(); } catch (e) { logErr('visuals.enabled', e); }
         cpuLap(cpuProf.mod, 'memory');
         const sampleRoles = Game.time % ROLE_SAMPLE_EVERY === 0;
         if (sampleRoles) cpuProf.roleTicks++;
-        try { require('utils').noteAggressorsAll(); } catch (e) { logErr('pvp.aggressors', e); }   // 10-16 自动记打过我们的玩家
-        try { require('utils').ownerCacheObserve(); } catch (e) { logErr('pvp.ownerCache', e); }   // 10-18 持久房主缓存（错峰，每房 50 tick 复核一次）
+        try { require('utils').noteAggressorsAll(); } catch (e) { logErr('pvp.aggressors', e); }
+        try { require('utils').ownerCacheObserve(); } catch (e) { logErr('pvp.ownerCache', e); }
         for (const room of Object.values(Game.rooms)) {
             if (!room.controller || !room.controller.my) continue;
-            // 房级计时要自己取起点：runRoom 内部的模块级打点会一路推进 cpuMark，
-            // 直接 cpuLap 只量到「最后一个模块之后」的那一点点（线上第一版 cpuRooms 因此全是空的）
             const roomStart = Game.cpu.getUsed();
             try { runRoom(room); } catch (e) { logErr('room ' + room.name, e); }
             if (drawVisuals) { try { visuals.render(room); } catch (e) { logErr('visuals ' + room.name, e); } }
@@ -248,15 +230,8 @@ module.exports.loop = function () {
             cpuMark = roomEnd;
         }
 
-        // creep 分发（CPU 预算保护，超限暂停低优先级单位）。bucket 健康时上限 limit − cpuReserve、只跳 broker 分数 < 20 的单位（旧行为）；
-        // bucket 吃紧时 cpu_shed 把上限压回 limit 以内，并按价值跳"跳一 tick 也安全"的单位（矿工/最后一只 hauler/防御永不跳）
         try { shed = cpuShed.begin(); } catch (e) { logErr('cpuShed.begin', e); shed = { active: false, cap: Game.cpu.limit - config.cpuReserve }; }
         const cpuCap = shed.cap;
-        // 分发的阶段级计时（Memory.stats.cpuDispatch）：cpuBy.creeps 是最大的一块，cpuRoles 加起来比它少一截，
-        // 差出来的花在排序 / 退役与让路检查 / broker 起止的哪一段。每只 4 次读数：打点是一条链，上一只的 finish 读数就是下一只的起点；
-        // 提前 continue 的退役/让路/跳过那点耗时落进下一只的 retire，本来也属于这一段。
-        // 比角色计时更稀（cpuProfile.dispatchEvery，每个 stats 窗口一次，2026-10-13 复审）：角色抽样 tick 每只只读 2 次，
-        // 阶段链要 4 次、被跳过的也要 1 次，215 只 × 2 次多出的读数每个角色抽样 tick 约 3.9 CPU；降载中也不量（那时每次读数都是从 creep 那里抢的）
         const sampleDisp = sampleRoles && Game.time % DISPATCH_EVERY === DISPATCH_PHASE && !shed.active;
         if (sampleDisp) cpuProf.dispTicks++;
         let mark = sampleDisp ? Game.cpu.getUsed() : 0;
@@ -267,17 +242,12 @@ module.exports.loop = function () {
             try { creepQueue = cpuShed.arrange(creepQueue, shed); } catch (e) { logErr('cpuShed.arrange', e); shed.active = false; }
         }
         if (sampleDisp) mark = dispLap('order', mark);
-        // tick 内 getUsed 只增不减、cpuCap 不变：一旦越过上限就不必再逐只去问（语义不变，省掉越线之后每只可跳单位的一次读数）。
-        // tickLimit 硬停（cpuShed.hardStopNow）不走这个短路，照旧每只现读
         let overBudget = false;
-        // 尖峰角色分解（Memory.cpuSpikes[].roles）：常态每 SPK_PROBE 只读一次 getUsed（~215 只 ≈ 14 次），
-        // 用量越过 SPK_ARM 之后这一 tick 剩下的 creep 逐只计时（每只 1 次读数，链式），尖峰 tick 才付这笔钱
         spkRoles = {}; spkArm = null;
         let spkHot = false, spkMark = 0, spkRan = 0;
         for (let qi = 0; qi < creepQueue.length; qi++) {
             const creep = creepQueue[qi];
             if (creep.spawning) continue;
-            // tickLimit 硬停：再跑下去整个 tick 会被引擎掐掉（所有意图作废），剩下的这一 tick 都不跑，收尾照常
             if (shed.armed && cpuShed.hardStopNow(shed)) {
                 let cut = 0;
                 for (let rest = qi; rest < creepQueue.length; rest++) if (!creepQueue[rest].spawning) cut++;
@@ -285,22 +255,15 @@ module.exports.loop = function () {
                 break;
             }
             try {
-                // 援建 creep 回不了弱房（没有安全路线）就标记退役，紧接着的 retireReplaced 接手回收（aid.markStranded）
                 aidMod.markStranded(creep);
                 if (spawnMgr.retireReplaced && spawnMgr.retireReplaced(creep)) continue;
-                // 必需部件全阵亡的残废 creep（矿工没 WORK、hauler 没 CARRY…）：宽限后回收退役、编制立刻出替补（retire.retireCrippled）
                 if (retireMod.retireCrippled(creep)) continue;
-                // 困在出生口袋里的 creep（旧兜底孵进去的，spawn_exit.markPocketTrapped 标记）：贴着的 spawn 当场回收
                 if (retireMod.retirePocketTrapped(creep)) continue;
             } catch (e) { logErr('creep retirement ' + creep.name, e); }
-            // 出生口让路（spawn_exit.runVacate）：堵着 spawn 出口的 creep 先走开、离开后等到出生完成，这几 tick 不跑角色
-            // （operator/feeder 的站位就是出口时，角色逻辑会立刻走回去）。放在 CPU 跳过之前：跳过它 spawn 就继续停工
             try {
                 if (spawnExit.runVacate(creep)) { taskBroker.markSkipped(creep, 'vacate'); continue; }
             } catch (e) { logErr('spawnExit.runVacate ' + creep.name, e); }
-            // 运输饱和度遥测：在 CPU 跳过之前观察，被跳过的 tick 如实记成 idle
             try { haulStats.observe(creep); } catch (e) { logErr('haulStats.observe ' + creep.name, e); }
-            // 先问便宜的"能不能跳"，再取 getUsed：harvester/hauler/upgrader 等不可跳的单位不必每只都读一次 CPU
             const skippable = shed.active ? cpuShed.mayShed(creep, shed) : !taskBroker.shouldRun(creep);
             if (skippable && !overBudget) overBudget = Game.cpu.getUsed() > cpuCap;
             if (sampleDisp) mark = dispLap('retire', mark);
@@ -326,8 +289,6 @@ module.exports.loop = function () {
                 taskBroker.markSkipped(creep, 'unknown-role');
                 continue;
             }
-            // 角色级计时：creep 分发是最大的一块，但不知道花在哪个角色上。抽样 tick 才量（见 ROLE_SAMPLE_EVERY）。
-            // 只量 role.run：阶段抽样 tick 的起点是 startCreep 之后那次读数，其余抽样 tick 在这里读一次（每只 2 次，与旧代码同价）
             if (sampleRoles && !sampleDisp) mark = Game.cpu.getUsed();
             if (!spkHot && !shed.active && Game.cpu.bucket >= SPK_MIN_BUCKET && (spkRan++) % SPK_PROBE === 0) {
                 const u = Game.cpu.getUsed();
@@ -353,9 +314,6 @@ module.exports.loop = function () {
             if (sampleDisp) mark = dispLap('finish', mark);
         }
         cpuLap(cpuProf.mod, 'creeps');
-        // 市场与终端网络：卖富余矿物、跨房能量均衡（内部按 config.market / config.terminalNetwork 的 interval 降频、bucket < minBucket 不做）；
-        // bucket 降载 / 硬停过的 tick 连调用和打点都省掉（降载时这一段的每次 getUsed 都是从 creep 那里抢来的）。
-        // 市场在前：同一 terminal 一 tick 只能发一个意图，市场用过的 terminal 终端网络这 tick 不再用
         if (!(shed && (shed.active || shed.stopped)) && !cpuFused('terminal')) {
             try { market.run(shed); } catch (e) { logErr('market.run', e); }
             try { terminalNetwork.run(shed); } catch (e) { logErr('terminal.run', e); }
@@ -365,21 +323,16 @@ module.exports.loop = function () {
             cpuLap(cpuProf.mod, 'terminal');
         }
         sampleStats();
-        // 只在抽样 tick 更新熔断 EMA（与 sampleStats 同相位），避免同一窗口反复 trip
         if (Game.time % 30 === 0) {
             try { updateCpuFuse(); } catch (e) { logErr('updateCpuFuse', e); }
         }
         try { taskBroker.flush(); } catch (e) { logErr('taskBroker.flush', e); }
         try { haulStats.flush(); } catch (e) { logErr('haulStats.flush', e); }
         cpuLap(cpuProf.mod, 'broker.flush');
-        // CPU 桶满（10000）时产出 1 pixel：消耗 bucket CPU，不占本 tick 预算；
-        // 失败（无订阅/持有达上限）则降频 10k tick 重试，避免每 tick 空转调用。
-        // 只在近期用量明显低于 limit 时才产（pixelGate）：产完 bucket≈0，cpu_shed 立刻进紧急模式，用量贴着 limit 时就会开始跳 creep
         if (Game.cpu.bucket >= 10000 && !(Memory.pixelRetry > Game.time)) {
             let gate = null;
             try { gate = pixelGate(); } catch (e) { logErr('pixelGate', e); }
             if (gate && !gate.ok) {
-                // 遥测：放弃的产出机会（私服没有 generatePixel 也照记，生效断言 cpu.pixelGate 靠它观察闸门）
                 const log = Memory.pixelGate || (Memory.pixelGate = { skip: 0 });
                 log.skip = (Number(log.skip) || 0) + 1;
                 log.at = Game.time;
@@ -395,11 +348,8 @@ module.exports.loop = function () {
         try { movement.endTick(); } catch (e) { logErr('movement.endTick', e); }
         cpuLap(cpuProf.mod, 'move.end');
         if (shed && shed.stopped) { try { cpuShed.noteHardStopEnd(shed); } catch (e) { logErr('cpuShed.noteHardStopEnd', e); } }
-        // cpu 字段过去在 sampleStats 里取，漏掉了 flush + endTick；改为整个 tick 收尾时回填
         if (pendingStat) {
             pendingStat.cpu = Math.round(Game.cpu.getUsed() * 10) / 10;
-            // 未记账 = 整 tick − cpuBy 之和（Memory 解析/序列化、GC、模块外开销）；观察猫：模块差~7 总差~30
-            // 用本 tick 的 spkTick（模块打点）合计，不要用 cpuBy 窗口均值——否则会和单 tick cpu 错位（曾出现 -14）
             let accounted = 0;
             for (const k in spkTick) accounted += Number(spkTick[k]) || 0;
             pendingStat.unaccounted = Math.round((pendingStat.cpu - accounted) * 10) / 10;
@@ -411,15 +361,13 @@ module.exports.loop = function () {
             diag.at = Game.time;
             pendingStat = null;
         }
-        try { noteSpike(spkT0); } catch (e) { /* 诊断失败不影响主循环 */ }
+        try { noteSpike(spkT0); } catch (e) {  }
     }
 };
 
-// ---- CPU 尖峰记录（诊断）：整 tick 用量 > SPIKE_LINE 时把这一 tick 的模块/房级分解存进 Memory.cpuSpikes（环形 30 条）----
 const SPIKE_LINE = 150;
 let spkTick = {}, spkRoom = {}, spkRoles = {}, spkArm = null;
-// creep 循环里每 SPK_PROBE 只探一次用量；越过 SPK_ARM 起逐只计时（尖峰线 150 往下留余量，抓到尖峰前的那段爬升）
-const SPK_PROBE = 16, SPK_ARM = 100, SPK_MIN_BUCKET = 5000; // 降载中 / bucket 吃紧不计时：那时每次读数都是从 creep 那里抢的
+const SPK_PROBE = 16, SPK_ARM = 100, SPK_MIN_BUCKET = 5000;
 const spkBoot = Game.time;
 const SPIKE_SEG = 91;
 const SPIKE_KEEP_MEM = 8;
@@ -432,10 +380,9 @@ function noteSpike(t0) {
         b: Game.cpu.bucket, n: Object.keys(Game.creeps).length, m: r1(spkTick, 1), r: r1(spkRoom, 3), arm: spkArm, roles: spkRoleDigest() };
     const arr = Memory.cpuSpikes || (Memory.cpuSpikes = []);
     arr.push(row);
-    // 热数据只留 SPIKE_KEEP_MEM 条在 Memory；溢出写 RawMemory segment 91（观察猫/外置脚本按需读）
     if (arr.length > SPIKE_KEEP_MEM) {
         const overflow = arr.splice(0, arr.length - SPIKE_KEEP_MEM);
-        try { flushSpikesToSegment(overflow); } catch (e) { /* 遥测失败不挡 */ }
+        try { flushSpikesToSegment(overflow); } catch (e) {  }
     }
 }
 
@@ -458,7 +405,6 @@ function flushSpikesToSegment(overflow) {
     diag.spikesN = spikes.length;
 }
 
-// 只留 ≥0.5 CPU 的角色：{ role: [cpu, 只数] }，按 CPU 降序
 function spkRoleDigest() {
     const out = {};
     Object.keys(spkRoles).sort((a, b) => spkRoles[b][0] - spkRoles[a][0]).forEach(k => {
@@ -479,7 +425,6 @@ function runRoom(room) {
     cpuLap(cpuProf.mod, 'expansion');
     spawnMgr.run(room);
     cpuLap(cpuProf.mod, 'spawn');
-    // 布局错峰执行（按房名 hash 取相位；曾用 charCodeAt(3)，那一位对所有房恒为 'S'/'N'，等于没错峰）
     if (utils.isRoomPhaseTick(room.name, config.layoutInterval)) { layout.run(room); cpuLap(cpuProf.mod, 'layout'); }
     if (!cpuFused('demolition')) {
         try { demolition.run(room); } catch (e) { logErr('demolition.run ' + room.name, e); }
@@ -493,8 +438,6 @@ function runRoom(room) {
 
 let pendingStat = null;
 
-/** 产 pixel 的 CPU 闸门（config.pixel）：Memory.stats 最近 samples 条整 tick 用量的均值 ≤ limit × maxCpuShare 才放行。
- *  样本不足 minSamples（刚 respawn / Memory 清过）时不放行：没有证据就把 bucket 留作缓冲 */
 function pixelGate() {
     const cfg = config.pixel || {};
     const want = Math.max(1, Math.floor(Number(cfg.samples) || 5));
@@ -516,8 +459,6 @@ function sampleStats() {
     const rooms = Object.values(Game.rooms).filter((r) => r.controller && r.controller.my);
     if (!rooms.length) return;
     if (!Memory.stats) Memory.stats = [];
-    // 过去这里只记 rooms[0]：一份任意挑中的房的 rcl/progress/storage，别的房在这条序列里根本不存在
-    // （线上采到的就是 rcl 1 / prog 0 的新房，整条经济序列是死数据）。改为按房名记 [rcl, progress, storage]
     const byRoom = {};
     for (const r of rooms) {
         byRoom[r.name] = [r.controller.level, r.controller.progress, r.storage ? r.storage.store[RESOURCE_ENERGY] : 0];
@@ -526,26 +467,17 @@ function sampleStats() {
         t: Game.time,
         rooms: byRoom,
         creeps: Object.keys(Game.creeps).length,
-        cpu: Math.round(Game.cpu.getUsed() * 10) / 10,   // tick 收尾时会回填成含 flush/endTick 的完整值
+        cpu: Math.round(Game.cpu.getUsed() * 10) / 10,
         bucket: Game.cpu.bucket,
         cpuBy: cpuDigest(cpuProf.mod, cpuProf.ticks),
-        // 每 4 条才带房/角色分解，平时省掉 ~一半 stats 体积（stats 曾 ~116KB/80 条）
         cpuRooms: (Memory.stats.length % 4 === 0) ? cpuDigest(cpuProf.room, cpuProf.ticks) : undefined,
         cpuRoles: (Memory.stats.length % 4 === 0) ? cpuDigest(cpuProf.role, cpuProf.roleTicks) : undefined,
-        // creep 分发（cpuBy.creeps）按阶段拆开：order 排序/降载重排、retire 退役与让路检查+能不能跳、start/finish broker 起止、run 角色本身。
-        // 单项常常不到 cpuDigest 的 0.05 门槛，这里留到 0.001
         cpuDispatch: cpuDigest(cpuProf.disp, cpuProf.dispTicks, 0.001, 1000),
-        // 窗口内的抽样 tick 数 [角色, 分发阶段]：阶段计时比角色计时稀（cpuProfile.dispatchEvery），生效断言 cpu.dispatchSparse 看它
         cpuSampled: [cpuProf.roleTicks, cpuProf.dispTicks],
-        // bucket 降载遥测：窗口内 low/critical/强制的 tick 数、跳过次数与按角色分布（monitor 的 statsTail 直接带出）
         shed: cpuShed.digest(),
-        // spawn 是 cpuBy 里前两大的一块，按阶段拆开（spawn.js 自己累计，抽样 tick 里全部房合计的每 tick 均值）
         cpuSpawn: spawnDigest(),
-        // tick 内缓存的命中遥测（窗口内 [调用, 命中]）：srcOrder = layout.resolveSources 的每房每 tick 缓存，
-        // workTile = movement.isWorkTile 的每 creep 每 tick 工位 spec（轮子堵车解算与 broker 反复问）
         cache: cacheDigest(),
     };
-    // Memory 体积（RawMemory.get 是本 tick 开头的快照，便宜）；对照未记账开销
     try {
         if (typeof RawMemory !== 'undefined' && RawMemory && typeof RawMemory.get === 'function') {
             entry.memBytes = RawMemory.get().length;
@@ -553,7 +485,7 @@ function sampleStats() {
             diag.memBytes = entry.memBytes;
             diag.memAt = Game.time;
         }
-    } catch (e) { /* ignore */ }
+    } catch (e) {  }
     cpuProf.mod = {};
     cpuProf.room = {};
     cpuProf.role = {};
@@ -563,7 +495,6 @@ function sampleStats() {
     cpuProf.ticks = 0;
     Memory.stats.push(entry);
     pendingStat = entry;
-    // 10-16：80→40，配合稀疏 cpuRooms/cpuRoles，目标把 stats 从 ~116KB 压到一半以下
     if (Memory.stats.length > 40) Memory.stats.splice(0, Memory.stats.length - 40);
 }
 
@@ -571,8 +502,6 @@ function spawnDigest() {
     try { return spawnMgr.cpuDigest(); } catch (e) { logErr('spawn.cpuDigest', e); return {}; }
 }
 
-// ---- tick 内缓存的命中遥测 ----
-// 各模块只记进程内累计计数（global 重置时归零），这里按 sampleStats 窗口取差值；差值为负说明中间重置过，取当前值
 const cacheSeen = {};
 function cacheWindow(key, pair) {
     const prev = cacheSeen[key] || [0, 0];
@@ -589,18 +518,13 @@ function cacheDigest() {
     try {
         const move = movement.stats() || {};
         const calls = Number(move.workTileCalls) || 0;
-        // 工位判定记的是 [调用, 重算]，换成 [调用, 命中] 与 srcOrder 同一口径
         out.workTile = cacheWindow('workTile', [calls, Math.max(0, calls - (Number(move.workTileComputes) || 0))]);
     } catch (e) { logErr('cacheDigest workTile', e); }
     return out;
 }
 
-// 游戏内自己在用的下划线键：不回收
 const KEEP_UNDERSCORE = ['_gcSeen', '_visuals'];
 
-/** 探针残渣回收：控制台探针把结果留在 Memory 的下划线键里（线上 _mon 78 KB、_roi 13 KB、_dbg2/_dq/_probe2
- *  几 KB，合计约 28% 的 Memory），读取方只删探针源不删结果，于是每 tick 都在解析/序列化早已死掉的数据。
- *  按"内容多久没变"回收：字符串比长度，对象只看在不在——探针写完几秒内就被读走，TTL 3000 tick 远够。 */
 function gcProbeKeys() {
     const ttl = config.memoryProbeTtl;
     if (!(ttl > 0)) return;
@@ -616,13 +540,7 @@ function gcProbeKeys() {
     for (const key of Object.keys(seen)) if (!(key in Memory)) delete seen[key];
 }
 
-// ---- 按模块 / 按房的 CPU 计时 ----
-// 「真要定位热点需要按模块计时的遥测」——这条待办从 2026-09-06 记到现在，没有它任何 CPU 改动都只能靠猜。
-// 成本是每 tick 二十几次 Game.cpu.getUsed()（各约 0.0002 CPU），窗口内累加，随 Memory.stats 每 30 tick 落一次。
-// 角色级计时按 tick 抽样：每只 creep 每 tick 两次 getUsed()，132 只 ≈ 2.4 CPU/tick（上线实测 creeps 31.5 → 33.9）。
-// 诊断不该占经济这么多，改成每 ROLE_SAMPLE_EVERY tick 量一次，均值按实际采样 tick 数还原（与 spawn 的 cpuSpawn 同一节奏）。
 const ROLE_SAMPLE_EVERY = Math.max(1, Math.floor(Number((config.cpuProfile || {}).sampleEvery) || 5));
-// 分发阶段计时每 DISPATCH_EVERY tick 一次，落在角色抽样 tick 上（相位取到 ROLE_SAMPLE_EVERY 的整数倍，避开 sampleStats 的 %30 那一 tick）
 const DISPATCH_EVERY = Math.max(1, Math.floor(Number((config.cpuProfile || {}).dispatchEvery) || 30));
 const DISPATCH_PHASE = Math.floor(DISPATCH_EVERY / 2 / ROLE_SAMPLE_EVERY) * ROLE_SAMPLE_EVERY;
 const cpuProf = { mod: {}, room: {}, role: {}, disp: {}, ticks: 0, roleTicks: 0, dispTicks: 0 };
@@ -634,7 +552,6 @@ function cpuLap(bucket, label) {
     if (bucket === cpuProf.mod) spkTick[label] = (spkTick[label] || 0) + (now - cpuMark);
     cpuMark = now;
 }
-/** 窗口内每 tick 的均值，默认只留 ≥ 0.05 CPU 的项（更小的落在计时噪声里），两位小数 */
 function cpuDigest(bucket, ticks, min = 0.05, scale = 100) {
     const out = {};
     if (!(ticks > 0)) return out;
@@ -644,7 +561,6 @@ function cpuDigest(bucket, ticks, min = 0.05, scale = 100) {
     }
     return out;
 }
-/** 分发阶段打点：把 since 到现在记进 cpuProf.disp[label]，返回新的起点 */
 function dispLap(label, since) {
     const now = Game.cpu.getUsed();
     cpuProf.disp[label] = (cpuProf.disp[label] || 0) + (now - since);
@@ -652,7 +568,6 @@ function dispLap(label, since) {
 }
 
 function gcMemory() {
-    // 侦察数据老化（20k tick 后允许重探）
     if (Memory.map) {
         for (const k in Memory.map) {
             if (Game.time - (Memory.map[k].at || 0) > 20000) delete Memory.map[k];
@@ -663,7 +578,6 @@ function gcMemory() {
     try { prunePvpFlee(); } catch (e) { logErr('prunePvpFlee', e); }
 }
 
-/** 房内诊断日志环形截断：spawnStallLog 等曾单房就 1KB+，全图合计可观 */
 const ROOM_LOG_KEYS = ['spawnStallLog', 'spawnLog', 'crippledLog', 'defenseLog', 'reserveLog', 'minerUpgradeLog'];
 const ROOM_LOG_KEEP = 8;
 function pruneRoomLogs() {
@@ -678,7 +592,6 @@ function pruneRoomLogs() {
     }
 }
 
-/** pvpFlee 只保留近期目击（3000 tick）；过期条目每 tick 跟着 Memory 解析纯浪费 */
 function prunePvpFlee() {
     const mem = Memory.pvpFlee;
     if (!mem) return;
@@ -688,7 +601,6 @@ function prunePvpFlee() {
     }
 }
 
-/** 模块 CPU 熔断：窗口均值 > ema×factor 则 skipTicks 内跳过该模块（creeps/spawn/move/broker 不在名单） */
 function cpuFused(mod) {
     const cfg = config.cpuFuse;
     if (!cfg || !cfg.enabled) return false;
