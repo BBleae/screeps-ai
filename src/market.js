@@ -490,11 +490,49 @@ function orderBook() {
     return mem.orders || (mem.orders = {});
 }
 
+function trackOrphanEnergy(led, live, book, claimed) {
+    const mem = Memory.market || (Memory.market = {});
+    const reg = mem.orphanEnergy || (mem.orphanEnergy = {});
+    const pending = new Set(Object.values(book).filter((o) => !o.id && o.type === 'buy' && o.resource === ENERGY).map((o) => o.room));
+    const dayStart = Number(led.day) * 86400000;
+    const by = led.energyBuyByRoom || (led.energyBuyByRoom = {});
+    const seen = new Set();
+    for (const x of Object.values(live)) {
+        if (!x || claimed.has(x.id) || x.type !== BUY() || x.resourceType !== ENERGY) continue;
+        const left = Math.max(0, Number(x.remainingAmount) || 0);
+        let r = reg[x.id];
+        if (!r) {
+            if (left <= 0 || pending.has(x.roomName) || Game.time - Number(x.created) < 50) continue;
+            const today = Number(x.createdTimestamp) >= dayStart;
+            const release = today ? Math.round(left * x.price) : 0;
+            if (release > 0) {
+                led.energyBuyCredits = Math.max(0, Math.round((Number(led.energyBuyCredits) || 0) - release));
+                if (by[x.roomName] != null) by[x.roomName] = Math.max(0, Math.round((Number(by[x.roomName]) || 0) - release));
+                led.orphanReleased = Math.round((Number(led.orphanReleased) || 0) + release);
+            }
+            r = reg[x.id] = { room: x.roomName, price: x.price, left, at: Game.time, released: release };
+        }
+        seen.add(x.id);
+        const filled = Math.max(0, r.left - left);
+        if (filled > 0) {
+            const credits = Math.round(filled * r.price);
+            led.energyBuyCredits = Math.round((Number(led.energyBuyCredits) || 0) + credits);
+            by[r.room] = Math.round((Number(by[r.room]) || 0) + credits);
+            led.bought[ENERGY] = (led.bought[ENERGY] || 0) + filled;
+            led.orphanFilled = (Number(led.orphanFilled) || 0) + filled;
+            led.filled = (led.filled || 0) + filled;
+            r.left = left;
+        }
+    }
+    for (const id of Object.keys(reg)) if (!seen.has(id)) delete reg[id];
+}
+
 function syncOrders(cfg, market) {
     const book = orderBook();
     const led = ledger();
     const live = market.orders || {};
     const claimed = new Set(Object.values(book).map((o) => o.id).filter(Boolean));
+    if ((ownSettings(cfg) || {}).energy && (ownSettings(cfg).energy.orphanLedger !== false)) trackOrphanEnergy(led, live, book, claimed);
     if (typeof market.cancelOrder === 'function') {
         let swept = 0;
         for (const x of Object.values(live)) {
@@ -991,4 +1029,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { run, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
+module.exports = { run, trackOrphanEnergy, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };

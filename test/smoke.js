@@ -15633,6 +15633,37 @@ console.log('== 10-18 12:04 #3：ZH2O 一轮可卖两笔（合格深度 ≥2000�
     config.market = savedCfgMarket; Game.market = savedGM; Memory.market = savedMem; Game.rooms = savedRooms; world.time = savedTime;
 }
 
+console.log('== 10-18 12:04 #4：旧能量单（不在 book 里）未成交部分不占每房日额度，成交部分照常计入 ==');
+{
+    const mk = require('market');
+    const savedMem = Memory.market, savedTime = world.time;
+    world.time = 88000;
+    const day = Math.floor(Date.now() / 86400000);
+    Memory.market = { ledger: { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 600000, energyBuyByRoom: { W37S5: 499979, W34S7: 500000 }, deals: 0 }, orders: {} };
+    const led = Memory.market.ledger;
+    const book = { 'buy:W37S5:energy': { type: 'buy', resource: 'energy', room: 'W37S5', id: 'new', left: 585, amount: 585, price: 45 } };
+    const live = {
+        new: { id: 'new', type: 'buy', resourceType: 'energy', roomName: 'W37S5', price: 45, remainingAmount: 585, created: 87000, createdTimestamp: day * 86400000 + 5000 },
+        o1: { id: 'o1', type: 'buy', resourceType: 'energy', roomName: 'W37S5', price: 43.2, remainingAmount: 1000, created: 86000, createdTimestamp: day * 86400000 + 1000 },
+        o2: { id: 'o2', type: 'buy', resourceType: 'energy', roomName: 'W37S5', price: 43.2, remainingAmount: 1000, created: 70000, createdTimestamp: day * 86400000 - 1000 },
+        fresh: { id: 'fresh', type: 'buy', resourceType: 'energy', roomName: 'W34S7', price: 45, remainingAmount: 900, created: 87990, createdTimestamp: day * 86400000 + 9000 } };
+    mk.trackOrphanEnergy(led, live, book, new Set(['new']));
+    assert(led.energyBuyByRoom.W37S5 === 499979 - 43200, '今天挂的旧单：未成交 1000×43.2 从 W37S5 额度里退回（得 ' + led.energyBuyByRoom.W37S5 + '）');
+    assert(led.energyBuyCredits === 600000 - 43200, '总额同样退回');
+    assert(!Memory.market.orphanEnergy.new && !Memory.market.orphanEnergy.fresh, 'book 里的新单和刚挂 <50 tick 的单不当旧单');
+    assert(Memory.market.orphanEnergy.o2 && Memory.market.orphanEnergy.o2.released === 0, '昨天挂的旧单今天本来没记账：不退');
+    live.o1.remainingAmount = 400; live.o2.remainingAmount = 0;
+    mk.trackOrphanEnergy(led, live, book, new Set(['new']));
+    assert(led.energyBuyByRoom.W37S5 === 499979 - 43200 + Math.round(600 * 43.2) + Math.round(1000 * 43.2), '旧单实际成交（600+1000）按成交额计入（得 ' + led.energyBuyByRoom.W37S5 + '）');
+    assert(led.bought.energy === 1600 && led.orphanFilled === 1600, '成交量记进 bought.energy');
+    mk.trackOrphanEnergy(led, live, book, new Set(['new']));
+    assert(led.orphanFilled === 1600, '同一笔成交不重复记');
+    delete live.o1;
+    mk.trackOrphanEnergy(led, live, book, new Set(['new']));
+    assert(!Memory.market.orphanEnergy.o1, '单子消失：从登记表移除');
+    Memory.market = savedMem; world.time = savedTime;
+}
+
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');
 {
     resetWorld(6900);
