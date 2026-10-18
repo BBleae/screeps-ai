@@ -15439,6 +15439,31 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     config.market = savedCfgMarket; Game.market = savedGM; Memory.market = savedMem;
 }
 
+{
+    console.log('== 10-18 11:40 W31S8 的 H：storage → terminal（unstash）→ 送 W32S4 卖；传送能量由 W31S8 出，留能量底线 ==');
+    const term = require('terminal');
+    const savedRooms = Game.rooms, savedNet = Memory.terminalNetwork;
+    const st = (o, free) => Object.assign({ getFreeCapacity: () => free }, o);
+    const sent = [];
+    const mkT = (store, free) => ({ my: true, cooldown: 0, store: st(store, free), send: (r, a, to) => (sent.push([r, a, to]), OK) });
+    Game.rooms = { W31S8: { name: 'W31S8', terminal: mkT({ H: 10000, energy: 7000 }, 280000) }, W32S4: { name: 'W32S4', terminal: mkT({ H: 18000, energy: 30000 }, 200000) } };
+    const rule = config.terminalNetwork.forward.find((r) => r.from === 'W31S8');
+    assert(rule && rule.to === 'W32S4' && rule.resource === 'H' && config.hauling.unstash.W31S8.resource === 'H' && config.terminalNetwork.terminalFeeReserve.W31S8 >= 6000, 'config：W31S8 H 搬进 terminal、送 W32S4，terminal 留传送费储备');
+    const plan = term.planForward(rule);
+    assert(plan && plan.amount === 5000 && plan.cost > 0, '一批 5000（得 ' + JSON.stringify(plan && [plan.amount, plan.cost]) + '）');
+    Memory.terminalNetwork = {};
+    term.runForward({ forward: [rule] });
+    assert(sent[0] && sent[0][0] === 'H' && sent[0][1] === 5000 && sent[0][2] === 'W32S4' && Memory.terminalNetwork.forward['W31S8>W32S4:H'].sent === 5000, '送出并记账');
+    Game.rooms.W31S8.terminal = mkT({ H: 10000, energy: 1100 }, 280000);
+    world.time++;
+    const low = term.planForward(rule);
+    assert(low && low.amount === 0 && low.blocked === 'energy', '能量只够底线：不送，记 blocked');
+    Game.rooms.W31S8.terminal = mkT({ H: 10000, energy: 7000 }, 280000);
+    Game.rooms.W32S4.terminal = mkT({ H: 40000, energy: 30000 }, 200000);
+    assert(term.planForward(rule) === null, 'W32S4 terminal 的 H 到 4 万先停，等卖掉再送');
+    Game.rooms = savedRooms; Memory.terminalNetwork = savedNet;
+}
+
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');
 {
     resetWorld(6900);
@@ -15465,7 +15490,7 @@ console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：
     assert(term.planTransfer([mid, poor], cfg) === null, '发送方不够富（低于 sendAbove）⇒ 不发');
     assert(term.planTransfer([rich, mid], cfg) === null, '接收方不够饿（高于 receiveBelow）⇒ 不发');
     {
-        const scfg = Object.assign({}, cfg, { priorityReceivers: ['W31S8', 'W35S7'], starvingBelow: 10000, starveSendAbove: 40000, starveKeep: 30000, starveMaxSend: 10000 });
+        const scfg = Object.assign({}, cfg, { terminalFeeReserve: {}, forward: [], priorityReceivers: ['W31S8', 'W35S7'], starvingBelow: 10000, starveSendAbove: 40000, starveKeep: 30000, starveMaxSend: 10000 });
         const donor = mkTRoom('W32S4', 49000, 30000);
         const starving = mkTRoom('W35S7', 0, 2000);
         const first = mkTRoom('W31S8', 0, 0);

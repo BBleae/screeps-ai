@@ -346,12 +346,56 @@ function mineralHolds(rooms, cfg) {
     return new Set(Object.keys(mineralShort(rooms || terminalRooms(), cfg || settings())));
 }
 
+function planForward(rule) {
+    const from = Game.rooms[rule.from];
+    const to = Game.rooms[rule.to];
+    if (!from || !to || !from.terminal || !to.terminal || from.terminal.my === false || to.terminal.my === false) return null;
+    if (from.terminal.cooldown > 0 || usedThisTick(from.name)) return null;
+    const res = rule.resource;
+    if (Number(to.terminal.store[res] || 0) >= (Number(rule.toBelow) || Infinity)) return null;
+    let amount = Math.min(Number(from.terminal.store[res] || 0), Number(rule.batch) || 5000, freeOf(to.terminal.store));
+    if (amount < (Number(rule.minBatch) || 1000)) return null;
+    const floor = Math.max(0, Number(rule.energyFloor) || 0);
+    const energy = energyOf(from.terminal.store);
+    let cost = transactionCost(amount, from.name, to.name);
+    while (amount > 0 && energy - cost < floor) {
+        amount = Math.floor(amount / 2);
+        cost = transactionCost(amount, from.name, to.name);
+        if (amount < (Number(rule.minBatch) || 1000)) return { from, to, res, amount: 0, cost, blocked: 'energy' };
+    }
+    return { from, to, res, amount, cost };
+}
+
+function runForward(cfg) {
+    const mem = Memory.terminalNetwork || (Memory.terminalNetwork = {});
+    for (const rule of cfg.forward || []) {
+        const plan = planForward(rule);
+        if (!plan) continue;
+        const log = mem.forward || (mem.forward = {});
+        const key = rule.from + '>' + rule.to + ':' + rule.resource;
+        const rec = log[key] || (log[key] = { sent: 0, cost: 0, n: 0 });
+        if (!plan.amount) { rec.blocked = { at: Game.time, why: plan.blocked }; continue; }
+        const ret = plan.from.terminal.send(plan.res, plan.amount, plan.to.name, 'forward');
+        markUsed(plan.from.name);
+        rec.last = { at: Game.time, amount: plan.amount, cost: plan.cost, result: ret };
+        if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
+            rec.sent += plan.amount;
+            rec.cost += plan.cost;
+            rec.n++;
+        }
+        return rec.last;
+    }
+    return null;
+}
+
 function run(shed) {
     const cfg = settings();
     if (!cfg.enabled || !(cfg.interval > 0) || Game.time % cfg.interval !== 0) return null;
     if (!cpuAllows(cfg, shed)) return null;
     const rooms = terminalRooms();
     if (rooms.length < 2) return null;
+    const fwd = runForward(cfg);
+    if (fwd) return fwd;
     const isRich = (room) => utils.storageRichState(room, Memory.rooms && Memory.rooms[room.name], config.upgrading || {});
     const plan = planTransfer(rooms, cfg, isRich);
     if (!plan) return runMineral(rooms, cfg);
@@ -385,4 +429,4 @@ function runMineral(rooms, cfg) {
     return record;
 }
 
-module.exports = { run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };
+module.exports = { planForward, runForward, run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };
