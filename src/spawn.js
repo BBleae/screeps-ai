@@ -350,6 +350,16 @@ function outOfTowerRepair(room) {
     return info;
 }
 
+function rampartRaiseWork(room, structures) {
+    const floor = utils.wallFloorHits();
+    if (!(floor > 0)) return false;
+    const mem = Memory.rooms && Memory.rooms[room.name];
+    if (!(mem && mem.storageRich && mem.storageRich.on)) return false;
+    const n = structures.filter((s) => s.structureType === STRUCTURE_RAMPART && s.hits >= floor && needsRepair(room, s)).length;
+    if (n > 0) mem.rampartRaise = { at: Game.time, n };
+    return n > 0;
+}
+
 function hasBuilderWork(room) {
     if (room.find(FIND_MY_CONSTRUCTION_SITES).some((site) => utils.siteWanted(room, site))) return true;
     const structures = room.find(FIND_STRUCTURES);
@@ -377,6 +387,7 @@ function hasBuilderWork(room) {
             const mem = Memory.rooms && Memory.rooms[room.name];
             if (mem) mem.outOfReachBelowFloor = { at: Game.time, count: outOfReach.count, debt: outOfReach.debt };
         }
+        if (rampartRaiseWork(room, structures)) return true;
         if (outOfReach.count === 0 || outOfReach.debt < minDebt) return false;
         const mem = Memory.rooms && Memory.rooms[room.name];
         if (mem) {

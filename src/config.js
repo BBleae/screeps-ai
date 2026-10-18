@@ -291,6 +291,7 @@ module.exports = {
     layoutInterval: 11,
     planTtl: 5000,
     towerRepairBelow: 0.6,
+    towerWallHits: 30000,
     criticalRepairShare: 0.2,
     linkSendAt: 700,
     linkKeepAt: 400,

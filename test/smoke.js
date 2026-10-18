@@ -15017,6 +15017,66 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     config.market = savedCfgMarket; Game.market = savedMarketApi; Memory.market = savedMem;
 }
 
+{
+    console.log('== 10-18 体检：塔只在 rampart/wall < 3 万或有武装敌人时修墙；往上加血改由 creep 且只在 storageRich 时做；核心 rampart 目标不降；其它建筑与 500 底线不变 ==');
+    resetWorld(7700);
+    const wr = makeRoom('W33S7', { rcl: 7, energy: 5600, cap: 5600, ctrl: { x: 34, y: 24 }, owner: 'me' });
+    const wSpawn = makeSpawn(wr, 23, 21);
+    wr.storage = makeStructure(wr, C.STRUCTURE_STORAGE, 21, 20, { energy: 500000, capacity: 1000000 });
+    const wt = makeStructure(wr, C.STRUCTURE_TOWER, 24, 22, { store: mkStore(1000, 1000) });
+    wt.repairCalls = [];
+    wt.repair = (target) => (wt.repairCalls.push(target), C.OK);
+    wt.attack = () => C.OK; wt.heal = () => C.OK;
+    const core = makeStructure(wr, C.STRUCTURE_RAMPART, 23, 21, { hits: 40000, hitsMax: 10000000 });
+    const ringHigh = makeStructure(wr, C.STRUCTURE_RAMPART, 30, 30, { hits: 50000, hitsMax: 10000000 });
+    const ringLow = makeStructure(wr, C.STRUCTURE_RAMPART, 31, 30, { hits: 20000, hitsMax: 10000000 });
+    Memory.rooms.W33S7 = { sources: [], storageRich: { on: false, at: 0 }, state: { at: Game.time, recovering: false, emergencyHarvest: false } };
+    assert(config.towerWallHits === 30000, 'towerWallHits = 3 万');
+    const coreGoal = utils.repairTargetHits(wr, core);
+    assert(coreGoal === 1000000, 'spawn 上的 rampart 目标仍按 RCL7 表 100 万（不降）（得 ' + coreGoal + '）');
+    assert(!utils.needsRepair(wr, ringHigh) && !utils.needsRepair(wr, core) && utils.needsRepair(wr, ringLow), '不富余、无敌人：≥3 万的 rampart 谁都不修，<3 万照修');
+    (towerMod.resetCache(), towerMod.run)(wr);
+    assert(wt.repairCalls.length === 1 && wt.repairCalls[0] === ringLow, '塔只修 <3 万的 rampart（得 ' + wt.repairCalls.map((x) => x.hits).join() + '）');
+    ringLow.hits = 30000;
+    wt.repairCalls.length = 0; world.time++;
+    (towerMod.resetCache(), towerMod.run)(wr);
+    assert(wt.repairCalls.length === 0, '塔修到 3 万就停');
+    Memory.rooms.W33S7.storageRich.on = true;
+    world.time++;
+    assert(utils.needsRepair(wr, ringHigh) && utils.needsRepair(wr, core) && utils.needsRepair(wr, ringLow), 'storageRich：≥3 万的 rampart 交给 creep 往上加（needsRepair 为真）');
+    wt.repairCalls.length = 0;
+    (towerMod.resetCache(), towerMod.run)(wr);
+    assert(wt.repairCalls.length === 0, 'storageRich 时塔仍不修 ≥3 万的 rampart');
+    const wb = makeCreep(wr, 'wb.builder', ['work', 'carry', 'move'], { home: 'W33S7', role: 'builder' });
+    world.creeps[wb.name] = wb;
+    wb.store[C.RESOURCE_ENERGY] = 50;
+    wb.pos = new RoomPosition(30, 29, 'W33S7');
+    ROLES.builder.run(wb);
+    assert(wb.actions.includes('repair') || wb.moveCalls.length > 0, 'storageRich：builder 去给 ≥3 万的 rampart 加血（得 ' + JSON.stringify(wb.actions) + '）');
+    delete world.creeps[wb.name];
+    world.time++;
+    assert(spawnMgr.builderTarget(wr) >= 1 && Memory.rooms.W33S7.rampartRaise && Memory.rooms.W33S7.rampartRaise.n === 3, 'storageRich、塔有能量、没工地：为 rampart 加血留 1 只 builder（得 ' + JSON.stringify(Memory.rooms.W33S7.rampartRaise) + '）');
+    Memory.rooms.W33S7.storageRich.on = false;
+    world.time++;
+    assert(spawnMgr.builderTarget(wr) === 0, '不富余：不为 ≥3 万的 rampart 孵 builder');
+    makeHostile(wr, 40, 40, ['attack', 'move'], { owner: 'Invader' });
+    world.time++;
+    assert(utils.armedHostiles(wr) && utils.needsRepair(wr, ringHigh), 'NPC 武装入侵者在房里：rampart 往上修放开');
+    wr._hostiles.length = 0;
+    makeHostile(wr, 40, 40, ['move', 'carry'], { owner: 'enemy' });
+    world.time++;
+    assert(!utils.armedHostiles(wr) && !utils.needsRepair(wr, ringHigh), '无武装的敌人不算');
+    wr._hostiles.length = 0;
+    const road = makeStructure(wr, C.STRUCTURE_ROAD, 25, 22, { hits: 1000, hitsMax: 5000 });
+    wt.repairCalls.length = 0; world.time++;
+    (towerMod.resetCache(), towerMod.run)(wr);
+    assert(wt.repairCalls[0] === road, '其它建筑照旧修（路 20%）');
+    wt.store[C.RESOURCE_ENERGY] = 505;
+    wt.repairCalls.length = 0; ringLow.hits = 1000; world.time++;
+    (towerMod.resetCache(), towerMod.run)(wr);
+    assert(wt.repairCalls.length === 0, '塔里至少留 500 能量的底线不变');
+}
+
 console.log('== terminal 补能（2026-10-13，移植 overmind-absorb e4cae2f）：只从 storage 富余里补到 terminalTarget，storage 饥饿时一点都不补 ==');
 {
     resetWorld(6800);

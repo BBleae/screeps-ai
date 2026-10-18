@@ -1,5 +1,5 @@
 'use strict';
-const { findCached, needsRepair, repairTargetHits, compareRepairTargets } = require('utils');
+const { findCached, needsRepair, repairTargetHits, compareRepairTargets, armedHostiles, wallFloorHits } = require('utils');
 const config = require('config');
 const brain = require('brain');
 
@@ -87,7 +87,7 @@ function run(room) {
         if (t.store[RESOURCE_ENERGY] - actionCost < towerReserve) continue;
         if (injured === undefined) injured = creepInjured(room);
         if (injured) { t.heal(injured); continue; }
-        if (repairList === undefined) repairList = repairCandidates(room);
+        if (repairList === undefined) repairList = repairCandidates(room, armedHostiles(room));
         if (!repairList.length) continue;
         const reach = typeof TOWER_FALLOFF_RANGE === 'number' ? TOWER_FALLOFF_RANGE : 20;
         const broken = repairList.find((s) => Math.max(Math.abs(s.pos.x - t.pos.x), Math.abs(s.pos.y - t.pos.y)) <= reach) || repairList[0];
@@ -97,20 +97,26 @@ function run(room) {
 
 const REPAIR_SCAN_TTL = 10;
 const repairCache = {};
-function repairCandidates(room) {
+function repairCandidates(room, armed) {
     let entry = repairCache[room.name];
     if (!entry || Game.time - entry.at >= REPAIR_SCAN_TTL || Game.time < entry.at) {
         const found = room.find(FIND_STRUCTURES, { filter: (s) => needsRepair(room, s) })
             .sort((a, b) => compareRepairTargets(room, a, b));
         entry = repairCache[room.name] = {
             at: Game.time,
-            items: found.map((s) => ({ id: s.id, goal: s.structureType === STRUCTURE_RAMPART ? repairTargetHits(room, s) : s.hitsMax * config.towerRepairBelow })),
+            items: found.map((s) => {
+                const wall = s.structureType === STRUCTURE_RAMPART || s.structureType === STRUCTURE_WALL;
+                return { id: s.id, wall, goal: s.structureType === STRUCTURE_RAMPART ? repairTargetHits(room, s) : s.hitsMax * config.towerRepairBelow };
+            }),
         };
     }
+    const floor = wallFloorHits();
     const out = [];
     for (const item of entry.items) {
         const s = Game.getObjectById(item.id);
-        if (s && s.hits < item.goal) out.push(s);
+        if (!s) continue;
+        const goal = item.wall && !armed && floor > 0 ? Math.min(item.goal, floor) : item.goal;
+        if (s.hits < goal) out.push(s);
     }
     return out;
 }

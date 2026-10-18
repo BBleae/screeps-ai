@@ -490,11 +490,38 @@ function plannedStructure(room, structure) {
     return true;
 }
 
+const armedCache = { time: -1, rooms: {} };
+function armedHostiles(room) {
+    if (!room || typeof room.find !== 'function') return false;
+    if (armedCache.time !== Game.time) { armedCache.time = Game.time; armedCache.rooms = {}; }
+    const hit = armedCache.rooms[room.name];
+    if (hit !== undefined) return hit;
+    const parts = [ATTACK, RANGED_ATTACK, WORK];
+    const armed = (room.find(FIND_HOSTILE_CREEPS) || []).some((c) => typeof c.getActiveBodyparts === 'function'
+        ? parts.some((p) => c.getActiveBodyparts(p) > 0)
+        : (c.body || []).some((b) => b && b.hits !== 0 && parts.includes(b.type || b)));
+    armedCache.rooms[room.name] = armed;
+    return armed;
+}
+
+function wallFloorHits() {
+    return Math.max(0, Number(config.towerWallHits) || 0);
+}
+
+function rampartRaiseAllowed(room) {
+    const mem = typeof Memory !== 'undefined' && Memory.rooms && room && Memory.rooms[room.name];
+    return !!(mem && mem.storageRich && mem.storageRich.on) || armedHostiles(room);
+}
+
 function needsRepair(room, structure) {
     if (!structure || structure.hits == null || structure.hitsMax == null) return false;
     if (structure.structureType === STRUCTURE_WALL) return false;
     if (!plannedStructure(room, structure)) return false;
-    if (structure.structureType === STRUCTURE_RAMPART) return structure.hits < repairTargetHits(room, structure);
+    if (structure.structureType === STRUCTURE_RAMPART) {
+        if (!(structure.hits < repairTargetHits(room, structure))) return false;
+        const floor = wallFloorHits();
+        return !(floor > 0) || structure.hits < floor || rampartRaiseAllowed(room);
+    }
     return structure.hits < structure.hitsMax * config.towerRepairBelow;
 }
 
@@ -1015,6 +1042,9 @@ module.exports = {
     planRoadKeys,
     plannedStructure,
     needsRepair,
+    armedHostiles,
+    wallFloorHits,
+    rampartRaiseAllowed,
     criticallyDamaged,
     hasCriticalStructure,
     compareRepairTargets,
