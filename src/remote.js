@@ -1447,9 +1447,15 @@ function staffRemotes(home, mem) {
     const budget = income == null ? Infinity : income * settings.share;
     const spawnCap = remoteSpawnCap(home, mem);
     const entries = [];
+    const unreachable = [];
     for (const roomName in mem.remotes) {
         const record = mem.remotes[roomName];
         if (!record.enabled) { delete record.staffed; continue; }
+        if (record.suspendReason === 'unreachable' && record.suspendedUntil > Game.time) {
+            record.staffed = false;
+            unreachable.push(record.room);
+            continue;
+        }
         const plan = recordPlan(record, capacity, home.name);
         entries.push({ record, upkeep: plan.upkeep, value: plan.value, spawnTime: plan.spawnTime });
     }
@@ -1495,6 +1501,7 @@ function staffRemotes(home, mem) {
         spawnUsed: Math.round(spawnUsed * 1000) / 1000,
         spawnCapped,
         overBudget,
+        unreachable,
         cost,
     };
     return mem.remoteStaff;

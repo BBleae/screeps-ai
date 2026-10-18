@@ -15495,6 +15495,20 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     movement.go = savedGo; Game.getObjectById = savedGet; if (savedRoom) Game.rooms.W31S4 = savedRoom; else delete Game.rooms.W31S4;
 }
 
+console.log('== 10-18 12:04 #6：unreachable 外矿不进预算和 staffed ==');
+{
+    resetWorld(5000);
+    const urA = { room: 'W99N97', enabled: true, sources: [{ id: 'ua', distance: 40, energyCapacity: 3000, roadComplete: true }] };
+    const urB = { room: 'W99N96', enabled: true, staffed: true, suspendReason: 'unreachable', suspendedUntil: 9000, sources: [{ id: 'ub', distance: 90, energyCapacity: 3000, roadComplete: true }] };
+    const urC = { room: 'W99N95', enabled: true, suspendReason: 'unreachable', suspendedUntil: 4000, sources: [{ id: 'uc', distance: 40, energyCapacity: 3000, roadComplete: true }] };
+    const urMem = { remotes: { W99N97: urA, W99N96: urB, W99N95: urC } };
+    const urStaff = remoteMod.staffRemotes({ name: 'W38S7', energyCapacityAvailable: 1300, find: () => [] }, urMem);
+    assert(urStaff.staffed.indexOf('W99N96') < 0 && urB.staffed === false, 'unreachable 冷却中：不进 staffed（得 ' + JSON.stringify(urStaff.staffed) + '）');
+    assert(!('W99N96' in urStaff.cost), 'unreachable 冷却中：不算维持成本');
+    assert(urStaff.unreachable.length === 1 && urStaff.unreachable[0] === 'W99N96', 'remoteStaff.unreachable 记下房名');
+    assert(urStaff.staffed.indexOf('W99N95') >= 0, '冷却过期的照常参与预算');
+}
+
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');
 {
     resetWorld(6900);
