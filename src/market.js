@@ -733,7 +733,9 @@ function runOwnOrders(cfg, market) {
         }
     }
     const e = own.energy;
-    if (e) {
+    const paused = !!(Memory.market && Memory.market.energyPause);
+    if (paused) Memory.market.energyPauseSeen = Game.time;
+    if (e && !paused) {
         const eFloor = Number(e.creditFloor) || cfg.creditFloor;
         const tn = config.terminalNetwork || {};
         const sendAbove = Number(tn.sendAbove) || 0;
