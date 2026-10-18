@@ -15698,9 +15698,10 @@ console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：
         const sp = term.planTransfer([donor, starving, first], scfg);
         assert(sp && sp.starving && sp.from.name === 'W32S4' && sp.to.name === 'W31S8', '救急：名单顺序先救 W31S8（得 ' + (sp && sp.from.name + '→' + sp.to.name) + '）');
         assert(sp.amount <= 10000 && 79000 - sp.amount - sp.cost >= 30000, '救急一笔 ≤ starveMaxSend、发送方留 starveKeep');
-        const fed = mkRecv('W31S8', 12000, 0);
+        const fedAt = Math.max(scfg.starvingBelow, Number((scfg.starvingUntil || {}).W31S8) || 0);
+        const fed = mkRecv('W31S8', fedAt, 0);
         const sp2 = term.planTransfer([donor, starving, fed], scfg);
-        assert(sp2 && sp2.to.name === 'W35S7', '≥ starvingBelow 的不救，轮到下一个（得 ' + (sp2 && sp2.to.name) + '）');
+        assert(sp2 && sp2.to.name === 'W35S7', '≥ starvingBelow（W31S8 按 starvingUntil）的不救，轮到下一个（得 ' + (sp2 && sp2.to.name) + '）');
         assert(term.planTransfer([mkTRoom('W32S4', 30000, 5000), first], scfg) === null, '发送方低于 starveSendAbove ⇒ 不发');
         const fcfg = Object.assign({}, scfg, { terminalFeeReserve: { W34S7: 8000, W38S7: 8000 }, feeReserveStorageFloor: 2000 });
         const feeRoom = mkRecv('W34S7', 0, 0);
@@ -15778,11 +15779,12 @@ console.log('== 矿物调剂（2026-10-13，移植 overmind-absorb 019c5b1）：
         '有 O 余量的房把 O 调给缺 O 的有 lab 房（得 ' + JSON.stringify(mp && { r: mp.resource, f: mp.from.name, t: mp.to.name, a: mp.amount }) + '）');
     assert(mp.amount >= cfg.mineralWant && mp.amount <= cfg.mineralMaxSend && 9000 - mp.amount >= cfg.mineralKeep, '一笔在 [mineralWant, mineralMaxSend] 内，发送方仍留 mineralKeep（得 ' + mp.amount + '）');
     assert(term.planMineralTransfer([donor, mkRoom('W34S7', 20000, {}, 2)], cfg) === null, '不到 mineralLabs 个 lab 的房不算缺口（调过去只是躺着）');
-    assert(term.planMineralTransfer([mkRoom('W35S7', 20000, { O: cfg.mineralKeep + cfg.mineralWant }), mkRoom('W33S7', 20000, {}, 3)], cfg) === null,
+    const oWant = Number((cfg.mineralWantByResource || {}).O) || cfg.mineralWant;
+    assert(term.planMineralTransfer([mkRoom('W38S7', 20000, { O: cfg.mineralKeep + oWant }), mkRoom('W33S7', 20000, {}, 3)], cfg) === null,
         '发送方只有 keep + want ⇒ 不调出去');
     assert(term.planMineralTransfer([mkRoom('W35S7', 20000, { XZH2O: 9000 }), mkRoom('W33S7', 20000, {}, 3)], cfg) === null, '化合物不参与调剂（跟着做它的房走）');
     assert(term.planMineralTransfer([mkRoom('W36S7', 0, { O: 9000 }), mkRoom('W33S7', 20000, {}, 3)], cfg) === null, '发送方 terminal 没能量付传送费 ⇒ 不调');
-    assert(term.planMineralTransfer([donor, mkRoom('W33S7', 20000, {}, 3, { O: cfg.mineralWant })], cfg) === null, '已经装进 lab 的也算家底 ⇒ 不是缺口');
+    assert(term.planMineralTransfer([donor, mkRoom('W33S7', 20000, {}, 3, { O: oWant })], cfg) === null, '已经装进 lab 的也算家底 ⇒ 不是缺口');
     const busy = mkRoom('W31S6', 20000, { O: 9000 });
     busy.terminal.cooldown = 5;
     assert(term.planMineralTransfer([busy, mkRoom('W33S7', 20000, {}, 3)], cfg) === null, '发送方 terminal 冷却中 ⇒ 不调');
@@ -15825,7 +15827,8 @@ console.log('== 终端网络的接收端：storage 不富余时 hauler 把 termi
     taskBroker.beginTick();
     let tdTasks = taskBroker.roomTasks(tdRoom);
     const tdDrain = tdTasks.find((t) => t.kind === 'collect' && t.target === tdTerminal);
-    assert(tdDrain && tdDrain.terminalDrain === true && tdDrain.roles.join() === 'hauler' && tdDrain.backlog === 20000,
+    const tdFee = Number(((config.terminalNetwork || {}).terminalFeeReserve || {}).W31S6) || 0;
+    assert(tdDrain && tdDrain.terminalDrain === true && tdDrain.roles.join() === 'hauler' && tdDrain.backlog === 20000 - tdFee,
         'storage 0、terminal 2 万 ⇒ terminal 取货任务（只给 hauler）（得 ' + JSON.stringify(tdDrain && { b: tdDrain.backlog, r: tdDrain.roles }) + '）');
     assert(!tdTasks.some((t) => t.kind === 'deliver' && t.target === tdTerminal), '同一房不会同时补能');
     const tdHauler = world.creeps.tdHa;
@@ -15897,8 +15900,8 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         '只卖超过 keep 的部分；能量、power（powerSpawn 的料）和不够 keep 的不卖（得 ' + JSON.stringify(items) + '）');
     Game.market = { calcTransactionCost: (amount) => Math.ceil(amount * 0.05) };
     const orders = [
-        { id: 'o1', type: 'buy', resourceType: 'L', amount: 3000, price: 1.0, roomName: 'W30S7' },
-        { id: 'o2', type: 'buy', resourceType: 'L', amount: 8000, price: 1.5, roomName: 'W30S7' },
+        { id: 'o1', type: 'buy', resourceType: 'L', amount: 3000, price: 30, roomName: 'W30S7' },
+        { id: 'o2', type: 'buy', resourceType: 'L', amount: 8000, price: 45, roomName: 'W30S7' },
         { id: 'o3', type: 'sell', resourceType: 'L', amount: 8000, price: 9, roomName: 'W30S7' },
         { id: 'o4', type: 'buy', resourceType: 'H', amount: 8000, price: 9, roomName: 'W30S7' },
     ];
@@ -15907,7 +15910,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     assert(pick && pick.order.id === 'o2', '挑有效价最高的买单；卖单和别的资源不参与（得 ' + (pick && pick.order.id) + '）');
     assert(!!pick && pick.amount >= cfg.minDeal && pick.amount <= cfg.maxDeal && pick.amount <= entry.amount, '成交量在 [minDeal, maxDeal] 且不超过可卖量（得 ' + (pick && pick.amount) + '）');
     assert(!!pick && pick.effective < pick.order.price, '有效价扣了传送能量折价（得 ' + (pick && pick.effective) + '）');
-    assert(mk.pickBuyOrder(orders, room, entry, cfg, 2) === null, '买单价低于底线 ⇒ 不卖');
+    assert(mk.pickBuyOrder(orders, room, entry, cfg, 50) === null, '买单价低于底线 ⇒ 不卖');
     const broke = mkMRoom('W33S7', 1, { L: 10000 });
     assert(mk.pickBuyOrder(orders, broke, entry, cfg, 0.1) === null, 'terminal 付不起传送能量 ⇒ 不卖');
     Memory.market = {};
@@ -15923,7 +15926,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     const deals = [];
     let orderCalls = 0;
     Game.market = {
-        getHistory: () => [{ avgPrice: 1.2 }],
+        getHistory: () => [{ avgPrice: 40 }],
         calcTransactionCost: (a) => Math.ceil(a * 0.05),
         getAllOrders: (filter) => { orderCalls++; return orders.filter((o) => o.type === filter.type && o.resourceType === filter.resourceType); },
         deal: (id, amount, roomName) => { deals.push({ id, amount, roomName }); return C.OK; },
@@ -15949,7 +15952,10 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     Memory.rooms.W31S6 = {};
     Game.rooms = { W31S6: starving };
     orderCalls = 0;
-    assert(mk.run({ active: false }) === null && deals.length === 1 && orderCalls === 0, 'storage 不富余（storageRich 关）的房不卖、也不查单');
+    const savedAnyRoom = config.market.anyRoom;
+    config.market.anyRoom = false;
+    assert(mk.run({ active: false }) === null && deals.length === 1 && orderCalls === 0, 'anyRoom 关时：storage 不富余（storageRich 关）的房不卖、也不查单');
+    config.market.anyRoom = savedAnyRoom;
     const many = {};
     ['K', 'U', 'O', 'Z', 'X', 'H'].forEach((r) => { many[r] = 9000; });
     Game.rooms = { W33S7: mkMRoom('W33S7', 5000, many) };
@@ -16019,6 +16025,8 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     const before = routeCalls.length; dep.hops('W33S7', 'W30S7', dep.settings());
     assert(routeCalls.length === before, '跳数有缓存');
     world.time = Math.ceil((world.time + 1) / 20) * 20;
+    const savedAllow = config.deposit.allowRooms;
+    config.deposit.allowRooms = ['W30S7'];
     dep.run();
     const list = Memory.deposits.list;
     assert(list.d1 && !list.d2 && list.d3, '只记 silicon/mist（得 ' + Object.keys(list).join(',') + '）');
@@ -16039,6 +16047,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     assert(dep.minerBody(1900, dep.settings()).length === 0 && dep.minerBody(1950, dep.settings()).length === 30, '采集者最少 3 组 1950');
     const mk = require('market');
     assert(typeof mk.sellerRooms === 'function', 'market 可用');
+    config.deposit.allowRooms = savedAllow;
     Game.map = savedMap; Game.rooms = savedRooms; Memory.stats = savedStats; Memory.deposits = savedDep; Game.cpu.bucket = savedBucket;
 }
 
@@ -16057,17 +16066,17 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     const mkRoom = (name, term, stor) => ({ name, controller: { my: true, level: 7 }, terminal: { my: true, cooldown: 0, store: st(term) }, storage: { my: true, store: st(stor || {}) }, find: () => [] });
     const sell = mk.sellable(mkRoom('W34S7', { ZH2O: 300000, GH: 500, silicon: 800, energy: 5000 }), cfg, null);
     const zh = sell.find((e) => e.resource === 'ZH2O');
-    assert(zh && zh.amount === 2000 && !sell.find((e) => e.resource === 'GH') && sell.find((e) => e.resource === 'silicon').amount === 800,
-        'ZH2O 每日最多 2000、GH 永不卖、silicon 全卖（得 ' + JSON.stringify(sell) + '）');
-    mk.ledger().sold.ZH2O = 2000;
-    assert(!mk.sellable(mkRoom('W34S7', { ZH2O: 300000 }), cfg, null).length, 'ZH2O 当日卖满 2000 就停');
+    assert(zh && zh.amount === 5000 && !sell.find((e) => e.resource === 'GH') && sell.find((e) => e.resource === 'silicon').amount === 800,
+        'ZH2O 每日最多 5000、GH 永不卖、silicon 全卖（得 ' + JSON.stringify(sell) + '）');
+    mk.ledger().sold.ZH2O = 5000;
+    assert(!mk.sellable(mkRoom('W34S7', { ZH2O: 300000 }), cfg, null).length, 'ZH2O 当日卖满 5000 就停');
     const room = mkRoom('W34S7', { energy: 50000 });
     const orders = [{ id: 'o1', type: 'buy', resourceType: 'X', amount: 5000, price: 80, roomName: 'W1N1' }, { id: 'o2', type: 'buy', resourceType: 'X', amount: 5000, price: 90, roomName: 'W1N1' }];
     Game.market = { calcTransactionCost: () => 10 };
     const pk = mk.pickBuyOrder(orders, room, { resource: 'X', amount: 5000 }, cfg, 85);
     assert(pk && pk.order.id === 'o2' && pk.amount === 5000, '价带内取最高（卖不按 credits 截量，按日量/maxDeal）（得 ' + (pk && pk.order.id + ' ' + pk.amount) + '）');
     let deals = [];
-    const sells = { Z: [{ id: 's1', type: 'sell', resourceType: 'Z', amount: 10000, price: 60, roomName: 'W1N1' }, { id: 's2', type: 'sell', resourceType: 'Z', amount: 10000, price: 50, roomName: 'W1N1' }], energy: [], X: [] };
+    const sells = { X: [{ id: 's1', type: 'sell', resourceType: 'X', amount: 10000, price: 60, roomName: 'W1N1' }, { id: 's2', type: 'sell', resourceType: 'X', amount: 10000, price: 50, roomName: 'W1N1' }], energy: [], Z: [], O: [] };
     Game.market = { credits: 1999999, calcTransactionCost: () => 100, getAllOrders: (f) => sells[f.resourceType] || [], deal: (id, n, r) => { deals.push([id, n, r]); return OK; },
         getHistory: () => [{ avgPrice: 50, volume: 1 }] };
     Game.rooms = { W32S4: mkRoom('W32S4', { energy: 5000 }, { energy: 30000 }) };
@@ -16075,7 +16084,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     assert(mk.tryBuy(cfg, Game.market, () => 0) === null, 'credits < 2M：只卖不买');
     Game.market.credits = 2300000;
     const b = mk.tryBuy(cfg, Game.market, () => 0);
-    assert(b && b.resource === 'Z' && deals[0][0] === 's2' && deals[0][1] === 1000, '买 Z、取价带内最便宜、单笔按 50k credits 截到 1000（得 ' + JSON.stringify(deals) + '）');
+    assert(b && b.resource === 'X' && deals[0] && deals[0][0] === 's2' && deals[0][1] === 1000, '买 X（Z 已停买）、取价带内最便宜、单笔按 50k credits 截到 1000（得 ' + JSON.stringify(deals) + '）');
     assert(Memory.market.ledger.buyCredits === 50000, '账本记买入 credits（得 ' + Memory.market.ledger.buyCredits + '）');
     deals = [];
     Memory.market = {};
@@ -16095,22 +16104,22 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
             createOrder: (o) => { created.push(o); return OK; }, cancelOrder: (id) => { cancelled.push(id); return OK; } };
         Game.rooms = { W32S4: mkRoom('W32S4', { energy: 3000 }, { energy: 30000 }), W34S7: mkRoom('W34S7', { ZH2O: 300000, energy: 3000 }) };
         mk.runOwnOrders(ocfg, Game.market);
-        assert(created[0] && created[0].type === 'buy' && created[0].resourceType === 'Z' && created[0].totalAmount === 500 && created[0].price === 50, '自挂 Z 买单（orderAmount 500、均价）（得 ' + JSON.stringify(created[0]) + '）');
+        assert(created[0] && created[0].type === 'buy' && created[0].resourceType === 'X' && created[0].totalAmount === 500 && created[0].price === 50, '自挂 X 买单（Z 已停买；orderAmount 500、均价）（得 ' + JSON.stringify(created[0]) + '）');
         assert(Memory.market.ledger.buyCredits === 26250, '买单预占额度 + 5% 挂单费（得 ' + Memory.market.ledger.buyCredits + '）');
         mk.runOwnOrders(ocfg, Game.market);
         mk.runOwnOrders(ocfg, Game.market);
         mk.runOwnOrders(ocfg, Game.market);
         const zs = created.find((o) => o.resourceType === 'ZH2O');
-        assert(zs && zs.type === 'sell' && zs.roomName === 'W34S7' && zs.totalAmount === 2000 && zs.price === 2500 && Memory.market.ledger.sellFees === 250000, 'ZH2O 自挂卖单（当日 2000、均价、卖单费记 sellFees）（得 ' + JSON.stringify(zs) + '）');
-        assert(created.filter((o) => o.resourceType === 'Z').length === 1, '同房同资源只挂一张');
-        Game.market.orders = { oid1: { id: 'oid1', type: 'buy', resourceType: 'Z', roomName: 'W32S4', remainingAmount: 400 } };
+        assert(!zs && !(Memory.market.ledger.sellFees > 0), 'ZH2O 不再自挂卖单（改直接 deal），不记卖单费（得 ' + JSON.stringify(zs) + '）');
+        assert(created.filter((o) => o.resourceType === 'X').length === 1, '同房同资源只挂一张');
+        Game.market.orders = { oid1: { id: 'oid1', type: 'buy', resourceType: 'X', roomName: 'W32S4', remainingAmount: 400 } };
         mk.syncOrders(ocfg, Game.market);
-        const zk = Memory.market.orders['buy:W32S4:Z'];
-        assert(zk && zk.id === 'oid1' && Memory.market.ledger.bought.Z === 100, '认领挂单 id、按成交量记账（得 ' + JSON.stringify(Memory.market.ledger.bought) + '）');
+        const zk = Memory.market.orders['buy:W32S4:X'];
+        assert(zk && zk.id === 'oid1' && Memory.market.ledger.bought.X === 100, '认领挂单 id、按成交量记账（得 ' + JSON.stringify(Memory.market.ledger.bought) + '）');
         const before = Memory.market.ledger.buyCredits;
         if (zk) zk.expires = world.time;
         mk.syncOrders(ocfg, Game.market);
-        assert(cancelled.indexOf('oid1') >= 0 && !Memory.market.orders['buy:W32S4:Z'] && Memory.market.ledger.buyCredits === before - 400 * 50, '到期撤单、退回未成交的预占额度');
+        assert(cancelled.indexOf('oid1') >= 0 && !Memory.market.orders['buy:W32S4:X'] && Memory.market.ledger.buyCredits === before - 400 * 50, '到期撤单、退回未成交的预占额度');
         Game.market.credits = 1990000;
         Memory.market.orders = {};
         const n = created.length;
@@ -16164,7 +16173,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     }
     const labRoom = mkRoom('W32S4', {}, { energy: 25000 });
     assert(ind.labsAllowed(labRoom) === true && ind.labsAllowed(mkRoom('W33S7', {}, { energy: 90000 })) === false, 'labs 只在 labRooms、storage ≥ 2 万时开');
-    assert(ind.labsAllowed(mkRoom('W32S4', {}, { energy: 15000 })) === false, 'storage < 2 万关');
+    assert(ind.labsAllowed(mkRoom('W32S4', {}, { energy: config.industry.labStorageReserve - 1 })) === false, 'storage < labStorageReserve 关');
     assert(config.industry.boostTargets[0] === 'XGH2O', 'XGH2O 排第一');
     Game.market = savedMarket; Game.rooms = savedRooms; Memory.market = savedMem; Memory.stats = savedStats; Game.cpu.bucket = savedBucket;
 }
