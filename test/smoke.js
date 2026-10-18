@@ -17,7 +17,7 @@ const MODULE_MAP = {
     defense: 'defense.js', roles_defender: 'roles/defender.js', retire: 'retire.js',
     cpu_shed: 'cpu_shed.js', spawn_exit: 'spawn_exit.js', pvp: 'pvp.js',
     deposit: 'deposit.js', roles_depositMiner: 'roles/depositMiner.js', roles_depositScout: 'roles/depositScout.js',
-    wall_breach: 'wall_breach.js', roles_wallBreaker: 'roles/wallBreaker.js',
+    wall_breach: 'wall_breach.js', wallfix: 'wallfix.js', roles_wallBreaker: 'roles/wallBreaker.js',
     conquest: 'conquest.js', roles_siegeDismantler: 'roles/siegeDismantler.js', roles_siegeGuard: 'roles/siegeGuard.js', roles_downgrader: 'roles/downgrader.js', roles_lootHauler: 'roles/lootHauler.js',
 };
 const origResolve = Module._resolveFilename;
@@ -15226,6 +15226,38 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     taskBroker.roomTasks(cbRoom);
     assert(!(Memory.rooms.W41N40.spill || {}).cb1, '控制器容器满着不算 cb1 在溢出（得 ' + JSON.stringify(Memory.rooms.W41N40.spill) + '）');
     delete Memory.rooms.W41N40;
+}
+
+{
+    console.log('== 10-18 W31S5：房里有 <3 万 rampart 时带 WORK 的房内 creep 先修到 3 万；没有 worker 就孵 builder ==');
+    const wf = require('wallfix');
+    const savedCreeps = Game.creeps, savedTime = world.time;
+    world.time += 7;
+    const pos = (x, y) => ({ x, y, roomName: 'W31S5', inRangeTo: (t, r) => Math.max(Math.abs((t.pos || t).x - x), Math.abs((t.pos || t).y - y)) <= r,
+        isNearTo: (t) => Math.max(Math.abs((t.pos || t).x - x), Math.abs((t.pos || t).y - y)) <= 1, findClosestByRange: (l) => (Array.isArray(l) ? l[0] : null) });
+    const ram = (x, y, hits) => ({ id: 'r' + x + y, structureType: STRUCTURE_RAMPART, my: true, hits, hitsMax: 1000000, pos: pos(x, y) });
+    const low = ram(46, 23, 5001), mid = ram(46, 22, 6301), ok = ram(10, 10, 40000);
+    const term = { id: 'term', structureType: STRUCTURE_TERMINAL, store: { energy: 3000 }, pos: pos(40, 20) };
+    const room = { name: 'W31S5', controller: { my: true }, find: (k) => (k === FIND_STRUCTURES ? [ok, mid, low, term] : []) };
+    assert(wf.lowRamparts(room).map((r) => r.hits).join(',') === '5001,6301', '只挑 <3 万的 rampart，最低的排第一');
+    const repaired = [];
+    const mkC = (role, body, energy, x, y) => ({ name: role + x, spawning: false, room, memory: { home: 'W31S5', role }, body: body.map((t) => ({ type: t, hits: 100 })),
+        pos: pos(x, y), store: { energy, getFreeCapacity: () => 50 - energy }, repair: (t) => (repaired.push(t.id), OK), withdraw: () => OK, pickup: () => OK, harvest: () => OK });
+    const up = mkC('upgrader', [WORK, CARRY, MOVE], 40, 45, 23);
+    assert(wf.run(up) === true && repaired[0] === low.id, 'upgrader 有能量：先修最低的 rampart，不去升级');
+    const miner = mkC('harvester', [WORK, CARRY, MOVE], 40, 45, 23);
+    assert(wf.run(miner) === false, '矿工不被拉去修墙');
+    const empty = mkC('builder', [WORK, CARRY, MOVE], 0, 40, 21);
+    assert(wf.run(empty) === true && empty.memory.wallFix === 'get', '空手：去取能量（terminal）再修');
+    Game.creeps = {};
+    assert(wf.needsWorker(room) === true, '房里没有带 WORK 的 worker：需要孵一只 builder');
+    Game.creeps = { a: up };
+    assert(wf.needsWorker(room) === false, '有 upgrader 就不额外孵');
+    low.hits = 30000; mid.hits = 30000;
+    world.time += 1;
+    assert(wf.run(up) === false && !up.memory.wallFix, '都到 3 万：回去做原来的事');
+    assert(config.wallFix && config.wallFix.target === 30000, 'config.wallFix.target = 3 万');
+    Game.creeps = savedCreeps; world.time = savedTime;
 }
 
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');

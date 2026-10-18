@@ -1890,7 +1890,7 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
     const richBuilder = planned.builder === 0 && richBuilderAt > 0 && !!room.storage &&
         (Number(room.storage.store[RESOURCE_ENERGY]) || 0) >= richBuilderAt;
     for (let n = planned.builder; n < targets.builder; n++) {
-        const vitalBuilder = n === 0 && (containerGap > 0 || criticalGap);
+        const vitalBuilder = n === 0 && (containerGap > 0 || criticalGap || require('wallfix').needsWorker(room));
         const richFirst = n === 0 && !vitalBuilder && richBuilder;
         requests.push({
             key: 'core:builder:' + n,
@@ -2232,6 +2232,11 @@ function runQueue(room) {
         targets.builder = Math.max(1, Number(targets.builder) || 0);
         const seen = mem.containerGapBuilder || {};
         mem.containerGapBuilder = { at: Game.time, recovering: !!state.recovering, n: (Number(seen.n) || 0) + 1 };
+    }
+    const wallGap = require('wallfix').needsWorker(room);
+    if (wallGap) {
+        targets.builder = Math.max(1, Number(targets.builder) || 0);
+        mem.wallFixBuilder = { at: Game.time };
     }
     const survivalTargets = {
         harvester: Math.min(survival.harvester || 0, sourceHarvesters) || sourceHarvesters,

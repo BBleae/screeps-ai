@@ -351,6 +351,7 @@ module.exports = {
     towerMaintenanceWeight: 5,
     towerCriticalRange: 20,
     towerRepairReserve: 500,
+    wallFix: { enabled: true, target: 30000 },
     storageDeliverBacklogCap: 10000,
     upgrading: {
         alpha: 0.02,

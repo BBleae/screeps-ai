@@ -30,6 +30,7 @@ const depositMod = require('deposit');
 const taskBroker = require('task_broker');
 const haulStats = require('haul_stats');
 const cpuShed = require('cpu_shed');
+const wallFix = require('wallfix');
 
 const ROLES = {
     harvester: require('roles_harvester'),
@@ -332,7 +333,9 @@ module.exports.loop = function () {
                 const u = Game.cpu.getUsed();
                 if (u > SPK_ARM) { spkHot = true; spkMark = u; spkArm = { at: Math.round(u * 10) / 10, qi, of: creepQueue.length }; }
             }
-            try { role.run(creep); } catch (e) { logErr('creep ' + creep.name, e); }
+            let fixing = false;
+            try { fixing = wallFix.run(creep); } catch (e) { logErr('wallFix ' + creep.name, e); }
+            if (!fixing) { try { role.run(creep); } catch (e) { logErr('creep ' + creep.name, e); } }
             if (spkHot) {
                 const u = Game.cpu.getUsed(), rn = creep.memory.role;
                 const e = spkRoles[rn] || (spkRoles[rn] = [0, 0]);
