@@ -14888,7 +14888,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     const mk = require('market');
     const liveMarket = liveMarketCfg;
     const liveHauling = liveHaulingCfg;
-    assert(liveMarket.keepBy.H === 10000 && liveMarket.keepBy.K === Infinity && liveMarket.keepBy.O === Infinity, 'keepBy：H 1 万，K/O 永不卖');
+    assert(liveMarket.keepBy.H === 0 && liveMarket.keepByRoom.W32S4.H === 5000 && liveMarket.keepByRoom.W33S3.H === 5000 && liveMarket.keepBy.K === Infinity && liveMarket.keepBy.O === Infinity, 'keepBy：H 其他房全卖、W32S4/W33S3 各留 5000，K/O 永不卖');
     assert(liveMarket.dailySellUnits.H === 20000 && liveMarket.maxDeal === 5000 && liveMarket.minEffective.H === 450, 'H 日上限 2 万、单笔 5000、到手下限 450');
     assert(liveMarket.energyPrice === 44 && liveMarket.energyPriceAuto, '能量价兜底 44，开自动计算');
     assert(liveHauling.unstash.W32S4.resource === 'H' && liveHauling.unstash.W32S4.target > liveMarket.keepBy.H, 'W32S4 storage 的 H 分批搬进 terminal（目标高于保留量）');
@@ -14963,6 +14963,58 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     brainMod.retiredGuard();
     assert(!Memory.brainRetiredAlert, '恢复 retired:true：告警标记清除，下次再出问题会重新报警');
     config.brain = savedBrainCfg; Memory.brain = savedBrainMem; global.RawMemory = savedRaw; Game.notify = savedNotify; Memory.errors = savedErrors; Memory.brainRetiredAlert = savedAlert;
+}
+
+{
+    console.log('== 10-18 体检：H 按房留量（W32S4/W33S3 各留 5000、其他房全卖）；H 累计卖出额计数（成交记录去重）；累计 >100 万买能量日预算 200 万→400 万；W33S7 进买能量名单 ==');
+    const mk = require('market');
+    const savedCfgMarket = config.market, savedMarketApi = Game.market, savedMem = Memory.market;
+    config.market = structuredClone(liveMarketCfg);
+    const cfg = Object.assign({}, mk.settings());
+    Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 } };
+    const r32 = { name: 'W32S4', terminal: { store: { energy: 30000, H: 20000 } }, storage: { store: { H: 8294 } } };
+    assert(mk.sellable(r32, cfg, null)[0].amount === 20000, 'W32S4：terminal 2 万 + storage 8294，留 5000 后可卖量被日上限 2 万封顶');
+    const r32b = { name: 'W32S4', terminal: { store: { energy: 30000, H: 6000 } }, storage: { store: { H: 1000 } } };
+    assert(mk.sellable(r32b, cfg, null)[0].amount === 2000, 'W32S4：terminal 6000 + storage 1000，只卖到房里剩 5000（得 ' + JSON.stringify(mk.sellable(r32b, cfg, null)) + '）');
+    assert(mk.sellable({ name: 'W33S3', terminal: { store: { H: 1865 } } }, cfg, null).length === 0, 'W33S3：不到 5000 不卖');
+    assert(mk.sellable({ name: 'W33S3', terminal: { store: { H: 7000 } } }, cfg, null)[0].amount === 2000, 'W33S3：7000 只卖 2000');
+    const oth = mk.sellable({ name: 'W31S8', terminal: { store: { H: 3000 } }, storage: { store: { H: 50000 } } }, cfg, null);
+    assert(oth.length === 1 && oth[0].amount === 3000, '其他房 terminal 里的 H 全卖（得 ' + JSON.stringify(oth) + '）');
+    const T = Game.time;
+    const tx = (id, time, amount, price, res) => ({ transactionId: id, time, resourceType: res || 'H', amount, order: price == null ? undefined : { id: 'o' + id, type: 'buy', price } });
+    Game.market = { outgoingTransactions: [
+        tx('b', 74402200, 5000, 518.928), tx('a', 74402100, 4550, 525.2), tx('s1', 74394710, 2000, null), tx('old', 74402000, 1000, 500), tx('k', 74402150, 1000, 40, 'K') ] };
+    Memory.market = {};
+    const t1 = mk.salesTrack(cfg, Game.market);
+    assert(t1.units === 9550 && t1.credits === Math.round(4550 * 525.2 + 5000 * 518.928) && t1.deals === 2, '从 74402100 起累计：两笔 H 成交 9550 个、4,984,300 cr；内部发送（无订单）、更早成交、非 H 不算（得 ' + JSON.stringify(t1) + '）');
+    mk.salesTrack(cfg, Game.market);
+    assert(Memory.market.salesTrack.credits === t1.credits && Memory.market.salesTrack.deals === 2, '重复读同一批成交记录不重复计数');
+    Game.market.outgoingTransactions.unshift(tx('c', 74402200, 1000, 500), tx('d', 74402300, 2000, 510));
+    mk.salesTrack(cfg, Game.market);
+    assert(Memory.market.salesTrack.deals === 4 && Memory.market.salesTrack.units === 12550 && Memory.market.salesTrack.last === 74402300, '同 tick 的新成交按 id 去重补计，新 tick 的照计');
+    const e = cfg.ownOrders.energy;
+    assert(e.dailyBuyCredits === 2000000 && e.boost.soldCreditsAbove === 1000000 && e.boost.dailyBuyCredits === 4000000 && e.maxPrice === 45 && e.creditFloor === 5000000 && e.perRoomDailyCredits === 500000, '买能量：基础 200 万、累计 >100 万提到 400 万；单价上限 45、余额 <500 万停、每房每天 50 万不变');
+    assert(e.rooms.includes('W33S7'), '买能量名单加上 W33S7');
+    Memory.market.salesTrack.credits = 1000000;
+    assert(mk.energyBuyCap(e) === 2000000, '累计正好 100 万：仍是 200 万');
+    Memory.market.salesTrack.credits = 1000001;
+    assert(mk.energyBuyCap(e) === 4000000, '累计 >100 万：日预算 400 万');
+    let posted = null;
+    Memory.market.ledger = { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 2500000, energyBuyByRoom: {}, deals: 0 };
+    const eRoom = { name: 'W33S7', terminal: { store: Object.assign({ energy: 100 }, { getFreeCapacity: () => 100000 }) }, storage: { store: { energy: 0 } } };
+    const savedRooms = Game.rooms;
+    Game.rooms = { W33S7: eRoom };
+    const api = { credits: 19000000, orders: {}, getAllOrders: () => [{ type: 'buy', resourceType: 'energy', amount: 10000, price: 44 }], createOrder: (o) => { posted = o; return OK; }, getHistory: () => [{ avgPrice: 44 }] };
+    const ownCfg = Object.assign({}, cfg, { ownOrders: Object.assign({}, cfg.ownOrders, { buyMinerals: false, sell: [], energy: Object.assign({}, e, { rooms: ['W33S7'], preferSenders: [] }) }) });
+    mk.runOwnOrders(ownCfg, api);
+    assert(posted && posted.roomName === 'W33S7' && posted.resourceType === 'energy', '已花 250 万、累计卖 H >100 万：W33S7 仍能挂能量买单（得 ' + JSON.stringify(posted) + '）');
+    posted = null;
+    Memory.market.salesTrack.credits = 0;
+    delete Memory.market.orders;
+    mk.runOwnOrders(ownCfg, api);
+    assert(posted === null, '对照：累计没过 100 万、已花 250 万 > 200 万：不挂');
+    Game.rooms = savedRooms;
+    config.market = savedCfgMarket; Game.market = savedMarketApi; Memory.market = savedMem;
 }
 
 console.log('== terminal 补能（2026-10-13，移植 overmind-absorb e4cae2f）：只从 storage 富余里补到 terminalTarget，storage 饥饿时一点都不补 ==');

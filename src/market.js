@@ -65,6 +65,49 @@ function keepFor(resource, cfg) {
     return k != null ? Number(k) : cfg.keep;
 }
 
+function roomKeepFor(room, resource, cfg) {
+    const by = cfg.keepByRoom && room && cfg.keepByRoom[room.name];
+    return by && by[resource] != null ? Number(by[resource]) : null;
+}
+
+function salesTrack(cfg, market) {
+    const st = cfg.salesTrack;
+    if (!st || !st.resource) return null;
+    const mem = Memory.market || (Memory.market = {});
+    const t = mem.salesTrack || (mem.salesTrack = { resource: st.resource, credits: 0, units: 0, deals: 0, last: 0, ids: [] });
+    const txs = market && Array.isArray(market.outgoingTransactions) ? market.outgoingTransactions : [];
+    const since = Number(st.since) || 0;
+    const seen = new Set(t.ids || []);
+    let last = Number(t.last) || 0;
+    let ids = (t.ids || []).slice();
+    for (const tx of txs) {
+        if (!tx || tx.resourceType !== st.resource || !tx.order || !(Number(tx.order.price) > 0) || !(Number(tx.amount) > 0)) continue;
+        const time = Number(tx.time) || 0;
+        if (time < since || time < (Number(t.last) || 0)) continue;
+        if (time === (Number(t.last) || 0) && seen.has(tx.transactionId)) continue;
+        t.credits = Math.round(t.credits + Number(tx.amount) * Number(tx.order.price));
+        t.units += Number(tx.amount);
+        t.deals++;
+        if (time > last) { last = time; ids = []; }
+        if (time === last) ids.push(tx.transactionId);
+    }
+    t.last = last;
+    t.ids = ids;
+    return t;
+}
+
+function soldCredits() {
+    const t = Memory.market && Memory.market.salesTrack;
+    return t ? Number(t.credits) || 0 : 0;
+}
+
+function energyBuyCap(e) {
+    const base = Number(e.dailyBuyCredits) || 0;
+    const b = e.boost;
+    if (b && soldCredits() > (Number(b.soldCreditsAbove) || Infinity)) return Math.max(base, Number(b.dailyBuyCredits) || 0);
+    return base;
+}
+
 function minEffectiveFor(resource, cfg) {
     const v = cfg.minEffective && cfg.minEffective[resource];
     return Number(v) > 0 ? Number(v) : null;
@@ -144,6 +187,8 @@ function sellable(room, cfg, hold) {
         const keep = keepFor(key, cfg);
         if (typeof amount !== 'number' || !(amount > keep)) continue;
         let can = amount - keep;
+        const roomKeep = roomKeepFor(room, key, cfg);
+        if (roomKeep != null) can = Math.min(can, amount + Number((room.storage && room.storage.store && room.storage.store[key]) || 0) - roomKeep);
         const cap = cfg.dailySellUnits && cfg.dailySellUnits[key];
         if (cap != null) can = Math.min(can, Number(cap) - Number((ledger().sold || {})[key] || 0));
         if (can <= 0) continue;
@@ -492,7 +537,7 @@ function runOwnOrders(cfg, market) {
                 const avg = recentAvgPrice(ENERGY, cfg);
                 price = Math.min(Number(e.price) || 10, cap, avg != null ? avg * (1 + band) : Infinity);
             }
-            const budget = { key: 'energyBuyCredits', cap: Number(e.dailyBuyCredits) || 0, floor: eFloor,
+            const budget = { key: 'energyBuyCredits', cap: energyBuyCap(e), floor: eFloor,
                 roomKey: 'energyBuyByRoom', roomCap: Number(e.perRoomDailyCredits) || 0 };
             const below = Number(e.below || 10000);
             const candidates = (price > 0 ? names : []).filter((n) => {
@@ -573,6 +618,7 @@ function run(shed) {
     const market = marketApi();
     if (!market || typeof market.deal !== 'function' || typeof market.getAllOrders !== 'function') return null;
     cfg.energyPrice = energyPriceNow(cfg);
+    try { salesTrack(cfg, market); } catch (error) { utils.logErr('market.salesTrack', error); }
     const tickBudget = Number(cfg.tickCpuBudget) || 0;
     const tickT0 = Game.cpu.getUsed();
     const overBudget = () => tickBudget > 0 && (Game.cpu.getUsed() - tickT0) >= tickBudget;
@@ -625,4 +671,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { run, settings, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
+module.exports = { run, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
