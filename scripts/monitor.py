@@ -37,13 +37,8 @@ THRESHOLDS = {
     'missing_hauler_buffer': 100,
     'cpu_high_ratio': 0.9,
     'cpu_high_floor': 100,
-    # 单 tick 超 cpuLimit 不是异常：引擎允许用到 tickLimit（500），超出部分从 bucket 支取，bucket 充足时这是正常的尖峰
-    # （2026-09-06 23:13：cpu 176.6/140 报警，但 bucket 正在 10000 → generatePixel → 回满地轮转，是净富余）。
-    # 只有"付不起"才报：bucket 已经低于 cpu_bucket_ok，或逼近 tickLimit（真会被引擎打断，脚本中途停）
-    # 外脑（launchd 定时写 segment 90）静默掉线：游戏内有 6 小时宽限，宽限内一切照常、宽限过后
-    # 外矿白名单退回"只做出口相邻"，收入会掉一截。所以要在宽限用完之前就知道，而不是等外矿萎缩
-    'brain_age_warn_min': 90,      # 大脑最后一次写入超过这么久 → 提示（正常 launchd 间隔远小于此）
-    'brain_age_alert_min': 300,    # 超过 5 小时 → 告警：离 6 小时宽限到期不远了
+    'brain_age_warn_min': 90,
+    'brain_age_alert_min': 300,
     'cpu_bucket_ok': 2000,
     'cpu_tick_limit_ratio': 0.9,
     'bucket_low': 1000,
@@ -563,7 +558,6 @@ def snapshot():
             except json.JSONDecodeError:
                 mon = None
         if isinstance(mon, dict) and mon.get('schema') == 4 and mon.get('nonce') == nonce:
-            # 读完即删：_mon ~260 KB，留在 Memory 里引擎每 tick 序列化它要 ~10 CPU（2026-10-14 实测）
             try:
                 console('delete Memory._mon')
             except Exception:
@@ -983,7 +977,6 @@ def analyze_room(mon, room, history):
     ready_hauler = ready_roles.get('hauler', 0)
     total_h = total_roles.get('harvester', 0)
 
-    # 开荒中：刚占下、还没有 spawn 的房间由母房的 pioneer 建设，不适用"经济崩溃"类告警
     bootstrapping = (spawns.get('total') or 0) == 0
     bootstrap = None
     if bootstrapping:
@@ -1023,15 +1016,12 @@ def analyze_room(mon, room, history):
     upkeep = room.get('upkeep') if isinstance(room.get('upkeep'), dict) else None
     ctrl_container = (upkeep or {}).get('ctrlContainer') if upkeep else None
     prev_ctrl_container = ((prev_room or {}).get('upkeep') or {}).get('ctrlContainer') if prev_room else None
-    # ctrlFeed（探针调 task_broker.controllerFeedMode）：'link' / 'storage' 供能的房 hauler 本来就不喂控制器容器；None 才是容器供能
     ctrl_feed = (upkeep or {}).get('ctrlFeed')
-    # 两个端点无法证明区间一直为空；期间可能多次补给并被升级者耗尽。
     if (ctrl_container and not ctrl_feed and
             ctrl_container.get('energy') == 0 and ready_hauler > 0 and not recovering and
             prev_ctrl_container and prev_ctrl_container.get('energy') == 0 and dt >= THRESHOLDS['ctrl_container_empty_ticks']):
         issues.append(issue(f'upgrader 供能容器两次采样为空（相隔 {dt} ticks，hauler 在岗 {ready_hauler}）', name))
 
-    # spawn 队列队头等太久：宽限内攒不够、缩身下限也够不着（收入太低），或固定身体的请求买不起
     queue = room.get('spawnQueue') if isinstance(room.get('spawnQueue'), dict) else {}
     queue_waiting = queue.get('waiting') if isinstance(queue.get('waiting'), dict) else None
     if (queue_waiting and isinstance(queue_waiting.get('waited'), (int, float)) and
@@ -1051,27 +1041,20 @@ def analyze_room(mon, room, history):
         ))
 
     if rate is not None and not recovering and dt >= THRESHOLDS['rate_window_ticks']:
-        # upgrader 补能是突发式的，几十 tick 的窗口内进度可能为 0，只有足够长的窗口才判定回退
         prior_rates = [x for x in historical_rates([r for r in history if (r.get('mon') or {}).get('scriptV') == mon.get('scriptV')], name, room.get('rcl')) if x > 0]
-        # 基线取最近 6 轮的中位数：取最大值时一次尖峰会让后面 6 轮全报"回退"（2026-09-05 W34S7 常年 4–8/tick，一轮 11.7 之后连报）
         baseline = statistics.median(prior_rates[-6:]) if prior_rates else 0
-        # 攒能房（config.upgrading.bankRooms）/WORK 封顶房：升级者被有意封顶在 upgrade.cap WORK，速率达到封顶的 80% 就不算回退
-        # （2026-10-16 bfe2496 后 W29S3/W33S8 按封顶前的基线连报"回退"）
         upgrade_info = room.get('upgrade') if isinstance(room.get('upgrade'), dict) else {}
         capped_work = upgrade_info.get('cap') if isinstance(upgrade_info.get('cap'), (int, float)) else None
         capped_ok = capped_work is not None and capped_work > 0 and rate >= capped_work * THRESHOLDS['rate_regression_ratio']
         if baseline > 0 and rate < baseline * THRESHOLDS['rate_regression_ratio'] and not capped_ok:
             issues.append(issue(f'升级速率回退: {rate:.2f} prog/tick < 基线 {baseline:.2f} 的 80%', name))
 
-    # Successful spawn intents become spawn.spawning only on the next game tick.
-    # Subtract only this tick's accepted actions; other idle spawns still matter.
     spawned = queue.get('spawned')
     accepted = len(spawned) if queue.get('at') == mon.get('t') and isinstance(spawned, list) else 0
     idle_after_actions = max(0, spawns['idle'] - accepted)
     deficits = [role for role, floor in floors.items() if floor > 0 and ready_roles.get(role, 0) < floor and not (recovering and role == 'upgrader')]
     if idle_after_actions > 0 and deficits and room_energy >= THRESHOLDS['spawn_idle_energy']:
         issues.append(issue(f'spawn 空闲但仍缺员: idle={spawns["idle"]}/{spawns["total"]}, 缺 {",".join(deficits)}', name))
-    # 动态目标角色按满容量身体生成，房间能量未满时等待属正常，不算漏造
     room_capacity = room.get('cap') or 0
     if idle_after_actions > 0 and dynamic_deficits and room_energy >= max(THRESHOLDS['spawn_idle_energy'], room_capacity):
         issues.append(issue(
@@ -1084,10 +1067,6 @@ def analyze_room(mon, room, history):
             name,
         ))
 
-    # ---- 维修与 builder 编制（2026-09-10 W33S7 那轮的观察面）----
-    # 背景：路/容器这类会自然老化的建筑一多，维修需求就变成常态；塔射程只有 20 格，
-    # 没有 builder 的大额维修债需要告警；小额债务允许按游戏策略攒到值得孵化时再修。
-    # 只认可与当前债务一致的新鲜延期决策，不能用历史事件掩盖新出现的缺口。
     roads = room.get('roads') if isinstance(room.get('roads'), dict) else {}
     upgrade = room.get('upgrade') if isinstance(room.get('upgrade'), dict) else {}
     state_info = room.get('state') if isinstance(room.get('state'), dict) else {}
@@ -1121,12 +1100,9 @@ def analyze_room(mon, room, history):
         if isinstance(work, (int, float)) and isinstance(cap, (int, float)) \
                 and work > cap and isinstance(duty, (int, float)) and duty >= 1:
             issues.append(issue(f'升级限流没生效: work={work:g} > cap={cap:g} 但 duty={duty:g}', name))
-        # 2026-09-11 起限流只在有竞争需求时生效：吃紧但最近 competeHoldTicks（300）内没有竞争需求时 cap 为空是设计行为；
-        # 只有"有竞争需求却没有上限"才是故障
         compete = room.get('upgradeCompete') if isinstance(room.get('upgradeCompete'), dict) else {}
         compete_at = compete.get('at')
         sampled_at = upgrade.get('at')
-        # A newer competition observation cannot invalidate an older budget decision.
         recent_compete = (isinstance(compete_at, (int, float)) and isinstance(sampled_at, (int, float))
                           and 0 <= sampled_at - compete_at < 300)
         if upgrade.get('low') and cap is None and recent_compete:
@@ -1149,7 +1125,6 @@ def analyze_room(mon, room, history):
         return int(sub.get('n') or 0)
 
     if prev_room is not None and 'spawnStall' in prev_room:
-        # n：出口全被占、让路也没解决，stallTicks 后兜底放开了别的非口袋方向（口袋方向永远不放）
         stall_new = int(stall.get('n') or 0) - int(prev_stall.get('n') or 0)
         if stall_new > 0:
             issues.append(issue(f'spawn 出生口全被占、让路没解决，已放开非口袋方向 +{stall_new}'
@@ -1254,9 +1229,6 @@ def analyze_snapshot(mon, history):
             bits = ', '.join(f'{b.get("type")}@{b.get("x")},{b.get("y")}<-{b.get("by")}' for b in blocked[:6])
             issues.append(issue(f'方案位被旧建筑占住 {len(blocked)} 处（拆迁调度每 50 tick 拆 1 个）: {bits} …', room.get('name')))
 
-    # 外脑心跳：segment 90 最后一次写入距今多久。游戏内有 6 小时宽限，宽限内外矿/占领照旧，
-    # 宽限一过白名单退回"只做出口相邻外矿"，收入掉一截 —— 要在那之前就知道大脑停了
-    # 'brain' 键不存在 = 旧 schema 的快照（历史 status.jsonl），跳过；键在而值为 null 才是真的没指令
     brain = mon.get('brain') if 'brain' in mon else False
     retired = mon.get('brainRetired') if 'brainRetired' in mon else None
     if retired is False:
@@ -1280,13 +1252,11 @@ def analyze_snapshot(mon, history):
     tick_limit = mon.get('tickLimit') or 0
     bucket_now = mon.get('bucket')
     over_limit = bool(cpu_limit) and cpu > max(THRESHOLDS['cpu_high_floor'], cpu_limit * THRESHOLDS['cpu_high_ratio'])
-    # bucket 付得起的尖峰不报（见 THRESHOLDS 注释）；bucket 未知时按老规矩报
     afforded = isinstance(bucket_now, (int, float)) and bucket_now >= THRESHOLDS['cpu_bucket_ok']
     near_tick_limit = bool(tick_limit) and cpu > tick_limit * THRESHOLDS['cpu_tick_limit_ratio']
     if over_limit and (not afforded or near_tick_limit):
         issues.append(f'CPU 用量过高: {cpu:.1f}/{cpu_limit}' + (f'（bucket {bucket_now}）' if not afforded else f'（逼近 tickLimit {tick_limit}）'))
 
-    # tickLimit 硬停：再跑下去引擎会掐掉整个 tick，硬停只少跑尾巴几只——但出现就说明 bucket 已经见底、用量贴着 limit
     hard = mon.get('hardStop') if isinstance(mon.get('hardStop'), dict) else {}
     prev_hard = prev_mon.get('hardStop') if isinstance(prev_mon.get('hardStop'), dict) else {}
     hard_new = int(hard.get('n') or 0) - int(prev_hard.get('n') or 0)
@@ -1295,7 +1265,6 @@ def analyze_snapshot(mon, history):
 
     bucket = mon.get('bucket')
     prev_bucket = prev_mon.get('bucket')
-    # bucket 满 10000 时脚本会 generatePixel（一次消耗 10000 bucket）：像素数增加即可解释回落，不是 CPU 问题
     pixels = mon.get('px')
     prev_pixels = prev_mon.get('px')
     pixel_generated = isinstance(pixels, (int, float)) and isinstance(prev_pixels, (int, float)) and pixels > prev_pixels
@@ -1332,8 +1301,6 @@ def write_entry(entry):
         return
     with open(LOG) as f:
         lines = f.readlines()
-    # 只按条数裁剪不够：一条快照现在 140–200 KB，保留 1000 条就是 190 MB，8 MB 的上限形同虚设。
-    # 以字节预算为准，从最新往回取，最多 LOG_KEEP_ENTRIES 条；最新一条无论多大都留下。
     kept = []
     total = 0
     for line in reversed(lines[-LOG_KEEP_ENTRIES:]):
@@ -1380,8 +1347,6 @@ def print_summary(entry):
             f'spawn {sp.get("busy", 0)}/{sp.get("total", 0)} busy rate={rate_text}'
             f'{broker_text} 远程 {sum(1 for remote in analysis.get("remotes") or [] if remote.get("active"))}/{analysis.get("remoteCount", 0)}'
         )
-        # 维修/编制一行：路（方案内/外）与 builder 编制、控制器取能预算。塔射程外只有 builder 能修，
-        # 所以"编制 x/y + 射程外 z 处 + 方案内最低 r%"是判断"问题是否解决"的那一行
         maint = analysis.get('maintenance') or {}
         roads = analysis.get('roads') or {}
         upgrade = analysis.get('upgrade') or {}
@@ -1531,7 +1496,6 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.samples <= 10 or args.interval < 0:
         parser.error('samples must be 1..10 and interval nonnegative')
-    # Prevent two hourly/manual collectors from interleaving probe chunks or incident writes.
     import fcntl
     os.makedirs(os.path.dirname(LOG), exist_ok=True)
     with open(os.path.join(ROOT, 'logs', 'monitor.lock'), 'w') as lock:
@@ -1562,12 +1526,9 @@ def main():
                     print(f"  ‼ 本轮{ALERT_LABELS.get(alert['reason'], alert['reason'])} {alert['key']}: {alert['message']}")
                 pending = state.get('pendingAlerts') or []
             except Exception as exc:
-                # 失败时不确认：本次已累积的告警留在 pendingAlerts，下一次成功采集照样退出 1。
                 monitor_health.record_failure(ledger, str(exc))
                 print('监控采集/分析失败（未知，不是健康）: ' + str(exc), file=sys.stderr)
                 return 2
-        # 退出码 1 = 自上次心跳确认以来出现过新增/升级/未认领的紧急事件（含 cron 采集先看到的）；
-        # 长期未结、已知的事件仍在账本里，每轮照样要读（docs/operations/hourly-monitor.md）。
         for alert in pending:
             print(f"  ‼ 待确认{ALERT_LABELS.get(alert['reason'], alert['reason'])} {alert['key']}"
                   f" (tick {alert.get('firstTick')}–{alert.get('lastTick')}): {alert.get('message')}")
