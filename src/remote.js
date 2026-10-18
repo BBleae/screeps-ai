@@ -1263,6 +1263,13 @@ function carryParts(body) {
     return body.filter((part) => part === 'carry').length;
 }
 
+function reserverCapReached(homeName, roomName) {
+    const caps = (config.remote || {}).maxReservers || {};
+    const cap = Number(caps[roomName]);
+    if (!(cap > 0)) return false;
+    return creepsHomeRole(homeName, 'reserver').filter((creep) => creep.memory.remoteRoom === roomName).length >= cap;
+}
+
 function hasReserver(homeName, roomName) {
     return creepsHomeRole(homeName, 'reserver').some((creep) => !isRetiring(creep.memory) && creep.memory.remoteRoom === roomName);
 }
@@ -1586,6 +1593,8 @@ function getDemands(home) {
             record.reserverTowerFirst = Game.time;
         } else if (reserveDue && reserverOnHold(home, record)) {
             record.reserverOnHold = Game.time;
+        } else if (reserveDue && reserverCapReached(home.name, record.room)) {
+            record.reserverCapped = Game.time;
         } else if (reserveDue && creepsHomeRole(home.name, 'reserver').some((creep) => !isRetiring(creep.memory) &&
                 creep.memory.remoteRoom === record.room && (creep.spawning || creep.ticksToLive > reserveLead) &&
                 bodyPartCount(creep.body, CLAIM_PART) >= reserveBody.filter((part) => part === CLAIM_PART).length)) {
@@ -1708,7 +1717,7 @@ function reserverHandoffs(home, demands, blockingTicks) {
     });
 }
 
-module.exports = {
+module.exports = { reserverCapReached,
     dropRoom,
     remoteWhitelist,
     canClearReservation,

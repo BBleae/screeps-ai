@@ -15322,6 +15322,67 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     Game.rooms = savedRooms; Memory.market = savedMem; Game.market = savedGM;
 }
 
+{
+    console.log('== 10-18 ⑤：W29S2 只归 W29S3；W29S7 reserver 最多 1 只；ZH2O 挂价跟最高买价；400 万档在 storage 24h 下降且当天已买 >150 万时停在 200 万 ==');
+    const mk = require('market');
+    const rm = require('remote');
+    assert(!liveRemoteAssign.W31S4.includes('W29S2') && liveRemoteAssign.W29S3.includes('W29S2'), 'W29S2 从 W31S4 去掉，只留 W29S3');
+    const savedCreeps = Game.creeps;
+    const rsv = (name) => ({ name, memory: { home: 'W31S6', role: 'reserver', remoteRoom: 'W29S7' }, body: [{ type: CLAIM }] });
+    Game.creeps = {};
+    world.creeps = {};
+    assert(config.remote.maxReservers.W29S7 === 1, 'config.remote.maxReservers.W29S7 = 1');
+    assert(rm.reserverCapReached('W31S6', 'W29S7') === false, '没有 reserver：可以孵');
+    world.creeps = { a: Object.assign(rsv('a'), { room: { name: 'W29S7' } }) };
+    Game.creeps = world.creeps;
+    const capped = rm.reserverCapReached('W31S6', 'W29S7');
+    assert(capped === true, '已有 1 只：不再孵第 2 只（得 ' + capped + '）');
+    world.creeps = {}; Game.creeps = savedCreeps;
+    const savedGM = Game.market, savedMem = Memory.market, savedRooms = Game.rooms;
+    const savedCfgMarket = config.market;
+    config.market = structuredClone(liveMarketCfg);
+    const base = mk.settings();
+    const changed = [], created = [];
+    let top = 2015;
+    const m = { credits: 9000000, orders: {},
+        getAllOrders: (f) => (f && f.resourceType === 'ZH2O' ? [{ price: top, amount: 5000 }] : []),
+        getHistory: () => [{ avgPrice: 2700 }, { avgPrice: 2700 }, { avgPrice: 2700 }, { avgPrice: 2700 }, { avgPrice: 2700 }],
+        createOrder: (o) => { created.push(o); m.orders.z1 = { id: 'z1', type: 'sell', resourceType: 'ZH2O', roomName: 'W34S7', remainingAmount: o.totalAmount, created: world.time, price: o.price }; return OK; },
+        changeOrderPrice: (id, p) => { changed.push(p); return OK; } };
+    Game.market = m;
+    Game.rooms = { W34S7: { name: 'W34S7', terminal: { my: true, store: { ZH2O: 60000, energy: 10000 } } } };
+    Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
+    const capCfg = Object.assign({}, base, { ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null }) });
+    mk.runOwnOrders(capCfg, m);
+    const feeCap = Math.floor(base.ownOrders.dailySellFeeCredits / (2015 * 0.05));
+    assert(created[0] && created[0].totalAmount === Math.min(5000, feeCap), '挂单费日上限照旧封顶数量（得 ' + (created[0] && created[0].totalAmount) + '）');
+    created.length = 0; delete m.orders.z1;
+    Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
+    const cfg = Object.assign({}, base, { ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, dailySellFeeCredits: 600000 }) });
+    mk.runOwnOrders(cfg, m);
+    assert(created[0] && created[0].price === 2015 && created[0].totalAmount === 5000, 'ZH2O 按最高买价 2015 挂（不再守 2704），一天 5000 个（得 ' + JSON.stringify(created[0]) + '）');
+    world.time += 600; top = 2300;
+    mk.runOwnOrders(cfg, m);
+    assert(changed.length === 1 && changed[0] === 2300 && created.length === 1, '最高买价变了：只 changeOrderPrice，不重挂');
+    world.time += 100; top = 2400;
+    mk.runOwnOrders(cfg, m);
+    assert(changed.length === 1, '500 tick 内不重复改价（控手续费）');
+    world.time += 600; top = 500;
+    mk.runOwnOrders(cfg, m);
+    assert(changed[1] === 1620, '最高买价崩到 500：按 5 日均价 × 0.6 = 1620 保底（得 ' + changed[1] + '）');
+    const e = config.market.ownOrders.energy;
+    Memory.market = { salesTrack: { credits: 2000000 }, ledger: { day: 1, energyBuyCredits: 1600000 }, storageTrack: [[1, Date.now() - 25 * 3600000, 900000], [2, Date.now(), 800000]] };
+    assert(mk.energyBuyCap(e) === 2000000, 'storage 24h 下降、当天已买 160 万：停在 200 万档');
+    Memory.market.storageTrack[1][2] = 950000;
+    assert(mk.energyBuyCap(e) === 4000000, 'storage 没降：照旧 400 万');
+    Memory.market.storageTrack[1][2] = 800000; Memory.market.ledger.energyBuyCredits = 1400000;
+    assert(mk.energyBuyCap(e) === 4000000, '当天买 140 万 < 150 万：照旧 400 万');
+    Memory.market.storageTrack = [[2, Date.now(), 800000]];
+    Memory.market.ledger.energyBuyCredits = 1600000;
+    assert(mk.energyBuyCap(e) === 4000000, '不足 24h 记录：判断不了下降，按原门槛');
+    Game.market = savedGM; Memory.market = savedMem; Game.rooms = savedRooms; config.market = savedCfgMarket;
+}
+
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');
 {
     resetWorld(6900);

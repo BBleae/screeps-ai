@@ -101,10 +101,54 @@ function soldCredits() {
     return t ? Number(t.credits) || 0 : 0;
 }
 
+function storageTotal() {
+    let total = 0;
+    for (const name in Game.rooms) {
+        const room = Game.rooms[name];
+        if (!room.controller || !room.controller.my) continue;
+        for (const holder of [room.storage, room.terminal]) {
+            if (holder && holder.my !== false && holder.store) total += Number(holder.store[ENERGY] || 0);
+        }
+    }
+    return total;
+}
+
+function trackStorage(every) {
+    const mem = Memory.market || (Memory.market = {});
+    const list = Array.isArray(mem.storageTrack) ? mem.storageTrack : (mem.storageTrack = []);
+    const last = list[list.length - 1];
+    if (last && Game.time - last[0] < (Number(every) || 500)) return list;
+    const now = Date.now();
+    list.push([Game.time, now, storageTotal()]);
+    while (list.length && now - list[0][1] > 30 * 3600000) list.shift();
+    return list;
+}
+
+function storageFalling(hours) {
+    const list = (Memory.market && Memory.market.storageTrack) || [];
+    if (list.length < 2) return null;
+    const span = (Number(hours) || 24) * 3600000;
+    const latest = list[list.length - 1];
+    let ref = null;
+    for (const row of list) { if (latest[1] - row[1] >= span) ref = row; else break; }
+    if (!ref) return null;
+    return latest[2] < ref[2];
+}
+
 function energyBuyCap(e) {
     const base = Number(e.dailyBuyCredits) || 0;
     const b = e.boost;
-    if (b && soldCredits() > (Number(b.soldCreditsAbove) || Infinity)) return Math.max(base, Number(b.dailyBuyCredits) || 0);
+    if (b && soldCredits() > (Number(b.soldCreditsAbove) || Infinity)) {
+        const hold = b.holdIfFalling;
+        if (hold) {
+            const spent = Number((Memory.market && Memory.market.ledger && Memory.market.ledger.energyBuyCredits) || 0);
+            if (spent > (Number(hold.spentAbove) || Infinity) && storageFalling(hold.hours) === true) {
+                Memory.market.boostHeld = { at: Game.time, spent };
+                return base;
+            }
+        }
+        return Math.max(base, Number(b.dailyBuyCredits) || 0);
+    }
     return base;
 }
 
@@ -530,7 +574,8 @@ function runDailyEnergy(cfg, market, e, names, price, budget, below, book) {
         const key = 'buy:' + n + ':' + ENERGY;
         const o = book[key];
         if (o) {
-            if (!o.daily || !o.id) continue;
+            if (!o.id) continue;
+            if (!o.daily) { o.daily = true; o.expires = Game.time + 10000000; }
             const left = Math.max(0, Number(o.left) || 0);
             if (o.day !== led.day) { chargeEnergy(led, budget, n, left * o.price); o.day = led.day; }
             if (price > 0 && Math.abs(price - o.price) >= step && typeof market.changeOrderPrice === 'function') {
@@ -653,19 +698,70 @@ function runOwnOrders(cfg, market) {
     }
     for (const s of own.sell || []) {
         const room = Game.rooms[s.room];
-        if (!room || !room.terminal || book['sell:' + s.room + ':' + s.resource]) continue;
+        if (!room || !room.terminal) continue;
+        const follow = (own.sellFollow || {})[s.resource];
+        const held = book['sell:' + s.room + ':' + s.resource];
+        if (held) {
+            if (follow && held.id) {
+                const r = repriceSell(cfg, market, held, s.resource, follow);
+                if (r) return r;
+            }
+            continue;
+        }
         const have = Number(room.terminal.store[s.resource] || 0);
         let amount = have - keepFor(s.resource, cfg);
         const cap = cfg.dailySellUnits && cfg.dailySellUnits[s.resource];
         if (cap != null) amount = Math.min(amount, Number(cap) - Number(sold[s.resource] || 0));
         const avg = recentAvgPrice(s.resource, cfg);
         if (avg == null) continue;
-        amount = Math.min(amount, Math.floor(((Number(own.dailySellFeeCredits) || 0) - (ledger().sellFees || 0)) / (avg * own.fee)));
+        const price = follow ? followSellPrice(cfg, market, s.resource, follow, avg) : avg;
+        if (!(price > 0)) continue;
+        amount = Math.min(amount, Math.floor(((Number(own.dailySellFeeCredits) || 0) - (ledger().sellFees || 0)) / (price * own.fee)));
         if (amount < cfg.minDeal) continue;
-        const r = postOrder(cfg, market, 'sell', s.resource, s.room, avg, Math.floor(amount));
+        const r = postOrder(cfg, market, 'sell', s.resource, s.room, price, Math.floor(amount));
         if (r) return r;
     }
     return null;
+}
+
+function followSellPrice(cfg, market, resource, follow, avg) {
+    let orders = [];
+    try { orders = market.getAllOrders({ type: BUY(), resourceType: resource }) || []; }
+    catch (error) { utils.logErr('market.sellFollow getAllOrders', error); orders = []; }
+    const top = orders.reduce((m, o) => (Number(o.amount) > 0 && o.price > m ? o.price : m), 0);
+    const base = avg != null ? avg : recentAvgPrice(resource, cfg);
+    const floor = base != null ? base * (Number(follow.floorShare) || 0.6) : 0;
+    const price = Math.max(top, floor);
+    const mem = Memory.market || (Memory.market = {});
+    const px = mem.sellFollow || (mem.sellFollow = {});
+    px[resource] = { at: Game.time, top, floor: Math.round(floor * 1000) / 1000, price: Math.round(price * 1000) / 1000 };
+    return price;
+}
+
+function repriceSell(cfg, market, o, resource, follow) {
+    if (typeof market.changeOrderPrice !== 'function') return null;
+    const every = Math.max(100, Number(follow.everyTicks) || 500);
+    if (Game.time - Number(o.repricedAt || o.posted || 0) < every) return null;
+    o.repricedAt = Game.time;
+    const price = followSellPrice(cfg, market, resource, follow, null);
+    if (!(price > 0) || !(o.price > 0)) return null;
+    const step = Number(follow.step) || 0.02;
+    if (Math.abs(price - o.price) / o.price < step) return null;
+    const own = ownSettings(cfg);
+    const led = ledger();
+    const left = Math.max(0, Number(o.left) || 0);
+    const fee = Math.max(0, price - o.price) * left * (Number(own.fee) || 0.05);
+    if ((led.sellFees || 0) + fee > (Number(own.dailySellFeeCredits) || 0)) return null;
+    const ret = market.changeOrderPrice(o.id, Math.round(price * 1000) / 1000);
+    const rec = { at: Game.time, type: 'reprice', resource, room: o.room, from: o.price, price, left, fee: Math.round(fee), result: ret };
+    Memory.market.lastReprice = rec;
+    if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
+        o.price = price;
+        led.sellFees = Math.round((led.sellFees || 0) + fee);
+        led.fees = Math.round((led.fees || 0) + fee);
+        led.reprices = (led.reprices || 0) + 1;
+    }
+    return rec;
 }
 
 function buyMilitaryBoosts(cfg, market) {
@@ -717,6 +813,7 @@ function run(shed) {
     if (!market || typeof market.deal !== 'function' || typeof market.getAllOrders !== 'function') return null;
     cfg.energyPrice = energyPriceNow(cfg);
     try { salesTrack(cfg, market); } catch (error) { utils.logErr('market.salesTrack', error); }
+    try { trackStorage(500); } catch (error) { utils.logErr('market.trackStorage', error); }
     const tickBudget = Number(cfg.tickCpuBudget) || 0;
     const tickT0 = Game.cpu.getUsed();
     const overBudget = () => tickBudget > 0 && (Game.cpu.getUsed() - tickT0) >= tickBudget;
@@ -769,4 +866,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { run, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
+module.exports = { run, storageFalling, trackStorage, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
