@@ -460,7 +460,7 @@ module.exports = {
         minEffective: { H: 450 },
         minBucket: 5000,
         maxScans: 3,
-        tickCpuBudget: 5,
+        tickCpuBudget: 15,
         priceBand: 0.15,
         anyRoom: true,
         keepBy: {
