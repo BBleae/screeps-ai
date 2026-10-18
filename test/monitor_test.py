@@ -103,7 +103,6 @@ class MonitorAnalysisTest(unittest.TestCase):
         self.assertFalse(any('轮子' in text for text in issues), issues)
 
     def test_upgrade_cap_missing_only_alerts_with_competing_demand(self):
-        # 2026-09-11 起限流只在有竞争需求时生效：吃紧但最近 300 tick 没有竞争需求时 cap 为空是设计行为
         room = room_snapshot(100, 0)
         room['plan'] = {'version': 'wheel-layout-2.1.0', 'wheel': True, 'error': None}
         room['upgrade'] = {'at': 1000, 'low': True, 'cap': None, 'work': 24, 'duty': 1}
@@ -114,8 +113,6 @@ class MonitorAnalysisTest(unittest.TestCase):
         room['upgradeCompete'] = {'at': 950, 'why': 'backlog', 'free': None}
         issues = monitor.analyze_snapshot(snapshot, [])['issues']
         self.assertTrue(any('取能上限' in text and 'backlog' in text for text in issues), issues)
-        # Live W34S7: budget was sampled before a newer competing-demand event.
-        # That event cannot prove the older unlimited decision was incorrect.
         snapshot['t'] = 1020
         room['upgradeCompete'] = {'at': 1020, 'why': 'unfull', 'free': {'at': 1001, 'n': 40}}
         issues = monitor.analyze_snapshot(snapshot, [])['issues']
@@ -136,23 +133,17 @@ class MonitorAnalysisTest(unittest.TestCase):
         base = {'t': 1000, 'rooms': [], 'creeps': [], 'hostiles': 0, 'armedHostiles': 0,
                 'errN': 0, 'cpu': 2, 'cpuLimit': 140, 'bucket': 5000}
         now_ms = time.time() * 1000
-        # 键不存在 = 旧 schema 的历史快照，不报
         self.assertEqual(monitor.analyze_snapshot(dict(base), [])['issues'], [])
-        # 键在而值为 null：外脑从没写过
         issues = monitor.analyze_snapshot(dict(base, brain=None), [])['issues']
         self.assertTrue(any('外脑指令缺失' in text for text in issues), issues)
-        # 新鲜指令：不报
         fresh = {'issuedAt': now_ms - 60 * 1000, 'ttlMs': 1800000, 'stale': False, 'ackTick': 10, 'rooms': 3}
         self.assertEqual(monitor.analyze_snapshot(dict(base, brain=fresh), [])['issues'], [])
-        # 超过提示阈值
         warn = dict(fresh, issuedAt=now_ms - (monitor.THRESHOLDS['brain_age_warn_min'] + 5) * 60 * 1000)
         issues = monitor.analyze_snapshot(dict(base, brain=warn), [])['issues']
         self.assertTrue(any('没写入' in text and '宽限' not in text for text in issues), issues)
-        # 超过告警阈值：提示接近 6 小时宽限
         alert = dict(fresh, issuedAt=now_ms - (monitor.THRESHOLDS['brain_age_alert_min'] + 5) * 60 * 1000)
         issues = monitor.analyze_snapshot(dict(base, brain=alert), [])['issues']
         self.assertTrue(any('宽限' in text for text in issues), issues)
-        # stale 标记：游戏内已经在宽限里沿用
         issues = monitor.analyze_snapshot(dict(base, brain=dict(fresh, stale=True)), [])['issues']
         self.assertTrue(any('宽限内沿用' in text for text in issues), issues)
 
@@ -497,7 +488,6 @@ class MonitorAnalysisTest(unittest.TestCase):
         self.assertTrue(any('硬停 +3' in text for text in fresh['issues']), fresh['issues'])
         same = monitor.analyze_snapshot(snapshot(1100, {'n': 2, 'at': 900, 'cut': 3}), history)
         self.assertFalse(any('硬停' in text for text in same['issues']))
-        # 旧 schema 的上一样本没有 hardStop 键：不把累计次数当新增
         old = monitor.analyze_snapshot(snapshot(1100, {'n': 5, 'at': 1090, 'cut': 7}), [{'mon': snapshot(1000, False)}])
         self.assertFalse(any('硬停' in text for text in old['issues']))
 
@@ -535,7 +525,6 @@ class MonitorAnalysisTest(unittest.TestCase):
         self.assertTrue(any('口袋里困着的 creep 回收 +1' in t for t in texts), texts)
         self.assertTrue(any('无法让路 +1' in t for t in texts), texts)
         self.assertTrue(any('孵进了出生口袋 +1' in t for t in texts), texts)
-        # 正常让路不报警（vacate 次数增长是常态）
         self.assertFalse(any('非口袋方向' in t for t in texts), texts)
         quiet = monitor.analyze_snapshot(snapshot(1200, cur), [{'mon': snapshot(1100, cur)}])
         self.assertFalse(any('口袋' in t or '让路' in t for t in quiet['issues']), quiet['issues'])
@@ -638,9 +627,6 @@ class RemoteStaffingTest(unittest.TestCase):
 
 
 class CpuAlertTest(unittest.TestCase):
-    """2026-09-06 23:13 巡检：cpu=176.6/140 报"CPU 用量过高"，但引擎允许单 tick 用到 tickLimit（500），
-    超出 limit 的部分从 bucket 支取；当时 bucket 正常轮转（10000 → generatePixel → 回满），是净富余而非缺 CPU。
-    只有"付不起"才算异常：bucket 已经低，或单 tick 逼近 tickLimit（真会被引擎打断）。"""
 
     def _snapshot(self, cpu, bucket, tick_limit=500):
         return {'t': 1000, 'rooms': [], 'creeps': [], 'hostiles': 0, 'armedHostiles': 0, 'errN': 0,
@@ -667,8 +653,6 @@ class CpuAlertTest(unittest.TestCase):
 
 
 class AlertNoiseTest(unittest.TestCase):
-    """2026-09-05：三条误导过一轮巡检的告警。storage 供能的房控制器容器本来就不喂；
-    武装敌人告警不说在哪个房；速率回退基线取最近 6 轮的最大值，一次尖峰就让后面 6 轮全报回退。"""
 
     def _room(self, tick, ctrl_energy, ctrl_feed=None, prog=None):
         room = room_snapshot(100, 0)
@@ -702,7 +686,6 @@ class AlertNoiseTest(unittest.TestCase):
         with contextlib.redirect_stdout(buf):
             monitor.print_summary(entry)
         self.assertIn('ctrl容器=0/2000(供能=storage)', buf.getvalue())
-        # ctrlFeed 为空（容器供能，或旧探针没有该字段）仍照常告警
         legacy = monitor.analyze_snapshot(self._room(1400, 0), [{'mon': self._room(1000, 0)}])
         self.assertTrue(any('供能容器两次采样为空' in text for text in legacy['issues']))
 
@@ -728,7 +711,6 @@ class AlertNoiseTest(unittest.TestCase):
         self.assertIn('W34S5×1', armed[0])
 
     def test_rate_regression_baseline_ignores_a_single_spike(self):
-        # 每 100 tick 一轮：平时 7/tick，第 5 轮一次 30/tick 的尖峰，本轮又回到 7/tick
         history = []
         prog = 0
         rates = [7, 7, 7, 7, 30, 7]
@@ -745,7 +727,6 @@ class AlertNoiseTest(unittest.TestCase):
         self.assertTrue(any('升级速率回退' in text for text in dropped['issues']), '3/tick < 7/tick 的 80% 仍要报')
 
     def test_rate_regression_skips_rooms_capped_on_purpose(self):
-        # 攒能房：基线 20/tick，升级者被封顶到 12 WORK 后速率 12/tick，不算回退；低于封顶的 80% 仍要报
         history = []
         prog = 0
         history.append({'mon': self._room(1000, 500, None, prog)})
@@ -777,7 +758,6 @@ class StatusLogTrimTest(unittest.TestCase):
                 return [json.loads(line)['i'] for line in f]
 
     def test_trims_by_bytes_not_only_by_entry_count(self):
-        # 每条约 1.3 KB、上限 4 KB（放得下 3 条）、条数上限 1000：只按条数裁剪会一条都不删
         kept = self._write(10, 1300, 4096, 1000)
         self.assertEqual(kept, [7, 8, 9], '字节预算内只留最新的几条，且顺序不变')
 
@@ -791,7 +771,6 @@ class StatusLogTrimTest(unittest.TestCase):
 
 
 class ExitCodeTest(unittest.TestCase):
-    """退出码：1 只给本轮新增/升级，长期已知事件为 0，采集失败为 2。"""
 
     def mon(self, t, energy=50):
         room = room_snapshot(0, 0)
@@ -819,18 +798,13 @@ class ExitCodeTest(unittest.TestCase):
 
     def test_exit_codes_follow_sample_alerts_not_open_count(self):
         with tempfile.TemporaryDirectory() as tmp:
-            # 第一次见到供需错位：新增 → 1
             self.assertEqual(self.run_main(tmp, [self.mon(1000, energy=0)]), 1)
-            # 同一事件再见一次（未升级）：长期已知 → 0，即使账本里仍有未结事件
             self.assertEqual(self.run_main(tmp, [self.mon(1010, energy=0)]), 0)
             with open(os.path.join(tmp, 'logs', 'monitor-incidents.json')) as f:
                 self.assertGreater(json.load(f)['summary']['open'], 0)
-            # 第三次不同 tick：升级 → 1；之后保持 escalated → 0
             self.assertEqual(self.run_main(tmp, [self.mon(1020, energy=0)]), 1)
             self.assertEqual(self.run_main(tmp, [self.mon(1030, energy=0)]), 0)
-            # 采集失败 → 2，不改变事件
             self.assertEqual(self.run_main(tmp, [RuntimeError('timeout')]), 2)
-            # 多样本：都是已知事件 → 0；任一样本出现新增 → 1
             self.assertEqual(self.run_main(tmp, [self.mon(1040, energy=0), self.mon(1050, energy=0)],
                                            ['--samples', '2']), 0)
             drained = self.mon(1070, energy=0); drained['bucket'] = 500
@@ -839,30 +813,24 @@ class ExitCodeTest(unittest.TestCase):
 
     def test_cron_run_does_not_spend_alerts_meant_for_heartbeat(self):
         with tempfile.TemporaryDirectory() as tmp:
-            # cron（--no-ack）先看到新增：记账、退出 1，但不确认
             self.assertEqual(self.run_main(tmp, [self.mon(1000, energy=0)], ['--no-ack']), 1)
-            # 下一次 cron 没有新情况：告警仍未确认 → 仍是 1
             self.assertEqual(self.run_main(tmp, [self.mon(1010, energy=0)], ['--no-ack']), 1)
             with open(os.path.join(tmp, 'logs', 'monitor-incidents.json')) as f:
                 state = json.load(f)
             self.assertEqual(len(state['pendingAlerts']), 1, '同一事件同一原因只留一条')
             self.assertEqual(state['pendingAlerts'][0]['firstTick'], 1000)
             self.assertEqual(state['pendingAlerts'][0]['reason'], 'new')
-            # 心跳（默认确认）这次的样本恰是第 3 次观察（升级），连同 cron 先看到的新增一并报出并确认
             self.assertEqual(self.run_main(tmp, [self.mon(1015, energy=0)], ['--samples', '1']), 1)
-            # 确认后再跑：没有新情况 → 0
             self.assertEqual(self.run_main(tmp, [self.mon(1016, energy=0)]), 0)
             with open(os.path.join(tmp, 'logs', 'monitor-incidents.json')) as f:
                 state = json.load(f)
             self.assertEqual(state['pendingAlerts'], [])
-            self.assertEqual(state['lastAck']['alerts'], 2)  # new（cron 看到）+ escalated（心跳看到）
+            self.assertEqual(state['lastAck']['alerts'], 2)
 
     def test_failed_sample_keeps_earlier_alerts_pending(self):
         with tempfile.TemporaryDirectory() as tmp:
-            # 第 1 个样本出新增、第 2 个样本采集失败：本次退出 2，但告警不能随之丢失
             self.assertEqual(self.run_main(tmp, [self.mon(1000, energy=0), RuntimeError('timeout')],
                                            ['--samples', '2']), 2)
-            # 第 2 次观察本身不产生告警（未到升级），退出 1 全靠失败前留下的 pending；成功后才确认
             self.assertEqual(self.run_main(tmp, [self.mon(1010, energy=0)]), 1)
             with open(os.path.join(tmp, 'logs', 'monitor-incidents.json')) as f:
                 state = json.load(f)
