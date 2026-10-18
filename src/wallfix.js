@@ -65,7 +65,7 @@ function eligible(creep, room) {
     if (!creep || creep.spawning || !room) return false;
     if (creep.memory.home !== room.name) return false;
     if (skipRoles().includes(creep.memory.role)) return false;
-    return bodyHas(creep, WORK) && bodyHas(creep, CARRY);
+    return bodyHas(creep, WORK) && bodyHas(creep, CARRY) && mobile(creep);
 }
 
 function mobile(creep) {

@@ -15299,6 +15299,9 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     assert(wf.run(up) === false && !Memory.rooms.W37S7.wallFixOn, '都到 3 万：关闸，回去升级');
     a.hits = 29700; world.time += 1;
     assert(wf.run(up) === false, '自然衰减到 2.97 万不再追着修');
+    a.hits = 1000; world.time += 1; repaired.length = 0;
+    const slow = Object.assign({}, up, { name: 'slowH', memory: { home: 'W37S7', role: 'upgrader' }, body: [WORK, WORK, WORK, WORK, WORK, WORK, WORK, WORK, CARRY, CARRY, MOVE].map((t) => ({ type: t, hits: 100 })) });
+    assert(wf.run(slow) === false && repaired.length === 0, '只有 1 MOVE 的重型 upgrader 不被拉去修墙（needsWorker 里也不算它）');
     delete Memory.rooms.W37S7;
     Game.creeps = savedCreeps; world.time = savedTime;
 }
