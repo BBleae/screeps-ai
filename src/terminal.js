@@ -1,30 +1,9 @@
 'use strict';
-/**
- * 终端网络：把能量从富裕的己方房瞬时送到饥饿的己方房（移植 overmind-absorb 2214dcc，Overmind 的 TerminalNetwork.equalize）。
- *
- * 为什么需要它：跨房搬能量原本只有 courier —— 一只 creep 走过去、卸货、走回来，距离一远就几乎不产出。
- * terminal 之间是瞬时传送，代价是按距离折算的能量（Game.market.calcTransactionCost），远比走路便宜。
- *
- * 保守规则（宁可不发，也不把发送方掏空）：
- *   - 每 interval tick 只做一笔：找"最富的发送方"与"最饿的接收方"
- *   - 发送方：storageRich 滞回开着、storage+terminal ≥ sendAbove，发出后自己仍 ≥ keep；terminal 里留 feeReserve 给市场传送费
- *   - 接收方：storage+terminal ≤ receiveBelow，且 terminal 有空位
- *   - 传送本身要烧能量，低于 minSend 的小单不发
- * 接收方 terminal 里的能量由 hauler 取出（task_broker 的 terminal 取货：只在 storage 不富余时，与补能互斥）。
- * CPU：bucket 降载（cpu_shed）中、或 bucket < minBucket 时整轮跳过；本 tick 已被市场用过的 terminal 不再发。
- *
- * 矿物调剂（移植 overmind-absorb 019c5b1）：一个房只有一种矿脉，而任何反应都要两种输入——没有调剂，industry 的反应链
- * 对绝大多数房永远卡在「缺基础矿」那一支。能量这一轮没有要发的才轮到它，一轮仍只做一笔：某房 terminal 里某种基础矿
- * 超过 mineralKeep + mineralWant 是余量，有 lab（≥ mineralLabs 个）的房这种矿不足 mineralWant 是缺口。
- * 只调基础矿（H/O/Z/K/U/L/X）——化合物跟着做它的房走。遥测 Memory.terminalNetwork.mineral {last, sent, amount}。
- * 全部阈值在 config.terminalNetwork。
- */
 const config = require('config');
 const utils = require('utils');
 
 const RESOURCE = typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy';
 
-// 本 tick 已经发过意图的 terminal（同一 terminal 一 tick 只能 send/deal 一次，引擎会让后一个失败）
 const usedTick = { time: -1, rooms: {} };
 function markUsed(roomName) {
     if (usedTick.time !== Game.time) { usedTick.time = Game.time; usedTick.rooms = {}; }
@@ -65,13 +44,11 @@ function freeOf(store) {
     return 0;
 }
 
-/** 房间的能量家底：storage + terminal（两者都算，决定谁富谁饿） */
 function roomEnergy(room) {
     return energyOf(room.storage && room.storage.my !== false && room.storage.store) +
         energyOf(room.terminal && room.terminal.my !== false && room.terminal.store);
 }
 
-/** 有己方 terminal 的己方房 */
 function terminalRooms() {
     const out = [];
     for (const name of Object.keys(Game.rooms)) {
@@ -86,20 +63,16 @@ function terminalRooms() {
 
 function transactionCost(amount, from, to) {
     const market = typeof Game !== 'undefined' && Game.market;
-    if (!market || typeof market.calcTransactionCost !== 'function') return Math.ceil(amount * 0.1);   // 单测缺 market 时的保守估计
+    if (!market || typeof market.calcTransactionCost !== 'function') return Math.ceil(amount * 0.1);
     return market.calcTransactionCost(amount, from, to);
 }
 
-/** bucket 降载中、硬停过、或 bucket 太低：不做（跨房均衡不急，一轮都不值得冒险） */
 function cpuAllows(cfg, shed) {
     if (shed && (shed.active || shed.stopped)) return false;
     const bucket = typeof Game !== 'undefined' && Game.cpu ? Game.cpu.bucket : undefined;
     return !(typeof bucket === 'number' && bucket < Number(cfg.minBucket || 0));
 }
 
-/** 这一轮该做的那笔转账；没有合适的组合返回 null（纯函数，便于单测）。isRich(room) = 发送方的 storageRich 滞回状态 */
-/** 救急：priorityReceivers 里能量（storage+terminal）< starvingBelow 的房按名单顺序先救；发送方门槛降到 starveSendAbove、
- *  发完自己留 starveKeep（2026-10-14：全账号没有一个房够 sendAbove 10 万，W31S8 等房 storage 归零、外矿 hauler 孵不出来） */
 function feeReserveOf(room) {
     const map = (config.terminalNetwork || {}).terminalFeeReserve;
     return Math.max(0, Number(map && map[room.name]) || 0);
@@ -120,7 +93,6 @@ function planStarving(rooms, cfg, rich) {
     for (const name of order) {
         const to = byName[name];
         const until = Math.max(below, Number(cfg.starvingUntil && cfg.starvingUntil[name]) || 0);
-        // RCL8 升级上限 15/tick，不再当冲级接收方（战略：升 8 后不要加进名单）
         if (!to || (to.controller && to.controller.level >= 8) || roomEnergy(to) >= until || freeOf(to.terminal.store) <= 0) continue;
         for (const from of senders) {
             const spare = roomEnergy(from) - keep - feeReserveOf(from);
@@ -132,7 +104,6 @@ function planStarving(rooms, cfg, rich) {
                 if (amount <= 0) break;
                 cost = transactionCost(amount, from.name, to.name);
             }
-            // 10-16 战略猫：starvingUntil 里的房救急期间单笔下限降到 starveMinSend（2000）；回到门槛以上就不走这条，自动恢复 minSend
             const minSend = until > below ? Math.min(cfg.minSend, Number(cfg.starveMinSend) || cfg.minSend) : cfg.minSend;
             if (amount < minSend) continue;
             return { from, to, amount, cost, starving: true };
@@ -146,7 +117,6 @@ function feeReserve(room, cfg) {
     return Math.max(0, Number(map && map[room.name]) || 0);
 }
 
-/** 传送费储备房（排在救急之后）：terminal 能量 < 储备一半、且 storage 自己补不上（≤ feeReserveStorageFloor + 缺口）时，按救急的发送方规则送到储备线 */
 function planFeeReserve(rooms, cfg, rich) {
     const map = cfg.terminalFeeReserve;
     if (!map) return null;
@@ -160,7 +130,7 @@ function planFeeReserve(rooms, cfg, rich) {
         const have = energyOf(to.terminal.store);
         if (have >= fee / 2) continue;
         const storageE = to.storage && to.storage.store ? energyOf(to.storage.store) : 0;
-        if (storageE > floor + (fee - have)) continue;   // 本房 hauler 补得上
+        if (storageE > floor + (fee - have)) continue;
         for (const from of rooms) {
             if (from.name === to.name || roomEnergy(from) < sendAbove || from.terminal.cooldown > 0 || usedThisTick(from.name) || !rich(from)) continue;
             const budget = energyOf(from.terminal.store) - Math.max(feeKeep, feeReserve(from, cfg));
@@ -174,8 +144,6 @@ function planFeeReserve(rooms, cfg, rich) {
     return null;
 }
 
-
-/** 10-16 战略：名单内囤能房（达不到 sendAbove 10 万）把超额送给 priorityReceivers，发完留 keep */
 function planHoardFlush(rooms, cfg, rich) {
     const hf = cfg.hoardFlush || {};
     const names = Array.isArray(hf.rooms) ? hf.rooms : [];
@@ -192,12 +160,11 @@ function planHoardFlush(rooms, cfg, rich) {
         !(room.terminal.cooldown > 0) && !usedThisTick(room.name) &&
         energyOf(room.terminal.store) > feeReserve && rich(room));
     if (!senders.length) return null;
-    // 接收：优先名单里还没到 RCL8、且能量低于 sendAbove 的房（冲升级）；再退到 receiveBelow
     const want = [];
     for (const name of order) {
         const to = byName[name];
         if (!to || freeOf(to.terminal.store) <= 0) continue;
-        if (to.controller && to.controller.level >= 8) continue;   // RCL8 不加进接收优先
+        if (to.controller && to.controller.level >= 8) continue;
         want.push(to);
     }
     for (const to of rooms) {
@@ -242,7 +209,6 @@ function planTransfer(rooms, cfg, isRich) {
             if (to.name === from.name) continue;
             const spare = roomEnergy(from) - cfg.keep - feeReserveOf(from);
             if (spare <= 0) continue;
-            // 传送的能量与传送费都从 terminal 里出，且留 feeReserve 给市场（有传送费储备的房留储备）
             const budget = energyOf(from.terminal.store) - Math.max(feeReserve, feeReserveOf(from));
             let amount = Math.min(spare, cfg.maxSend, freeOf(to.terminal.store), budget);
             let cost = transactionCost(amount, from.name, to.name);
@@ -265,7 +231,6 @@ function labsOf(room) {
     return room.find(kind, { filter: (s) => s.structureType === lab }) || [];
 }
 
-/** 某房某种矿的家底：terminal + storage + lab 里装着的（装进 lab 的还没用掉，不算缺口） */
 function mineralHave(room, labs, mineral) {
     let sum = 0;
     for (const holder of [room.terminal, room.storage]) {
@@ -275,15 +240,12 @@ function mineralHave(room, labs, mineral) {
     return sum;
 }
 
-/** 按矿种的缺口目标：cfg.mineralWantByResource[矿] 覆盖全局 mineralWant（10-17 战略：O→3000 给 lab 房） */
 function mineralWantFor(cfg, mineral) {
     const by = cfg.mineralWantByResource;
     const v = by && Number(by[mineral]);
     return v > 0 ? v : Math.max(1, Number(cfg.mineralWant) || 1000);
 }
 
-/** 10-17 战略：按房的自留量（config.terminalNetwork.mineralKeepByRoom[房]），没配就用全局 mineralKeep。
- *  纯外发房（W35S7 没有 lab，O 只用来外发）设 0：发送门槛降到 want、且能把 O 发到接近 0，不自留 */
 function mineralKeepFor(cfg, roomName) {
     const by = cfg.mineralKeepByRoom;
     if (by && Object.prototype.hasOwnProperty.call(by, roomName)) {
@@ -293,14 +255,12 @@ function mineralKeepFor(cfg, roomName) {
     return Math.max(0, Number(cfg.mineralKeep) || 0);
 }
 
-/** 缺口房：有 lab（≥ mineralLabs 个）才消费矿物；没 lab 的房调过去也只是躺着 */
 function mineralShort(rooms, cfg) {
     const minLabs = Math.max(1, Number(cfg.mineralLabs) || 3);
     const out = {};
     for (const room of rooms) {
         const labs = labsOf(room);
         if (labs.length < minLabs) continue;
-        // 配了 labRooms 时只往这些房调基础矿（反应只在那里跑）
         const labRooms = config.industry && config.industry.labRooms;
         if (Array.isArray(labRooms) && labRooms.indexOf(room.name) < 0) continue;
         for (const mineral of cfg.minerals || []) {
@@ -312,7 +272,6 @@ function mineralShort(rooms, cfg) {
     return out;
 }
 
-/** 这一轮该做的那笔矿物调剂；没有返回 null（纯函数，便于单测） */
 function planMineralTransfer(rooms, cfg) {
     const maxSend = Math.max(1, Number(cfg.mineralMaxSend) || 2000);
     const short = mineralShort(rooms, cfg);
@@ -329,9 +288,7 @@ function planMineralTransfer(rooms, cfg) {
                 const to = entry.room;
                 if (to.name === from.name) continue;
                 const amount = Math.min(Number(from.terminal.store[mineral] || 0) - keep, maxSend, freeOf(to.terminal.store));
-                // 一笔下限：目标与单笔上限的较小者（O want 3000 > maxSend 2000 时按 2000，分批补到 3000）
                 if (amount < Math.min(want, maxSend)) continue;
-                // 传送费从发送方 terminal 的能量里出
                 const cost = transactionCost(amount, from.name, to.name);
                 if (cost > energyOf(from.terminal.store)) continue;
                 return { from, to, amount, cost, resource: mineral };
@@ -341,7 +298,6 @@ function planMineralTransfer(rooms, cfg) {
     return null;
 }
 
-/** 有 lab 的己方房缺着的基础矿（市场不卖它们：卖掉的正是别的房反应要调剂的那份） */
 function mineralHolds(rooms, cfg) {
     return new Set(Object.keys(mineralShort(rooms || terminalRooms(), cfg || settings())));
 }
@@ -411,7 +367,6 @@ function run(shed) {
     return record;
 }
 
-/** 能量没有要发的：看矿物（反应要两种输入，一个房只产一种矿） */
 function runMineral(rooms, cfg) {
     let plan = null;
     try { plan = planMineralTransfer(rooms, cfg); } catch (error) { utils.logErr('terminal.planMineral', error); return null; }
