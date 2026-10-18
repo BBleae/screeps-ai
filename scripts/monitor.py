@@ -375,6 +375,7 @@ PROBE = r"""
           };
         })(),
         upgrade: mem.upgradeBudget || null,
+        upgradeHold: mem.upgradeHold ? { on: !!mem.upgradeHold.on, guard: !!mem.upgradeHold.guard, at: mem.upgradeHold.at } : null,
         upgraderLeg: mem.upgraderLeg || null,
         linkRelief: mem.linkRelief ? { at: mem.linkRelief.at, n: mem.linkRelief.n,
           x: mem.linkRelief.x, y: mem.linkRelief.y } : null,
@@ -687,10 +688,12 @@ def critical_floors(room):
         stable_harvesters = max(1, len(room.get('sources') or []) or 1)
     recovering = bool(state.get('recovering'))
     rcl = room.get('rcl') or 0
+    hold = room.get('upgradeHold') if isinstance(room.get('upgradeHold'), dict) else {}
+    held = bool(hold.get('on')) and not hold.get('guard')
     return {
         'harvester': max(1, stable_harvesters),
         'hauler': 1 if rcl >= 2 else 0,
-        'upgrader': 0 if recovering else (1 if rcl >= 2 else 0),
+        'upgrader': 0 if recovering or held else (1 if rcl >= 2 else 0),
     }
 
 

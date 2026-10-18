@@ -541,8 +541,17 @@ class MonitorAnalysisTest(unittest.TestCase):
         self.assertFalse(any('口袋' in t or '让路' in t for t in quiet['issues']), quiet['issues'])
 
 
-if __name__ == '__main__':
-    unittest.main()
+class UpgradeHoldFloorTest(unittest.TestCase):
+    def test_upgrader_floor_respects_upgrade_hold(self):
+        base = {'rcl': 7, 'state': {'stableHarvesters': 2, 'recovering': False}, 'sources': [{}, {}]}
+        self.assertEqual(monitor.critical_floors(base)['upgrader'], 1)
+        held = dict(base, upgradeHold={'on': True, 'guard': False})
+        self.assertEqual(monitor.critical_floors(held)['upgrader'], 0)
+        guarded = dict(base, upgradeHold={'on': True, 'guard': True})
+        self.assertEqual(monitor.critical_floors(guarded)['upgrader'], 1)
+        released = dict(base, upgradeHold={'on': False, 'guard': False})
+        self.assertEqual(monitor.critical_floors(released)['upgrader'], 1)
+
 
 
 class BootstrapRoomTest(unittest.TestCase):
@@ -885,3 +894,7 @@ class DeployVersionTest(unittest.TestCase):
         self.assertTrue(any('比上一样本旧' in text for text in back['issues']))
         missing = monitor.analyze_snapshot(self.mon(None), [{'mon': self.mon(1790987175590)}])
         self.assertTrue(any('SCRIPT_VERSION 缺失' in text for text in missing['issues']))
+
+
+if __name__ == '__main__':
+    unittest.main()
