@@ -14,6 +14,17 @@ function targetHits() {
     return v > 0 ? v : 30000;
 }
 
+function fillHits() {
+    const v = Number(settings().fill);
+    return v > 0 ? Math.max(v, targetHits()) : targetHits() + 2000;
+}
+
+function releaseHits() {
+    const v = Number(settings().release);
+    const t = triggerHits();
+    return v > 0 ? Math.min(Math.max(v, t), targetHits()) : Math.round((t + targetHits()) / 2);
+}
+
 function triggerHits() {
     const v = Number(settings().trigger);
     return v > 0 ? Math.min(v, targetHits()) : targetHits();
@@ -28,7 +39,11 @@ function activeRamparts(room) {
         if (mem.wallFixOn) delete mem.wallFixOn;
         return list;
     }
-    if (mem.wallFixOn) return list;
+    if (mem.wallFixOn) {
+        if (list[0].hits < releaseHits()) return list;
+        delete mem.wallFixOn;
+        return [];
+    }
     if (list[0].hits >= triggerHits()) return [];
     mem.wallFixOn = Game.time;
     return list;
@@ -38,17 +53,18 @@ function enabled() {
     return settings().enabled !== false;
 }
 
-function lowRamparts(room) {
+function lowRamparts(room, cap) {
     if (!room || typeof room.find !== 'function') return [];
     if (cache.t !== Game.time) { cache.t = Game.time; cache.rooms = {}; }
-    const hit = cache.rooms[room.name];
+    const limit = cap > 0 ? cap : targetHits();
+    const key = room.name + ':' + limit;
+    const hit = cache.rooms[key];
     if (hit && hit.room === room) return hit.list;
-    const limit = targetHits();
     const list = room.controller && room.controller.my
         ? room.find(FIND_STRUCTURES).filter((s) => s.structureType === STRUCTURE_RAMPART && s.my !== false && s.hits < limit && s.hits < s.hitsMax)
             .sort((a, b) => a.hits - b.hits)
         : [];
-    cache.rooms[room.name] = { room, list };
+    cache.rooms[key] = { room, list };
     return list;
 }
 
@@ -182,6 +198,7 @@ function run(creep) {
     const list = activeRamparts(room);
     if (!list.length) {
         if (creep.memory.wallFix) delete creep.memory.wallFix;
+        if (creep.memory.wallFixId) delete creep.memory.wallFixId;
         return fixRoads(creep, room);
     }
     const energy = creep.store[RESOURCE_ENERGY] || 0;
@@ -190,10 +207,12 @@ function run(creep) {
     if (creep.memory.wallFix === 'get') { gather(creep, room); return true; }
     const band = list.filter((r) => r.hits <= list[0].hits + 5000);
     const range = (r) => Math.max(Math.abs(r.pos.x - creep.pos.x), Math.abs(r.pos.y - creep.pos.y));
-    const target = band.reduce((best, r) => (range(r) < range(best) ? r : best), band[0]);
+    const keep = creep.memory.wallFixId ? lowRamparts(room, fillHits()).find((r) => r.id === creep.memory.wallFixId) : null;
+    const target = keep || band.reduce((best, r) => (range(r) < range(best) ? r : best), band[0]);
+    creep.memory.wallFixId = target.id;
     if (!creep.pos.inRangeTo(target, 3)) { movement.go(creep, target.pos, { range: 3, reusePath: 10 }); return true; }
     if (creep.repair(target) === OK) note(room, creep, target);
     return true;
 }
 
-module.exports = { run, lowRamparts, activeRamparts, needsWorker, eligible, targetHits, triggerHits, roadTargets };
+module.exports = { run, lowRamparts, activeRamparts, needsWorker, eligible, targetHits, triggerHits, fillHits, releaseHits, roadTargets };

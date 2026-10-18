@@ -15274,7 +15274,7 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
 }
 
 {
-    console.log('== 10-18 12:50 wallfix 迟滞：最低的 rampart 掉到 2.5 万以下才开修，开修后全部补到 3 万再停 ==');
+    console.log('== 10-18 wallfix 迟滞：最低的 rampart 掉到 2.5 万以下才开修，每面补到 3.2 万，最低的过 2.75 万就停 ==');
     const wf = require('wallfix');
     const savedCreeps = Game.creeps, savedTime = world.time;
     world.time += 13;
@@ -15291,12 +15291,15 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     assert(wf.run(up) === false && !Memory.rooms.W37S7.wallFixOn, '2.9 万的 rampart 不触发：upgrader 继续升级');
     Game.creeps = {};
     assert(wf.needsWorker(room) === false, '没触发时不额外孵 builder');
-    a.hits = 24900; world.time += 1;
+    a.hits = 24900; b.hits = 26000; world.time += 1;
     assert(wf.run(up) === true && repaired[0] === a.id && Memory.rooms.W37S7.wallFixOn, '掉到 2.5 万以下：开修');
     a.hits = 30000; world.time += 1; repaired.length = 0;
-    assert(wf.run(up) === true && repaired[0] === b.id, '开修后把 <3 万的都补上（2.95 万那个也修）');
-    b.hits = 30000; world.time += 1;
-    assert(wf.run(up) === false && !Memory.rooms.W37S7.wallFixOn, '都到 3 万：关闸，回去升级');
+    assert(wf.run(up) === true && repaired[0] === a.id, '手上这面补到 3.2 万（config.wallFix.fill）再换');
+    a.hits = 32000; world.time += 1; repaired.length = 0;
+    assert(wf.run(up) === true && repaired[0] === b.id, '换下一面最低的');
+    b.hits = 27600; world.time += 1;
+    assert(wf.releaseHits() === 27500 && wf.run(up) === false && !Memory.rooms.W37S7.wallFixOn, '最低的过了 2.75 万（release）就关闸，回去升级，不用等 80 面墙同时 ≥3 万');
+    b.hits = 30000;
     a.hits = 29700; world.time += 1;
     assert(wf.run(up) === false, '自然衰减到 2.97 万不再追着修');
     a.hits = 1000; world.time += 1; repaired.length = 0;
