@@ -14999,26 +14999,26 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     mk.salesTrack(cfg, Game.market);
     assert(Memory.market.salesTrack.deals === 4 && Memory.market.salesTrack.units === 12550 && Memory.market.salesTrack.last === 74402300, '同 tick 的新成交按 id 去重补计，新 tick 的照计');
     const e = cfg.ownOrders.energy;
-    assert(e.dailyBuyCredits === 2000000 && e.boost.soldCreditsAbove === 1000000 && e.boost.dailyBuyCredits === 4000000 && e.maxPrice === 45 && e.creditFloor === 5000000 && e.perRoomDailyCredits === 500000, '买能量：基础 200 万、累计 >100 万提到 400 万；单价上限 45、余额 <500 万停、每房每天 50 万不变');
+    assert(e.dailyBuyCredits == null && e.boost == null && e.maxPrice === 45 && e.creditFloor === 10000000 && e.perRoomDailyCredits === 800000 && e.storageMax === 30000 && e.budget.days === 7 && e.budget.min === 1000000 && e.budget.max === 6000000, '买能量（10-19 起）：预算 = 前 7 天卖矿平均净收入、夹在 100 万–600 万；单价上限 45、余额 <1000 万停、每房每天 80 万、storage >3 万不挂；400 万/200 万两档和 holdIfFalling 取消');
     assert(e.rooms.includes('W33S7'), '买能量名单加上 W33S7');
-    Memory.market.salesTrack.credits = 1000000;
-    assert(mk.energyBuyCap(e) === 2000000, '累计正好 100 万：仍是 200 万');
-    Memory.market.salesTrack.credits = 1000001;
-    assert(mk.energyBuyCap(e) === 4000000, '累计 >100 万：日预算 400 万');
     let posted = null;
-    Memory.market.ledger = { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 2500000, energyBuyByRoom: {}, deals: 0 };
     const eRoom = { name: 'W33S7', terminal: { store: Object.assign({ energy: 100 }, { getFreeCapacity: () => 100000 }) }, storage: { store: { energy: 0 } } };
     const savedRooms = Game.rooms;
     Game.rooms = { W33S7: eRoom };
     const api = { credits: 19000000, orders: {}, getAllOrders: () => [{ type: 'buy', resourceType: 'energy', amount: 10000, price: 44 }], createOrder: (o) => { posted = o; return OK; }, getHistory: () => [{ avgPrice: 44 }] };
-    const ownCfg = Object.assign({}, cfg, { ownOrders: Object.assign({}, cfg.ownOrders, { buyMinerals: false, sell: [], energy: Object.assign({}, e, { rooms: ['W33S7'], preferSenders: [] }) }) });
+    const ownCfg = Object.assign({}, cfg, { ownOrders: Object.assign({}, cfg.ownOrders, { buyMinerals: false, sell: [], energy: Object.assign({}, e, { rooms: ['W33S7'], preferSenders: [], budget: Object.assign({}, e.budget, { from: '2000-01-01' }) }) }) });
+    const dk = (i) => new Date((Math.floor(Date.now() / 86400000) - i) * 86400000).toISOString().slice(0, 10);
+    Memory.market.salesTrack.credits = 50000000;
+    Memory.market.salesNet = { [dk(1)]: { net: 3000000 } };
+    Memory.market.ledger = { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 2500000, energyBuyByRoom: {}, deals: 0 };
     mk.runOwnOrders(ownCfg, api);
-    assert(posted && posted.roomName === 'W33S7' && posted.resourceType === 'energy', '已花 250 万、累计卖 H >100 万：W33S7 仍能挂能量买单（得 ' + JSON.stringify(posted) + '）');
+    assert(posted && posted.roomName === 'W33S7' && posted.resourceType === 'energy', '前 7 天卖矿均值 300 万、已用 250 万：W33S7 仍能挂（得 ' + JSON.stringify(posted) + '）');
     posted = null;
-    Memory.market.salesTrack.credits = 0;
     delete Memory.market.orders;
+    Memory.market.salesNet = { [dk(1)]: { net: 2000000 } };
+    Memory.market.ledger = { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 2500000, energyBuyByRoom: {}, deals: 0 };
     mk.runOwnOrders(ownCfg, api);
-    assert(posted === null, '对照：累计没过 100 万、已花 250 万 > 200 万：不挂');
+    assert(posted === null, '对照：均值 200 万 < 已用 250 万：不挂；累计卖 H 5000 万（旧 boost 口径）不再提额');
     Game.rooms = savedRooms;
     config.market = savedCfgMarket; Game.market = savedMarketApi; Memory.market = savedMem;
 }
@@ -15406,15 +15406,9 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     mk.runOwnOrders(cfg, m);
     assert(changed[1] === 1620, '最高买价崩到 500：按 5 日均价 × 0.6 = 1620 保底（得 ' + changed[1] + '）');
     const e = config.market.ownOrders.energy;
-    Memory.market = { salesTrack: { credits: 2000000 }, ledger: { day: 1, energyBuyCredits: 1600000 }, storageTrack: [[1, Date.now() - 25 * 3600000, 900000], [2, Date.now(), 800000]] };
-    assert(mk.energyBuyCap(e) === 2000000, 'storage 24h 下降、当天已买 160 万：停在 200 万档');
-    Memory.market.storageTrack[1][2] = 950000;
-    assert(mk.energyBuyCap(e) === 4000000, 'storage 没降：照旧 400 万');
-    Memory.market.storageTrack[1][2] = 800000; Memory.market.ledger.energyBuyCredits = 1400000;
-    assert(mk.energyBuyCap(e) === 4000000, '当天买 140 万 < 150 万：照旧 400 万');
-    Memory.market.storageTrack = [[2, Date.now(), 800000]];
-    Memory.market.ledger.energyBuyCredits = 1600000;
-    assert(mk.energyBuyCap(e) === 4000000, '不足 24h 记录：判断不了下降，按原门槛');
+    const dkey = new Date((Math.floor(Date.now() / 86400000) - 1) * 86400000).toISOString().slice(0, 10);
+    Memory.market = { salesTrack: { credits: 2000000 }, salesNet: { [dkey]: { net: 5000000 } }, ledger: { day: Math.floor(Date.now() / 86400000), energyBuyCredits: 1600000 }, storageTrack: [[1, Date.now() - 25 * 3600000, 900000], [2, Date.now(), 800000]] };
+    assert(mk.energyBudget(Object.assign({}, e, { budget: Object.assign({}, e.budget, { from: '2000-01-01' }) })).budget === 5000000, '10-18 18:30 起取消「storage 24h 下降回 200 万」：storage 在掉、已买 160 万，预算仍按卖矿均值 500 万');
     Game.market = savedGM; Memory.market = savedMem; Game.rooms = savedRooms; config.market = savedCfgMarket;
 }
 
@@ -15721,6 +15715,7 @@ console.log('== 10-18 14:17：全帐号当天买能量实际花费（成交 + �
     const savedMem = Memory.market, savedGM = Game.market, savedRooms = Game.rooms, savedCfg = config.market;
     config.market = structuredClone(liveMarketCfg);
     config.market.ownOrders.energy.actualStopCredits = 4000000;
+    config.market.ownOrders.energy.budget = { from: '2099-12-31', days: 7, min: 1000000, max: 6000000 };
     const day = Math.floor(Date.now() / 86400000);
     const cancelled = [], created = [];
     const openOrders = () => ({
@@ -15754,6 +15749,7 @@ console.log('== 10-18 18:26：能量实际花费改为每 tick 从 incomingTrans
     const savedMem = Memory.market, savedGM = Game.market, savedCfg = config.market, savedTime = world.time;
     config.market = structuredClone(liveMarketCfg);
     config.market.ownOrders.energy.actualStopCredits = 4000000;
+    config.market.ownOrders.energy.budget = { from: '2099-12-31', days: 7, min: 1000000, max: 6000000 };
     config.market.ownOrders.energy.actualStopMargin = 50000;
     const day = Math.floor(Date.now() / 86400000);
     const cancelled = [];
@@ -15784,6 +15780,72 @@ console.log('== 10-18 18:26：能量实际花费改为每 tick 从 incomingTrans
     const log = Memory.market.daily[new Date().toISOString().slice(0, 10)].energyStop;
     assert(log && log.margin === 90000 && log.actual === 3911000 && log.cancelled === 2, '日志带实际花费和提前量');
     config.market = savedCfg; Memory.market = savedMem; Game.market = savedGM; world.time = savedTime;
+}
+
+console.log('== 10-18 18:30：能量日预算 = 前 7 个 UTC 日卖矿平均净收入（100 万–600 万），credits<1000 万停、单房 80 万、storage>3 万不挂新单，日报写 Memory.market.daily ==');
+{
+    const mk = require('market');
+    const savedMem = Memory.market, savedGM = Game.market, savedCfg = config.market, savedTime = world.time, savedRooms = Game.rooms;
+    config.market = structuredClone(liveMarketCfg);
+    const e = config.market.ownOrders.energy;
+    e.budget = { from: '2000-01-01', days: 7, min: 1000000, max: 6000000 };
+    const day = Math.floor(Date.now() / 86400000);
+    const key = (d) => new Date(d * 86400000).toISOString().slice(0, 10);
+    const salesNet = {};
+    [[1, 4000000], [2, 3000000], [3, 2000000], [9, 50000000]].forEach(([i, n]) => { salesNet[key(day - i)] = { gross: n + 100000, fees: 100000, net: n }; });
+    const fresh = () => ({ ledger: { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0, mineralGross: 0, energySpent: 0, energyFees: 0 }, orders: {}, salesNet: structuredClone(salesNet) });
+    Memory.market = fresh();
+    let b = mk.energyBudget(mk.settings().ownOrders.energy);
+    assert(b.budget === 3000000 && b.salesAvg === 3000000 && b.days.length === 3 && !b.legacy, '前 7 天里只有 3 天有数：按已有天数平均（300 万），第 9 天不算（得 ' + JSON.stringify(b) + '）');
+    Memory.market = fresh(); Memory.market.salesNet[key(day - 1)].net = 60000000;
+    assert(mk.energyBudget(mk.settings().ownOrders.energy).budget === 6000000, '平均超过 600 万：封顶 600 万');
+    Memory.market = fresh(); Memory.market.salesNet = {};
+    assert(mk.energyBudget(mk.settings().ownOrders.energy).budget === 1000000, '没有卖矿记录：保底 100 万');
+    Memory.market = fresh();
+    Memory.market.ledger.day = day - 1; Memory.market.ledger.mineralGross = 5000000; Memory.market.ledger.sellFees = 250000;
+    const led = mk.ledger();
+    assert(led.day === day && Memory.market.salesNet[key(day - 1)].net === 4750000, 'UTC 换日：把昨天的卖矿成交额减卖单手续费记进 Memory.market.salesNet（得 ' + JSON.stringify(Memory.market.salesNet[key(day - 1)]) + '）');
+    world.time = 2000;
+    const outTx = [];
+    Game.market = { credits: 30000000, orders: {}, incomingTransactions: [], outgoingTransactions: outTx, getHistory: () => [], getAllOrders: () => [], cancelOrder: () => OK };
+    mk.guardTick();
+    world.time = 2001;
+    outTx.unshift({ transactionId: 's1', time: 2001, resourceType: 'H', amount: 1000, order: { id: 'o', type: 'buy', price: 500 } },
+        { transactionId: 's2', time: 2001, resourceType: 'ZH2O', amount: 100, order: { id: 'p', type: 'sell', price: 1800 } },
+        { transactionId: 's3', time: 2001, resourceType: 'energy', amount: 5000, order: { id: 'q', type: 'buy', price: 40 } },
+        { transactionId: 's4', time: 2001, resourceType: 'H', amount: 9000, from: 'W34S7', to: 'W32S4' });
+    mk.guardTick(); mk.guardTick();
+    assert(Memory.market.ledger.mineralGross === 680000, '卖矿成交（deal 和自挂卖单）去重累计，卖能量和内部转运不算（得 ' + Memory.market.ledger.mineralGross + '）');
+    const rec = Memory.market.daily[key(day)].energyBudget;
+    assert(rec && rec.budget === 3250000 && rec.actual === 0 && rec.salesAvg7 === 3250000 && rec.salesDays.length === 3,
+        'Memory.market.daily[UTC 日].energyBudget 记预算、实际花费、前 7 天卖矿平均净收入（得 ' + JSON.stringify(rec) + '）');
+    Memory.market.ledger.energySpent = 3150000;
+    assert(mk.guardTick() === false, '实际 315 万 + 提前量 5 万 < 预算 325 万：不撤');
+    Memory.market.ledger.energySpent = 3200000;
+    world.time = 2002;
+    Game.market.orders = { z: { id: 'z', type: 'buy', resourceType: 'energy', roomName: 'W31S6', price: 45, remainingAmount: 100 } };
+    assert(mk.guardTick() === true && Memory.market.ledger.energyStopped.stop === 3250000, '实际 320 万 + 提前量 5 万 ≥ 预算 325 万：撤单（取代 400 万）');
+    const term = (en) => ({ my: true, store: { energy: en, getFreeCapacity: () => 100000, [C.RESOURCE_ENERGY]: en } });
+    const created = [];
+    const mkt = (credits) => ({ credits, orders: {}, incomingTransactions: [], outgoingTransactions: [],
+        getAllOrders: (f) => (f && f.type === 'buy' ? [{ price: 60, amount: 5000 }] : []), getHistory: () => [{ avgPrice: 44 }],
+        createOrder: (o) => (created.push(o), OK), cancelOrder: () => OK });
+    const cfg = Object.assign({}, mk.settings(), { ownOrders: Object.assign({}, mk.settings().ownOrders, { buyMinerals: false, sell: [],
+        energy: Object.assign({}, e, { rooms: ['W34S7', 'W35S7'], preferSenders: [], below: 50000 }) }), buy: { resources: [], rooms: [] } });
+    Game.rooms = { W34S7: { name: 'W34S7', terminal: term(1000), storage: { store: { energy: 31000 } } },
+                   W35S7: { name: 'W35S7', terminal: term(1000), storage: { store: { energy: 29000 } } } };
+    Memory.market = fresh(); Game.market = mkt(30000000); world.time = 2100;
+    mk.runOwnOrders(cfg, Game.market);
+    assert(created.length === 1 && created[0].roomName === 'W35S7' && created[0].price <= 45, 'storage 3.1 万的 W34S7 不挂新单，2.9 万的 W35S7 挂、单价 ≤45（得 ' + JSON.stringify(created.map((o) => [o.roomName, o.price])) + '）');
+    created.length = 0;
+    Memory.market = fresh(); Memory.market.ledger.energyBuyByRoom = { W35S7: 770000 }; Game.market = mkt(30000000);
+    mk.runOwnOrders(cfg, Game.market);
+    assert(created.length === 1 && created[0].totalAmount * created[0].price * 1.05 <= 30000 + 1 && created[0].totalAmount * created[0].price * 1.05 > 25000, '单房日上限 80 万：已花 77 万只能再挂约 3 万（得 ' + JSON.stringify(created) + '）');
+    created.length = 0;
+    Memory.market = fresh(); Game.market = mkt(9999999);
+    mk.runOwnOrders(cfg, Game.market);
+    assert(created.length === 0, 'credits < 1000 万：停买');
+    config.market = savedCfg; Memory.market = savedMem; Game.market = savedGM; world.time = savedTime; Game.rooms = savedRooms;
 }
 
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');

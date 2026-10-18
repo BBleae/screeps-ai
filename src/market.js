@@ -38,10 +38,51 @@ function ledger() {
     const mem = Memory.market || (Memory.market = {});
     const day = Math.floor(Date.now() / 86400000);
     if (!mem.ledger || mem.ledger.day !== day) {
-        if (mem.ledger) mem.ledgerPrev = mem.ledger;
-        mem.ledger = { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 };
+        if (mem.ledger) { mem.ledgerPrev = mem.ledger; closeSalesDay(mem, mem.ledger); }
+        mem.ledger = { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0, mineralGross: 0, energySpent: 0, energyFees: 0 };
     }
     return mem.ledger;
+}
+
+function utcKey(day) {
+    return new Date(Number(day) * 86400000).toISOString().slice(0, 10);
+}
+
+function closeSalesDay(mem, led) {
+    if (led.mineralGross == null || !(Number(led.day) > 0)) return null;
+    const hist = mem.salesNet || (mem.salesNet = {});
+    const gross = Math.round(Number(led.mineralGross) || 0);
+    const fees = Math.round(Number(led.sellFees) || 0);
+    hist[utcKey(led.day)] = { gross, fees, net: gross - fees, src: 'tx' };
+    const keys = Object.keys(hist).sort();
+    while (keys.length > 14) delete hist[keys.shift()];
+    return hist[utcKey(led.day)];
+}
+
+function salesAvg(day, n) {
+    const hist = (Memory.market && Memory.market.salesNet) || {};
+    const days = [];
+    let sum = 0;
+    for (let i = 1; i <= n; i++) {
+        const k = utcKey(Number(day) - i);
+        const r = hist[k];
+        if (r && Number.isFinite(Number(r.net))) { days.push(k); sum += Number(r.net); }
+    }
+    return { avg: days.length ? Math.round(sum / days.length) : 0, days };
+}
+
+function energyBudget(e) {
+    const led = ledger();
+    if (led.energyBudget && led.energyBudget.day === led.day) return led.energyBudget;
+    const b = (e && e.budget) || {};
+    const s = salesAvg(led.day, Number(b.days) || 7);
+    const from = !(e && e.budget) ? Infinity : b.from ? Math.floor(Date.parse(b.from + 'T00:00:00Z') / 86400000) : 0;
+    const legacy = !(led.day >= from);
+    const lo = Number(b.min) || 0;
+    const hi = Number(b.max) || Infinity;
+    const budget = legacy ? (Number(e && e.actualStopCredits) || Number(e && e.dailyBuyCredits) || 0) : Math.round(Math.min(hi, Math.max(lo, s.avg)));
+    led.energyBudget = { day: led.day, budget, salesAvg: s.avg, days: s.days, legacy };
+    return led.energyBudget;
 }
 
 function buyShareOk(cfg, led, res, commit) {
@@ -133,23 +174,6 @@ function storageFalling(hours) {
     for (const row of list) { if (latest[1] - row[1] >= span) ref = row; else break; }
     if (!ref) return null;
     return latest[2] < ref[2];
-}
-
-function energyBuyCap(e) {
-    const base = Number(e.dailyBuyCredits) || 0;
-    const b = e.boost;
-    if (b && soldCredits() > (Number(b.soldCreditsAbove) || Infinity)) {
-        const hold = b.holdIfFalling;
-        if (hold) {
-            const spent = Number((Memory.market && Memory.market.ledger && Memory.market.ledger.energyBuyCredits) || 0);
-            if (spent > (Number(hold.spentAbove) || Infinity) && storageFalling(hold.hours) === true) {
-                Memory.market.boostHeld = { at: Game.time, spent };
-                return base;
-            }
-        }
-        return Math.max(base, Number(b.dailyBuyCredits) || 0);
-    }
-    return base;
 }
 
 function minEffectiveFor(resource, cfg) {
@@ -496,30 +520,53 @@ function energyActual(led, spent, fees) {
     return (Number(led.energySpent) || 0) + (Number(led.energyFees) || 0);
 }
 
-function scanEnergyTx(led, market) {
+function scanTx(cursorKey, txs, fn) {
     const mem = Memory.market || (Memory.market = {});
-    const txs = (market && Array.isArray(market.incomingTransactions)) ? market.incomingTransactions : [];
-    const st = mem.energyTx;
+    const st = mem[cursorKey];
     if (!st || !(Number(st.time) > 0)) {
-        mem.energyTx = { time: Game.time, ids: txs.filter((t) => t && Number(t.time) === Game.time).map((t) => t.transactionId) };
-        return 0;
+        mem[cursorKey] = { time: Game.time, ids: txs.filter((t) => t && Number(t.time) === Game.time).map((t) => t.transactionId) };
+        return;
     }
     const seen = new Set(st.ids || []);
     let top = Number(st.time);
     let topIds = (st.ids || []).slice();
-    let added = 0;
     for (const t of txs) {
         if (!t || Number(t.time) < Number(st.time)) continue;
         if (Number(t.time) === Number(st.time) && seen.has(t.transactionId)) continue;
         if (Number(t.time) > top) { top = Number(t.time); topIds = []; }
         if (Number(t.time) === top) topIds.push(t.transactionId);
-        if (t.resourceType !== ENERGY || !t.order || !(Number(t.order.price) > 0) || !(Number(t.amount) > 0)) continue;
-        added += Number(t.amount) * Number(t.order.price);
-        led.energyTxCount = (Number(led.energyTxCount) || 0) + 1;
-        if (t.order.type === 'sell') led.energyDealCredits = Math.round((Number(led.energyDealCredits) || 0) + Number(t.amount) * Number(t.order.price));
+        fn(t);
     }
-    mem.energyTx = { time: top, ids: topIds };
+    mem[cursorKey] = { time: top, ids: topIds };
+}
+
+function txCredits(t) {
+    if (!t || !t.order || !(Number(t.order.price) > 0) || !(Number(t.amount) > 0)) return 0;
+    return Number(t.amount) * Number(t.order.price);
+}
+
+function scanEnergyTx(led, market) {
+    const txs = (market && Array.isArray(market.incomingTransactions)) ? market.incomingTransactions : [];
+    let added = 0;
+    scanTx('energyTx', txs, (t) => {
+        const c = t.resourceType === ENERGY ? txCredits(t) : 0;
+        if (!c) return;
+        added += c;
+        led.energyTxCount = (Number(led.energyTxCount) || 0) + 1;
+        if (t.order.type === 'sell') led.energyDealCredits = Math.round((Number(led.energyDealCredits) || 0) + c);
+    });
     if (added) { energyActual(led, added, 0); led.energyTxAt = Game.time; }
+    return added;
+}
+
+function scanSalesTx(led, market) {
+    const txs = (market && Array.isArray(market.outgoingTransactions)) ? market.outgoingTransactions : [];
+    let added = 0;
+    scanTx('salesTx', txs, (t) => {
+        const c = t.resourceType !== ENERGY ? txCredits(t) : 0;
+        if (c) added += c;
+    });
+    if (added) led.mineralGross = Math.round((Number(led.mineralGross) || 0) + added);
     return added;
 }
 
@@ -536,7 +583,7 @@ function energyStopCheck(e, market) {
         if (left.length) led.energyStopped.recancelled = (Number(led.energyStopped.recancelled) || 0) + cancelAll(left);
         return true;
     }
-    const stop = Number(e && e.actualStopCredits) || 0;
+    const stop = Number(energyBudget(e).budget) || 0;
     if (!(stop > 0)) return false;
     const actual = energyActual(led, 0, 0);
     const open = openEnergyBuys(market);
@@ -562,7 +609,14 @@ function guardTick() {
     if (!e || !market) return false;
     const led = ledger();
     scanEnergyTx(led, market);
-    return energyStopCheck(e, market);
+    scanSalesTx(led, market);
+    const stopped = energyStopCheck(e, market);
+    const b = energyBudget(e);
+    const mem = Memory.market || (Memory.market = {});
+    const daily = mem.daily || (mem.daily = {});
+    const day = daily[dayKey()] || (daily[dayKey()] = {});
+    day.energyBudget = { budget: b.budget, actual: energyActual(led, 0, 0), salesAvg7: b.salesAvg, salesDays: b.days, legacy: b.legacy };
+    return stopped;
 }
 
 function trackOrphanEnergy(led, live, book, claimed) {
@@ -734,6 +788,11 @@ function dailyEnergyUnits(cfg, market, budget, room, price, fee) {
     return Math.max(0, Math.min(Math.floor(left / (price * (1 + fee))), free));
 }
 
+function storageFull(room, e) {
+    const max = Number(e && e.storageMax) || 0;
+    return max > 0 && !!room.storage && Number(room.storage.store[ENERGY] || 0) > max;
+}
+
 function roomCapped(led, budget, roomName) {
     if (!(budget.roomCap > 0) || !budget.roomKey) return false;
     const spent = Number((led[budget.roomKey] || {})[roomName]) || 0;
@@ -780,7 +839,7 @@ function runDailyEnergy(cfg, market, e, names, price, budget, below, book) {
                     }
                 }
             }
-            if (energyHave(room) < below && typeof market.extendOrder === 'function') {
+            if (energyHave(room) < below && !storageFull(room, e) && typeof market.extendOrder === 'function') {
                 const want = dailyEnergyUnits(cfg, market, budget, room, sizing, fee);
                 if (want >= cfg.minDeal) {
                     const ret = market.extendOrder(o.id, want);
@@ -798,6 +857,7 @@ function runDailyEnergy(cfg, market, e, names, price, budget, below, book) {
             continue;
         }
         if (!(price > 0) || energyHave(room) >= below) continue;
+        if (storageFull(room, e)) { (led.energyStorageFull || (led.energyStorageFull = {}))[n] = Game.time; continue; }
         if (roomCapped(led, budget, n)) continue;
         const amount = dailyEnergyUnits(cfg, market, budget, room, sizing, fee);
         if (amount < cfg.minDeal) continue;
@@ -864,7 +924,7 @@ function runOwnOrders(cfg, market) {
                 const avg = recentAvgPrice(ENERGY, cfg);
                 price = Math.min(Number(e.price) || 10, cap, avg != null ? avg * (1 + band) : Infinity);
             }
-            const budget = { key: 'energyBuyCredits', cap: energyBuyCap(e), floor: eFloor,
+            const budget = { key: 'energyBuyCredits', cap: energyBudget(e).budget, floor: eFloor,
                 roomKey: 'energyBuyByRoom', roomCap: Number(e.perRoomDailyCredits) || 0 };
             const below = Number(e.below || 10000);
             if (e.dailyOrder) {
@@ -873,7 +933,7 @@ function runOwnOrders(cfg, market) {
             } else {
                 const candidates = (price > 0 ? names : []).filter((n) => {
                     const room = Game.rooms[n];
-                    return room && room.terminal && !book['buy:' + n + ':' + ENERGY] && energyHave(room) < below;
+                    return room && room.terminal && !book['buy:' + n + ':' + ENERGY] && energyHave(room) < below && !storageFull(room, e);
                 }).sort((a, b) => energyHave(Game.rooms[a]) - energyHave(Game.rooms[b]));
                 for (const n of candidates) {
                     const room = Game.rooms[n];
@@ -1135,4 +1195,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { run, guardTick, scanEnergyTx, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, energyBuyCap, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
+module.exports = { run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
