@@ -77,12 +77,19 @@ function noteCombat(creep, record, target, fired) {
     }
 }
 
+function validateActive(homeName, targetRoom) {
+    const v = (require('config').sk || {}).validate;
+    return !!(v && v.enabled && v.home === homeName && v.room === targetRoom);
+}
+
 function run(creep) {
     const homeName = creep.memory.home;
     const targetRoom = creep.memory.remoteRoom;
     // 寿终 vs 被打死：main.js 清理内存时据此区分（remote.noteReaperLoss 只记被打死的）
     creep.memory.lastTtl = creep.ticksToLive;
-    if (!homeName || !targetRoom || remote.isDisabled(homeName, targetRoom) || remote.isUnreachable(homeName, targetRoom)) {
+    const blocked = creep.memory.validate ? !validateActive(homeName, targetRoom)
+        : (remote.isDisabled(homeName, targetRoom) || remote.isUnreachable(homeName, targetRoom));
+    if (!homeName || !targetRoom || blocked) {
         // 标成退役：外矿被停用/不可达时回收或自杀的 reaper 不是被 keeper 打死的，noteReaperLoss 不能把它记成阵亡
         creep.memory.retired = true;
         retireMod.retireAtSpawn(creep);
@@ -138,4 +145,4 @@ function run(creep) {
     if (lair) holdStandoff(creep, lair.pos, standoff, 10);
 }
 
-module.exports = { run, keepersIn, nextLair };
+module.exports = { run, keepersIn, nextLair, validateActive };

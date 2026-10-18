@@ -15490,7 +15490,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     console.log('== 10-17 外矿：W36S7 改挂 W37S7（W35S7 无安全路线），W37S5 不开被墙封死的 W37S4/W38S5/W38S6；Invader 预定期间零孵化 ==');
     const rem = require('../src/remote');
     const asg = liveRemoteAssign;
-    assert(asg.W37S7.includes('W36S7') && asg.W35S7.length === 0, 'W36S7 归 W37S7，W35S7 不挂（得 ' + JSON.stringify([asg.W37S7, asg.W35S7]) + '）');
+    assert(!asg.W37S7.includes('W36S7') && asg.W35S7.length === 0, '10-18 W36S7 让给 Alepoldar：W37S7、W35S7 都不挂（得 ' + JSON.stringify([asg.W37S7, asg.W35S7]) + '）');
     assert(!asg.W37S7.includes('W39S9'), 'W39S9 从 W37S7 撤掉');
     assert(!['W37S4', 'W38S5', 'W38S6'].some((r) => asg.W37S5.includes(r)), 'W37S5 不开 >60 步（墙封死）的外矿');
     const savedRooms = Memory.rooms, savedThreat = Memory.pvpThreat;
@@ -15695,6 +15695,41 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     config.pvp = savedPvp; Memory.tempAvoidDone = savedDone;
     utilsMod.tempAvoidRooms(true);
     assert(!liveRemoteAssign.W29S3.includes('W31S1'), 'W29S3 撤掉 W31S1');
+}
+
+{
+    console.log('== 10-18 skReaper 验证模式不因缺外矿记录而出生即回收；W36S7 让给 Alepoldar ==');
+    const reaperRole = require('roles_skReaper');
+    const remoteMod = require('remote');
+    const savedSk = config.sk, savedRoomsS = Game.rooms;
+    const homeRoom = { name: 'W33S7', controller: { my: true, level: 8 }, find: () => [] };
+    Game.rooms = Object.assign({}, savedRoomsS, { W33S7: homeRoom });
+    const savedRemotes = Memory.rooms.W33S7 && Memory.rooms.W33S7.remotes;
+    Memory.rooms.W33S7 = Memory.rooms.W33S7 || {};
+    Memory.rooms.W33S7.remotes = {};
+    let moveTarget = null;
+    const mkReaper = () => ({ name: 'rp', pos: new RoomPosition(30, 27, 'W33S7'), room: homeRoom, hits: 4800, hitsMax: 4800, ticksToLive: 1499,
+        body: [{ type: 'ranged_attack' }, { type: 'heal' }, { type: 'move' }], heal: () => 0, getActiveBodyparts: () => 1,
+        memory: { role: 'skReaper', home: 'W33S7', remoteRoom: 'W34S6', validate: true, slotKey: 'skValidate:W34S6' },
+        moveTo: (p) => { moveTarget = p; return 0; } });
+    config.sk = Object.assign({}, savedSk, { validate: { enabled: true, home: 'W33S7', room: 'W34S6', units: 12 } });
+    const rp = mkReaper();
+    reaperRole.run(rp);
+    assert(!rp.memory.retired && moveTarget && moveTarget.roomName === 'W34S6', '验证模式 reaper 没有外矿记录也照常出发去 W34S6（不再出生即回收）');
+    config.sk = Object.assign({}, savedSk, { validate: { enabled: false, home: 'W33S7', room: 'W34S6', units: 12 } });
+    const rp2 = mkReaper();
+    reaperRole.run(rp2);
+    assert(rp2.memory.retired === true, '验证模式关掉后在外的验证 reaper 退役回收');
+    assert(savedSk.validate && savedSk.validate.enabled === false, 'config.sk.validate 保持关闭');
+    config.sk = savedSk; Game.rooms = savedRoomsS;
+    Memory.rooms.W33S7.remotes = savedRemotes;
+
+    assert(!liveRemoteAssign.W37S7.includes('W36S7') && Object.values(liveRemoteAssign).every((list) => !list.includes('W36S7')), 'W36S7 不在任何母房的外矿列表');
+    assert(remoteMod.cededRoom('W36S7') === true, 'W36S7 在让出名单');
+    const savedAssign = config.remote.assign;
+    config.remote.assign = Object.assign({}, savedAssign, { W37S7: ['W39S6', 'W36S7', 'W37S6'] });
+    assert(!remoteMod.remoteWhitelist('W37S7').includes('W36S7'), '即使有人把 W36S7 加回 assign，白名单也会过滤掉');
+    config.remote.assign = savedAssign;
 }
 
 console.log('== terminal 补能（2026-10-13，移植 overmind-absorb e4cae2f）：只从 storage 富余里补到 terminalTarget，storage 饥饿时一点都不补 ==');

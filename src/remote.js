@@ -380,7 +380,17 @@ function directExits(homeName) {
 
 /** 外矿白名单：游戏内 config.remote.assign[母房] 优先（数组即生效，[] = 这房不做外矿），否则用外部大脑的 rooms[母房].remotes。
  *  2026-10-14 大脑已停：指令 ~10/21 过期 + 6h 宽限后会退回"只做相邻房"的自治，把二跳外矿全判 tooFar；把分配搬进 config 才能活过过期 */
+function cededRoom(roomName) {
+    const list = config.remote && config.remote.ceded;
+    return Array.isArray(list) && list.includes(roomName);
+}
+
 function remoteWhitelist(homeName) {
+    const list = rawWhitelist(homeName);
+    return Array.isArray(list) && list.some(cededRoom) ? list.filter((roomName) => !cededRoom(roomName)) : list;
+}
+
+function rawWhitelist(homeName) {
     const assign = config.remote && config.remote.assign;
     if (assign && Array.isArray(assign[homeName])) {
         // 10-17：无主墙拆开、PathFinder 量过步数达标的外矿自动并入（src/wall_breach.js unlockedRemotes）
@@ -1084,7 +1094,7 @@ function admitCandidates(home, remotes) {
     const skLimit = Math.max(0, Number(skSettings().maxRoomsPerHome) || 0);
     let skCount = Object.values(remotes).filter((record) => record.sk && record.enabled).length;
     const candidates = pool
-        .filter((roomName) => !remotes[roomName] && !ownedByMe(roomName) && !expansionTarget(roomName))
+        .filter((roomName) => !remotes[roomName] && !ownedByMe(roomName) && !expansionTarget(roomName) && !cededRoom(roomName))
         .map((roomName) => ({ roomName, info: Memory.map[roomName] }))
         .filter((entry) => {
             const info = entry.info;
@@ -1157,6 +1167,7 @@ function run(home) {
     // 外矿被自己占领后这条记录没有未来：删掉。留着的话每 tick 还在刷新它，占领后到大脑下一轮之间过期白名单会把它重新启用、
     // 给自家房孵 remoteMiner/reserver，防御/监控也把自家房当外矿看（线上 W33S7/W34S7 的 remotes 挂着 W33S8/W35S7 两万 tick）
     for (const roomName in mem.remotes) if (ownedByMe(roomName)) delete mem.remotes[roomName];
+    for (const roomName in mem.remotes) if (cededRoom(roomName)) delete mem.remotes[roomName];
     // 遗留清理：按走线改规划的遥测 2026-09-12 从 record 级迁到了 source 级（与冷却 source.roadAdoptedAt 同粒度），
     // 迁移前写下的 record.roadReplan 再也不会被写或读，留着只会让以后读 Memory 的人以为它是活的
     for (const roomName in mem.remotes) {
@@ -1965,6 +1976,7 @@ module.exports = {
     isUnreachable,
     run,
     applyAvoidHolds,
+    cededRoom,
     observe,
     getDemands,
     reserverHandoffs,

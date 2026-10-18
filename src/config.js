@@ -359,6 +359,7 @@ module.exports = {
     remote: {
         // 10-18 战略：外矿跟临时回避房（config.pvp.tempAvoid）一起暂停、一起自动解除（remote.applyAvoidHolds）。W31S8 去这两个外矿都要过 W30S8
         holdWhileAvoid: { W31S9: 'W30S8', W29S9: 'W30S8' },
+        ceded: ['W36S7'],
         holdReserver: { W31S9: 20000 },   // 10-16 战略猫：W31S8 storage < 2 万时不派 W31S9 reserver（矿工/hauler 照常），首次到 2 万自动恢复
         // 母房 storage+terminal 低于它时外矿 hauler 按 max(energyAvailable, lowStorageHaulMin) 定身体（remote.haulBudget，2026-10-15）
         // 10-16：饿线（在途 CARRY < 需求一半）的 hauler 需求排到外矿维护档最前（remote.js starvedLine），先只开 W29S3
@@ -382,7 +383,7 @@ module.exports = {
             // 10-17 战略猫：W36S7 等 Invader 预定结束后抢下。W35S7 西边无出口、W36S7 东边无出口，W35S7 → W36S7 只能穿 W35S6(SK) → W36S6(stronghold)（90–96 步）；
             // W37S7 与 W36S7 直接相邻（storage → 源 55/83 步、控制器 72 步），改挂 W37S7。level-0 core 一直在续订预定，core 随 W36S6 stronghold 在 ~74409432 崩塌，
             // 之后残余预定由现有 clearReservation（reserver 进房削预定）处理；记录在 Memory 里停到崩塌 tick（suspendedUntil），期间零孵化
-            W37S7: ['W39S6', 'W36S7', 'W37S6'],   // 10-17 22:40 战略猫：W39S9 撤（150 步、6.32/t、Jumpp 活动区）
+            W37S7: ['W39S6', 'W37S6'],   // 10-17 22:40 战略猫：W39S9 撤（150 步、6.32/t、Jumpp 活动区）
             // 10-17 22:23：W37S6 从 W37S5 改挂 W37S7（能量本来就卸在 W37S7，挂 W37S5 只有成本）
             W35S7: [],   // 2026-10-15：W36S7 被 Alepoldar 预定，战略猫决定不争；10-17 W36S7 改由 W37S7 接（W35S7 无安全路线）
             W33S7: ['W32S7', 'W33S6'],
