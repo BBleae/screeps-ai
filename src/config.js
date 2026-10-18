@@ -561,7 +561,10 @@ module.exports = {
         minSamples: 3,
         maxCpuShare: 0,
     },
-    minerals: { force: { W31S6: true, W33S8: true, W37S7: true, W35S7: true }, maxStock: { W33S8: 10000 } },
+    minerals: {
+        force: { W33S8: true, W33S3: true, W32S4: true, W31S4: true, W35S7: 'drain', W31S6: false, W37S7: false, W37S5: false, W29S3: false },
+        maxStock: { W33S8: 10000, W33S3: 30000, W32S4: 30000 },
+    },
     brain: { retired: true },
     memoryProbeTtl: 100,
     visuals: {

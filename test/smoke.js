@@ -10490,7 +10490,7 @@ console.log('== 10-17 14:xx 战略：W35S7 强开采 O，终端网络把 O 分�
 {
     const term = require('terminal');
     const cfg = term.settings();
-    assert(config.minerals && config.minerals.force && config.minerals.force.W35S7 === true, 'W35S7 已进 minerals.force（强开采 O）');
+    assert(config.minerals && config.minerals.force && config.minerals.force.W35S7 === 'drain', 'W35S7 的 O 采完这一轮，重生后不再开（drain）');
     assert(cfg.mineralWantByResource && cfg.mineralWantByResource.O === 3000, 'mineralWantByResource.O = 3000（得 ' + (cfg.mineralWantByResource && cfg.mineralWantByResource.O) + '）');
     const mkLabsM = (n, store) => Array.from({ length: n }, (_, i) => ({ structureType: C.STRUCTURE_LAB, store: Object.assign({}, i === 0 ? (store || {}) : {}) }));
     const mkRoomM = (name, terminalEnergy, minerals, labs, labStore) => {
@@ -15383,6 +15383,30 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     Game.market = savedGM; Memory.market = savedMem; Game.rooms = savedRooms; config.market = savedCfgMarket;
 }
 
+{
+    console.log('== 10-18 ③ 矿工开关写进 config：W31S6 K 关，W33S3/W32S4 H、W31S4 L 开，W35S7 O 采完不再开，H maxStock 不再卡 5 万 ==');
+    const mm = ROLES.mineralMiner;
+    const f = config.minerals.force;
+    assert(f.W33S3 === true && f.W32S4 === true && f.W31S4 === true && f.W31S6 === false && f.W37S7 === false && f.W37S5 === false && f.W29S3 === false && f.W38S7 === undefined, '开关：W33S3/W32S4/W31S4 开；W31S6/W37S7/W37S5/W29S3 关；W38S7 照旧');
+    const on = { version: 1, enabled: true, count: 1, reason: 'harvest', mineralType: 'K' };
+    const off = mm.forced({ name: 'W31S6' }, on);
+    assert(off.enabled === false && off.count === 0 && on.enabled === true, 'W31S6 的 K 即使指令开着也关掉（不改原指令）');
+    const plan = { version: 1, enabled: false, count: 0, reason: 'energy', mineralType: 'H', mineralId: 'mH' };
+    assert(mm.forced({ name: 'W32S4' }, plan).enabled === true, 'W32S4 的 H 强开');
+    const savedGet = Game.getObjectById, savedDrained = Memory.mineralDrained;
+    delete Memory.mineralDrained;
+    let amount = 620;
+    Game.getObjectById = (id) => (id === 'mO' ? { mineralAmount: amount } : null);
+    const oPlan = { version: 1, enabled: false, count: 0, mineralType: 'O', mineralId: 'mO' };
+    assert(mm.forced({ name: 'W35S7' }, oPlan).enabled === true, 'W35S7 还剩 620 O：继续采完');
+    amount = 0;
+    assert(mm.forced({ name: 'W35S7' }, oPlan).enabled === false, '采空了：关');
+    amount = 70000;
+    assert(mm.forced({ name: 'W35S7' }, oPlan).enabled === false && Memory.mineralDrained.W35S7 > 0, '重生后也不再开（记在 Memory.mineralDrained）');
+    Game.getObjectById = savedGet; Memory.mineralDrained = savedDrained;
+    assert(config.minerals.maxStock.W32S4 === 30000 && config.minerals.maxStock.W33S3 === 30000, 'H maxStock 3 万/房（keep 5000 + 约一天的卖量），由 config 覆盖指令里的 5 万');
+}
+
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');
 {
     resetWorld(6900);
@@ -15856,7 +15880,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         const f = mm.forced({ name: 'W33S8' }, plan);
         assert(f.enabled === true && f.count === 1 && f.mineralType === 'K' && plan.enabled === false, 'force 房强开 count 1，不改原指令');
         assert(mm.forced({ name: 'W37S5' }, plan) === plan, '不在 force 名单（W37S5）不动');
-        assert(config.minerals.force.W31S6 && config.minerals.force.W37S7 && !config.minerals.force.W37S5, 'K 只开 W31S6/W33S8/W37S7');
+        assert(config.minerals.force.W33S8 === true && config.minerals.force.W31S6 === false && config.minerals.force.W37S7 === false && config.minerals.force.W37S5 === false, 'K 只开 W33S8；W31S6/W37S7/W37S5 关');
     }
     {
         const hl = ROLES.hauler;

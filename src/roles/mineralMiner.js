@@ -4,7 +4,10 @@ const brain = require('brain');
 const forcedCache = { tick: -1, byRoom: {} };
 function forced(room, plan) {
     const force = ((require('config').minerals) || {}).force;
-    if (!force || !force[room.name] || plan.enabled) return plan;
+    const mode = force && force[room.name];
+    if (mode === false) return plan.enabled || plan.count ? Object.assign({}, plan, { enabled: false, count: 0, reason: 'forcedOff' }) : plan;
+    if (mode === 'drain' && drained(room, plan)) return plan.enabled || plan.count ? Object.assign({}, plan, { enabled: false, count: 0, reason: 'drained' }) : plan;
+    if (!mode || plan.enabled) return plan;
     const tick = typeof Game !== 'undefined' ? Game.time : 0;
     if (forcedCache.tick !== tick) { forcedCache.tick = tick; forcedCache.byRoom = {}; }
     const hit = forcedCache.byRoom[room.name];
@@ -12,6 +15,13 @@ function forced(room, plan) {
     const out = Object.assign({}, plan, { enabled: true, count: 1, reason: 'forced' });
     forcedCache.byRoom[room.name] = { src: plan, plan: out };
     return out;
+}
+function drained(room, plan) {
+    const mem = Memory.mineralDrained || (Memory.mineralDrained = {});
+    if (mem[room.name]) return true;
+    const mineral = plan && plan.mineralId ? Game.getObjectById(plan.mineralId) : null;
+    if (mineral && !(mineral.mineralAmount > 0)) { mem[room.name] = Game.time; return true; }
+    return false;
 }
 function directive(room) {
     const plan = room && brain.get(room.name, 'mineral', null);
@@ -39,7 +49,7 @@ function ready(room, plan) {
     if (!mineral || mineral.mineralAmount <= 0 || !active(extractor)) return false;
     const sinks = destinations(plan);
     const cap = Number((((require('config').minerals) || {}).maxStock || {})[room.name]);
-    const maxStock = cap > 0 ? Math.min(cap, Number(plan.maxStock) || cap) : plan.maxStock;
+    const maxStock = cap > 0 ? cap : plan.maxStock;
     return stock(plan, sinks) < maxStock && sinks.some(({ target }) => target.store.getFreeCapacity() > plan.reserveFree);
 }
 function move(creep, path, revision) {
@@ -123,4 +133,4 @@ function run(creep) {
     const before = creep.store[type] || 0;
     if (creep.harvest(mineral) === OK) creep.memory.mineralIntent = { tick: Game.time, type, before, action: 'harvest' };
 }
-module.exports = { run, directive, ready, mineralOf, forced };
+module.exports = { run, directive, ready, mineralOf, forced, drained };
