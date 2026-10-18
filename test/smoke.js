@@ -15262,6 +15262,9 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     assert(wf.needsWorker(room) === true, '房里没有带 WORK 的 worker：需要孵一只 builder');
     Game.creeps = { a: up };
     assert(wf.needsWorker(room) === false, '有 upgrader 就不额外孵');
+    const heavy = mkC('upgrader', [WORK, WORK, WORK, WORK, WORK, WORK, WORK, WORK, CARRY, CARRY, MOVE], 0, 30, 30);
+    Game.creeps = { h: heavy };
+    assert(wf.needsWorker(room) === true, '只有 1 MOVE 的重型 upgrader（沼泽一格要几十 tick）不算，仍孵 builder');
     low.hits = 30000; mid.hits = 30000;
     world.time += 1;
     assert(wf.run(up) === false && !up.memory.wallFix, '都到 3 万：回去做原来的事');

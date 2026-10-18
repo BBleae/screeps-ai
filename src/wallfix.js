@@ -48,9 +48,15 @@ function eligible(creep, room) {
     return bodyHas(creep, WORK) && bodyHas(creep, CARRY);
 }
 
+function mobile(creep) {
+    const body = creep.body || [];
+    const moves = body.filter((p) => p.type === MOVE).length;
+    return moves * 4 >= body.length - moves;
+}
+
 function workers(room) {
     return Object.values(Game.creeps || {}).filter((c) => c.memory && c.memory.home === room.name && !skipRoles().includes(c.memory.role) &&
-        (c.body || []).some((p) => p.type === WORK) && (c.body || []).some((p) => p.type === CARRY));
+        (c.body || []).some((p) => p.type === WORK) && (c.body || []).some((p) => p.type === CARRY) && mobile(c));
 }
 
 function needsWorker(room) {
