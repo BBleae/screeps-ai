@@ -15464,6 +15464,35 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     Game.rooms = savedRooms; Memory.terminalNetwork = savedNet;
 }
 
+{
+    console.log('== 10-18 11:40 mineral 搬迁试点：W31S4 读 config.minerals.rooms（只放小静态字段，走路用通用移动），其他房照旧读冻结指令 ==');
+    const mm = ROLES.mineralMiner;
+    const c = config.minerals.rooms.W31S4;
+    assert(c && c.mineralType === 'L' && c.sinks.length === 2 && c.recycle && Array.isArray(c.body) && !('outbound' in c), 'config 只放静态小字段，不带路径方向场');
+    assert(Object.keys(config.minerals.rooms).join() === 'W31S4', '只有 W31S4 试点');
+    const p = mm.directive({ name: 'W31S4' });
+    assert(p && p.source === 'config' && p.enabled === true && p.count === 1 && p.mineralId === c.mineralId && p.sinks[0].id === c.sinks[0] && !p.sinks[0].path, 'W31S4：开关仍走 force，字段来自 config，sink 不带 path');
+    assert(mm.configPlan({ name: 'W33S3' }) === null, '其他房不读 config，回落冻结指令');
+    const moves = [];
+    const savedGo = movement.go;
+    movement.go = (creep, target, opts) => moves.push([target, opts && opts.range]);
+    const savedGet = Game.getObjectById;
+    const sink = { id: c.sinks[0], my: true, structureType: 'terminal', pos: new RoomPosition(20, 20, 'W31S4'), store: Object.assign({ L: 0 }, { getFreeCapacity: () => 100000 }) };
+    const minObj = { id: c.mineralId, mineralAmount: 70000, pos: new RoomPosition(29, 9, 'W31S4') };
+    const ext = { id: c.extractorId, my: true, cooldown: 0, store: null };
+    Game.getObjectById = (id) => (id === sink.id ? sink : id === c.mineralId ? minObj : id === c.extractorId ? ext : null);
+    const roomObj = { name: 'W31S4', controller: { my: true, level: 7 } };
+    const savedRoom = Game.rooms.W31S4;
+    Game.rooms.W31S4 = roomObj;
+    const cr = { name: 'mmTest', memory: { home: 'W31S4', role: 'mineralMiner' }, pos: new RoomPosition(30, 30, 'W31S4'), fatigue: 0, ticksToLive: 1000,
+        store: Object.assign({ L: 100 }, { getUsedCapacity: () => 100, getFreeCapacity: () => 150 }), getActiveBodyparts: () => 21,
+        transfer: () => ERR_NOT_IN_RANGE, move: () => OK, harvest: () => OK };
+    cr.memory.mineralDelivering = true;
+    mm.run(cr);
+    assert(moves.length === 1 && moves[0][0] === sink && moves[0][1] === 1, '卸货没有方向场：用 movement.go 走到 sink 旁（得 ' + JSON.stringify(moves.map((m) => m[1])) + '）');
+    movement.go = savedGo; Game.getObjectById = savedGet; if (savedRoom) Game.rooms.W31S4 = savedRoom; else delete Game.rooms.W31S4;
+}
+
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');
 {
     resetWorld(6900);

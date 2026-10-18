@@ -1,5 +1,6 @@
 'use strict';
 const brain = require('brain');
+const movement = require('movement');
 
 const forcedCache = { tick: -1, byRoom: {} };
 function forced(room, plan) {
@@ -23,7 +24,28 @@ function drained(room, plan) {
     if (mineral && !(mineral.mineralAmount > 0)) { mem[room.name] = Game.time; return true; }
     return false;
 }
+const configCache = { tick: -1, byRoom: {} };
+function configPlan(room) {
+    const rooms = ((require('config').minerals) || {}).rooms;
+    const c = room && rooms && rooms[room.name];
+    if (!c || !c.mineralId) return null;
+    const tick = typeof Game !== 'undefined' ? Game.time : 0;
+    if (configCache.tick !== tick) { configCache.tick = tick; configCache.byRoom = {}; }
+    if (configCache.byRoom[room.name]) return configCache.byRoom[room.name];
+    const plan = {
+        version: 1, enabled: false, count: 0, reason: 'config', source: 'config', at: 'config',
+        mineralId: c.mineralId, mineralType: c.mineralType, extractorId: c.extractorId,
+        pos: c.pos, stand: c.stand, build: c.build !== false,
+        sinks: (c.sinks || []).map((id) => ({ id })),
+        recycle: c.recycle ? { id: c.recycle } : null,
+        body: c.body, returnTicks: c.returnTicks, reserveFree: c.reserveFree, maxStock: c.maxStock,
+    };
+    configCache.byRoom[room.name] = plan;
+    return plan;
+}
 function directive(room) {
+    const fromConfig = configPlan(room);
+    if (fromConfig) return forced(room, fromConfig);
     const plan = room && brain.get(room.name, 'mineral', null);
     return plan && plan.version === 1 ? forced(room, plan) : null;
 }
@@ -52,8 +74,12 @@ function ready(room, plan) {
     const maxStock = cap > 0 ? cap : plan.maxStock;
     return stock(plan, sinks) < maxStock && sinks.some(({ target }) => target.store.getFreeCapacity() > plan.reserveFree);
 }
-function move(creep, path, revision) {
+function move(creep, path, revision, target, range) {
     if (creep.fatigue) return;
+    if (!path && target) {
+        movement.go(creep, target, { range: range || 0, reusePath: 20 });
+        return;
+    }
     const direction = path && path[creep.pos.x + creep.pos.y * 50];
     if (Number.isInteger(direction) && direction >= 1 && direction <= 8) {
         const previous = creep.memory.mineralMove;
@@ -92,7 +118,7 @@ function recycle(creep, plan) {
     const spawn = object(entry && entry.id);
     if (!active(spawn)) return;
     if (creep.pos.isNearTo(spawn)) spawn.recycleCreep(creep);
-    else move(creep, entry.path, plan.at);
+    else move(creep, entry.path, plan.at, spawn, 1);
 }
 function run(creep) {
     const room = Game.rooms[creep.memory.home];
@@ -117,13 +143,13 @@ function run(creep) {
         const type = Object.keys(creep.store).find((key) => creep.store[key] > 0);
         const before = creep.store[type];
         const code = creep.transfer(sink.target, type);
-        if (code === ERR_NOT_IN_RANGE) move(creep, sink.entry.path, plan.at);
+        if (code === ERR_NOT_IN_RANGE) move(creep, sink.entry.path, plan.at, sink.target, 1);
         else if (code === OK) creep.memory.mineralIntent = { tick: Game.time, type, before, action: 'transfer' };
         return;
     }
     if (!canMine || !work) return;
     if (!plan.stand || creep.pos.x !== plan.stand.x || creep.pos.y !== plan.stand.y || creep.pos.roomName !== room.name) {
-        move(creep, plan.outbound, plan.at);
+        move(creep, plan.outbound, plan.at, new RoomPosition(plan.stand.x, plan.stand.y, room.name), 0);
         return;
     }
     if (!creep.pos.isNearTo(mineral)) return;
@@ -133,4 +159,4 @@ function run(creep) {
     const before = creep.store[type] || 0;
     if (creep.harvest(mineral) === OK) creep.memory.mineralIntent = { tick: Game.time, type, before, action: 'harvest' };
 }
-module.exports = { run, directive, ready, mineralOf, forced, drained };
+module.exports = { run, directive, ready, mineralOf, forced, drained, configPlan };

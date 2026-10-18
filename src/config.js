@@ -569,6 +569,15 @@ module.exports = {
     minerals: {
         force: { W33S8: true, W33S3: true, W32S4: true, W31S4: true, W35S7: 'drain', W31S6: false, W37S7: false, W37S5: false, W29S3: false },
         maxStock: { W33S8: 10000, W33S3: 30000, W32S4: 30000 },
+        rooms: {
+            W31S4: {
+                mineralId: '598342ec641acf0573577a2d', mineralType: 'L', extractorId: '6aa64a768e64b6047b947e4f',
+                pos: { x: 29, y: 9 }, stand: { x: 30, y: 10 },
+                sinks: ['6ac171335162b105680b3cd3', '6a9f278c8e64b644c7922bb3'], recycle: '6a9d9ccb7112603152cb325d',
+                body: ['work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'carry', 'carry', 'carry', 'carry', 'carry', 'move', 'move', 'move', 'move', 'move', 'move', 'move', 'move', 'move', 'move', 'move', 'move', 'move'],
+                returnTicks: 34, reserveFree: 5000, maxStock: 50000,
+            },
+        },
     },
     brain: { retired: true },
     memoryProbeTtl: 100,
