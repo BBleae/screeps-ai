@@ -26,3 +26,5 @@ data/validation/
 
 # 公开仓库：运行数据一律不入库
 data/
+backups/live.json
+backups/live_backup_*.json
