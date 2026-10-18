@@ -1,11 +1,9 @@
 'use strict';
-/** 本地 mock 冒烟测试：mock Screeps 全局环境 + 真实 W33S7 地形，跑通布局规划/生成决策/全部角色 */
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const Module = require('module');
 
-// Screeps 扁平模块名 → 本地文件（模拟 grunt 拷贝重命名后的 dist 布局）
 const MODULE_MAP = {
     config: 'config.js', utils: 'utils.js', spawn: 'spawn.js', spawn_queue: 'spawn_queue.js', layout: 'layout.js', movement: 'movement.js', actions: 'actions.js',
     wheel_layout: 'wheel_layout.js', visuals: 'visuals.js', task_broker: 'task_broker.js', demolition: 'demolition.js', soak_probe: 'soak_probe.js', aid: 'aid.js',
@@ -34,7 +32,6 @@ Module._load = function (request, parent, isMain) {
     return origLoad.call(this, request, parent, isMain);
 };
 
-// ---------- 常量桩 ----------
 const C = {};
 let _cid = 100;
 ['FIND_SOURCES', 'FIND_MINERALS', 'FIND_STRUCTURES', 'FIND_MY_STRUCTURES', 'FIND_MY_SPAWNS',
@@ -63,7 +60,7 @@ global.RoomPosition = class RoomPosition {
 };
 RoomPosition.prototype.isEqualTo = function (x, y) {
     const pos = x && x.pos ? x.pos : x;
-    if (pos && pos.roomName && pos.roomName !== this.roomName) return false;   // 真实 API：不同房间永远不相等
+    if (pos && pos.roomName && pos.roomName !== this.roomName) return false;
     return this.x === (pos && pos.x != null ? pos.x : x) && this.y === (pos && pos.y != null ? pos.y : y);
 };
 RoomPosition.prototype.isNearTo = function (target) {
@@ -77,10 +74,8 @@ RoomPosition.prototype.inRangeTo = function (target, range) {
 };
 RoomPosition.prototype.findClosestByPath = function (kind, opts) {
     const room = Game && Game.rooms && Game.rooms[this.roomName];
-    // 真实 API 也接受"对象数组"（pos.findClosestByPath([a,b])），builder 的取能点选择用它
     if (Array.isArray(kind)) {
         const list = opts && opts.filter ? kind.filter(opts.filter) : kind;
-        // 真实 API 按路径距离；mock 用 Chebyshev 代替——足以区分"2 格外的 storage"与"16 格外的源容器"
         let best = null;
         let bestDistance = Infinity;
         for (const object of list) {
@@ -192,7 +187,6 @@ MOCK_MODULES.wheel_movement_engine = {
         return C.OK;
     },
     refreshRoom(roomName) {
-        // 与真实补丁同序：deletePathInRoom（先删 matrix 再删路径）→ 可见房当场重建 matrix
         wheelMovementState.deletedRooms.push({ kind: 'matrix', roomName });
         wheelMovementState.deletedRooms.push({ kind: 'path', roomName });
         wheelMovementState.deletedRooms.push({ kind: 'refresh', roomName });
@@ -216,7 +210,6 @@ MOCK_MODULES.wheel_movement_engine = {
 };
 
 const plannerState = { cache: {}, calls: [] };
-// 真实轮子产出（官方服 W33S7/W34S7、私服 E11S11）：固定件用真实常量名，按 smoke 的常量值重映射键名
 function wheelFixture(name) {
     const file = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'wheel_layout_' + name + '.json'), 'utf8')).layout;
     const keyMap = { spawn: C.STRUCTURE_SPAWN, extension: C.STRUCTURE_EXTENSION, road: C.STRUCTURE_ROAD, rampart: C.STRUCTURE_RAMPART, link: C.STRUCTURE_LINK,
@@ -308,7 +301,6 @@ global.PathFinder = {
             Math.max(Math.abs(from.x - a.pos.x), Math.abs(from.y - a.pos.y)) -
             Math.max(Math.abs(from.x - b.pos.x), Math.abs(from.y - b.pos.y)))[0];
         if (!target) return { path: [], incomplete: true };
-        // 直线插值桩（测试只关心代码路径，不保证绕墙）
         const path = [];
         let x = from.x, y = from.y;
         const tx = target.pos.x, ty = target.pos.y;
@@ -322,12 +314,10 @@ global.PathFinder = {
     },
 };
 
-// ---- 真实地形 ----
 const terrainData = JSON.parse(fs.readFileSync(path.join(__dirname, 'terrain_W33S7.json'), 'utf8'));
 const grid = Array.from({ length: 50 }, () => Array(50).fill(0));
 for (const e of terrainData.terrain) grid[e.y][e.x] = e.type === 'wall' ? 1 : e.type === 'swamp' ? 2 : 0;
 
-// ---- 世界状态 ----
 const world = { time: 1000, creeps: {}, rooms: {}, byId: {}, nextId: 1, exits: {}, constructionSites: {}, flags: {} };
 global.Game = {
     get time() { return world.time; },
@@ -345,7 +335,7 @@ global.Game = {
     gcl: { level: 1, progress: 0, progressTotal: 1 },
 };
 global.Memory = { creeps: {}, rooms: {}, map: {}, errors: [], stats: [] };
-global.SCRIPT_VERSION = 0; // 线上由 grunt file_append 注入 dist/version.js
+global.SCRIPT_VERSION = 0;
 
 const NEUTRAL_TYPES = new Set([C.STRUCTURE_CONTAINER, C.STRUCTURE_ROAD, C.STRUCTURE_WALL]);
 function makeRoom(name, opts = {}) {
@@ -383,7 +373,6 @@ function makeRoom(name, opts = {}) {
             if (kind === C.FIND_SOURCES) list = room._sources || [];
             else if (kind === C.FIND_MINERALS) list = room._mineral ? [room._mineral] : [];
             else if (kind === C.FIND_STRUCTURES) list = structures;
-            // 与真实 API 一致：容器/道路/墙是中立建筑，永远不在 FIND_MY_STRUCTURES 里
             else if (kind === C.FIND_MY_STRUCTURES) list = structures.filter((s) => s.my !== false && !NEUTRAL_TYPES.has(s.structureType));
             else if (kind === C.FIND_MY_SPAWNS) list = structures.filter((s) => s.structureType === C.STRUCTURE_SPAWN);
             else if (kind === C.FIND_MY_CONSTRUCTION_SITES || kind === C.FIND_CONSTRUCTION_SITES) list = sites;
@@ -397,7 +386,6 @@ function makeRoom(name, opts = {}) {
         },
         createConstructionSite(x, y, type) {
             if (grid[y][x] === 1) return C.ERR_INVALID_TARGET;
-            // 与真实 API 一致：rampart 可叠任何非墙结构，道路只能与容器共格，其余同格即冲突
             const canCoexist = (a, b) => a !== b && (a === C.STRUCTURE_RAMPART || b === C.STRUCTURE_RAMPART ||
                 (a === C.STRUCTURE_ROAD && b === C.STRUCTURE_CONTAINER) || (a === C.STRUCTURE_CONTAINER && b === C.STRUCTURE_ROAD));
             const conflict = structures.some((s) => s.pos.x === x && s.pos.y === y && !canCoexist(s.structureType, type));
@@ -439,8 +427,6 @@ function mkStore(energy, cap, extra = {}) {
             if (t == null) return Object.keys(st).reduce((sum, key) => typeof st[key] === 'number' ? sum + st[key] : sum, 0);
             return st[t] || 0;
         },
-        // 引擎语义：通用存储（storage/terminal/container/tombstone/ruin）的空位是"容量 − 全部资源"，
-        // 不是"容量 − 该类型的量"；只存能量的 spawn/ext/tower 两者等价，所以统一按总量算
         getFreeCapacity: () => cap - st.getUsedCapacity(),
         getCapacity: () => cap,
     };
@@ -510,7 +496,6 @@ function makeStructure(room, type, x, y, opts = {}) {
 function makeSpawn(room, x, y) {
     const s = makeStructure(room, C.STRUCTURE_SPAWN, x, y, { capacity: 300, energy: 300 });
     s.spawning = false;
-    // 引擎语义：目标须是己方、不在孵化中、与 spawn 相邻（同房）；spawn 正在孵化也能回收
     s.recycleCreep = function (target) {
         if (!target || !target.pos || target.pos.roomName !== room.name || target.my === false) return C.ERR_INVALID_TARGET;
         if (Math.max(Math.abs(target.pos.x - s.pos.x), Math.abs(target.pos.y - s.pos.y)) > 1) return C.ERR_NOT_IN_RANGE;
@@ -520,8 +505,6 @@ function makeSpawn(room, x, y) {
     };
     s.spawnCreep = function (body, name, o) {
         if (body.length > 50) return C.ERR_INVALID_ARGS;
-        // 引擎语义：重名直接拒绝（structures.js 的 spawnCreep），名字超 100 字符算参数非法。
-        // mock 里静默覆盖 world.creeps[name] 会把撞名伪装成"少了一只 creep"，取名逻辑就没人看守了。
         if (world.creeps[name]) return C.ERR_NAME_EXISTS;
         if (name.length > 100) return C.ERR_INVALID_ARGS;
         const cost = costOf(body);
@@ -548,7 +531,6 @@ function makeDropped(room, x, y, amount, resourceType = C.RESOURCE_ENERGY) {
     return drop;
 }
 
-/** extra = 非能量资源（入侵者掉的 boost 化合物：{ GO: 95, KO: 17 }），容量按总量算 */
 function makeTombstone(room, x, y, energy, extra = {}) {
     const total = energy + Object.keys(extra).reduce((sum, key) => sum + extra[key], 0);
     const tomb = { id: 'tomb_' + world.nextId++, pos: new RoomPosition(x, y, room.name), room, store: mkStore(energy, total, extra) };
@@ -583,7 +565,6 @@ function makeHostile(room, x, y, body, opts = {}) {
     return hostile;
 }
 
-/** 身体里可用的 WORK 数（字符串或 {type} 部件都行） */
 function workParts(body) { return utils.bodyPartCount(body, 'work'); }
 
 function makeCreep(room, name, body, memory, opts = {}) {
@@ -599,7 +580,6 @@ function makeCreep(room, name, body, memory, opts = {}) {
     creep.ticksToLive = opts.ticksToLive == null ? 1500 : opts.ticksToLive;
     creep.store = {
         [C.RESOURCE_ENERGY]: 0,
-        // 与真实 Store 一致：getUsedCapacity() 不带参数时是所有资源之和（矿物钻机按它判断满仓）
         getUsedCapacity: (t) => (t == null
             ? Object.keys(creep.store).reduce((sum, key) => (typeof creep.store[key] === 'number' ? sum + creep.store[key] : sum), 0)
             : (creep.store[t] || 0)),
@@ -611,9 +591,6 @@ function makeCreep(room, name, body, memory, opts = {}) {
     creep.actions = [];
     creep.moveCalls = [];
     creep.harvest = (target) => (creep.actions.push('harvest'), target && target.energy != null && (target.energy = Math.max(0, target.energy - 2 * creep.getActiveBodyparts(C.WORK))), creep.store[C.RESOURCE_ENERGY] = Math.min(cap, creep.store[C.RESOURCE_ENERGY] + 2 * Math.max(1, creep.getActiveBodyparts(C.WORK))), C.OK);
-    // 引擎语义（engine/dist/game/creeps.js 的 Creep.prototype.transfer）：只有目标**完全满**才 ERR_FULL；
-    // 不带 amount 时引擎自己夹紧到装得下的量并返回 OK（所以"部分装下"是一趟进一半、剩下的留在车上）；
-    // 显式传 amount 且超出目标空位或自己的存量才整笔失败。旧 mock 不查目标容量、永远 OK
     creep.transfer = (target, resourceType, amount) => {
         creep.actions.push('transfer');
         const key = resourceType || C.RESOURCE_ENERGY;
@@ -630,9 +607,6 @@ function makeCreep(room, name, body, memory, opts = {}) {
         creep.store[key] = have - send;
         return C.OK;
     };
-    // 引擎语义（engine/dist/game/creeps.js:518-534）：emptySpace 按**总用量**算；amount > emptySpace → ERR_FULL、
-    // 目标存量 < amount → ERR_NOT_ENOUGH_RESOURCES，两者都是**整笔失败**，不是静默 clamp。
-    // 旧 mock 一律返回 OK 并 clamp，把"请求量算错"这类 bug 全盖住了（线上会一点都搬不到）
     creep.withdraw = (target, resourceType, amount) => {
         creep.actions.push('withdraw');
         const key = resourceType || C.RESOURCE_ENERGY;
@@ -658,7 +632,6 @@ function makeCreep(room, name, body, memory, opts = {}) {
     creep.rangedMassAttack = () => (creep.actions.push('rangedMassAttack'), C.OK);
     creep.heal = (target) => (creep.actions.push('heal'), C.OK);
     creep.rangedHeal = (target) => (creep.actions.push('rangedHeal'), C.OK);
-    // 引擎语义：按掉落物自己的资源类型入账（矿物/化合物不会变成能量），装不下的留在地上
     creep.pickup = (target) => {
         creep.actions.push('pickup');
         if (!target) return C.OK;
@@ -690,14 +663,11 @@ function makeCreep(room, name, body, memory, opts = {}) {
     return creep;
 }
 
-/** creep 本 tick 是否朝 target 起步（movement.go → moveTo 记下的目标格）。mock 的 transfer/withdraw 不查射程，
- *  真实 hauler 在够不着时先走过去——断言"选中了哪个目标"时用它，不依赖 mock 隔空投递 */
 function headingTo(creep, target) {
     const pos = target && target.pos ? target.pos : target;
     return !!pos && (creep.moveCalls || []).some((m) => m.target && m.target.x === pos.x && m.target.y === pos.y);
 }
 
-/** 退役的可观察结果：原地 suicide、被 spawn 回收、或已选定回收 spawn 正走过去 */
 function retiring(creep) {
     return creep.actions.includes('suicide') || creep.actions.includes('recycled') ||
         (creep.memory.retireSpawn != null && creep.moveCalls.length > 0);
@@ -731,15 +701,10 @@ function resetWorld(time) {
     wheelMovementState.end = 0;
 }
 
-// ---- 测试 ----
 const config = require('../src/config');
-// 10-17：skReaper 单只验证（config.sk.validate）在线上开着，但它给 home W33S7 注入一个 skReaper 需求，会扰动下面以 W33S7 为样板房的孵化测试；
-// 这些测试按 validate 关闭的基线写，先在测试进程里关掉，专门的验证断言在其对应块里局部打开。
 config.sk.validate.enabled = false;
-// 线上外矿分配（config.remote.assign）会盖过测试里的大脑白名单：先存档清空，末尾单测覆盖语义
 const liveRemoteAssign = config.remote.assign;
 config.remote.assign = {};
-// labs 的 2026-10-15 线上配置（labRooms 闸、XGH2O 优先）与老测试的前提不同：先存档还原成旧语义，末尾单测新语义
 const liveIndustry = { labRooms: config.industry.labRooms, boostTargets: config.industry.boostTargets, boostUpgraders: config.industry.boostUpgraders, labOpportunistic: config.industry.labOpportunistic };
 config.industry.labOpportunistic = true;
 delete config.industry.labRooms;
@@ -798,13 +763,11 @@ function assert(cond, msg) {
     if (!cond) { fails++; console.log('  ✗ FAIL: ' + msg); } else console.log('  ✓ ' + msg);
 }
 
-// storage 富余相关的场景用相对阈值的量，而不是写死 2 万/1 万：阈值一调（A/B 分支 ab/storage-feed-8000）
-// 写死的数字就会把"低于门槛"变成"高于门槛"，测的东西悄悄换掉
-const SF_ABOVE = config.upgrading.storageFeedAbove;         // 进入富余
-const SF_BELOW = config.upgrading.storageFeedBelow;         // 退出富余（滞回）
-const SF_UNDER = Math.floor(SF_BELOW / 2);                  // 明确低于滞回下限
-const SF_MID = Math.floor((SF_ABOVE + SF_BELOW) / 2);       // 滞回带内：已富余时维持、未富余时不进入
-const SF_RICH = SF_ABOVE * 4.5;                             // 明确富余
+const SF_ABOVE = config.upgrading.storageFeedAbove;
+const SF_BELOW = config.upgrading.storageFeedBelow;
+const SF_UNDER = Math.floor(SF_BELOW / 2);
+const SF_MID = Math.floor((SF_ABOVE + SF_BELOW) / 2);
+const SF_RICH = SF_ABOVE * 4.5;
 
 console.log('== makeBody 预算校验 ==');
 for (const role of ['harvester', 'staticHarvester', 'hauler', 'upgrader', 'builder', 'scout', 'remoteMiner']) {
@@ -834,8 +797,6 @@ assert(utils.bodyCost(remoteMiner550) === 550 && remoteMiner550.filter((p) => p 
     'remoteMiner@550 不浪费容量');
 
 console.log('== Memory 探针残渣回收：内容不再变化的下划线键按 TTL 删掉 ==');
-// 线上 359,623 字节的 Memory 里约 102 KB 是探针结果（_mon 78 KB、_roi 13 KB、_dbg2/_dq/_probe2），
-// monitor.py / remote_roi.py 只删探针源不删结果，引擎却每 tick 解析+序列化整个 Memory
 {
     const ttl = require('../src/config').memoryProbeTtl;
     const savedTime = world.time;
@@ -849,7 +810,7 @@ console.log('== Memory 探针残渣回收：内容不再变化的下划线键按
     assert(Memory._gcSeen && Memory._gcSeen._mon && Memory._gcSeen._dbg2, '登记表记下了两个探针键');
     assert(!Memory._gcSeen._visuals && !Memory._gcSeen._gcSeen, '游戏内自己用的下划线键不进登记表');
     world.time += ttl + 1;
-    Memory._mon = JSON.stringify({ t: 2, big: 'y'.repeat(200) });   // 内容变了：重新计时
+    Memory._mon = JSON.stringify({ t: 2, big: 'y'.repeat(200) });
     main.gcProbeKeys();
     assert(Memory._mon, '内容变过的探针键重新计时，不删');
     assert(!Memory._dbg2, '内容一直没变、超过 TTL 的探针键被删');
@@ -864,8 +825,6 @@ console.log('== Memory 探针残渣回收：内容不再变化的下划线键按
 }
 
 console.log('== 周期性工作的房名相位：真的错开，不是全账号同 tick ==');
-// 线上 10 个房名的第 4 位全是 'S'，旧的 charCodeAt(3) 相位对它们完全相同 ——
-// layout.run / industry.run 每 layoutInterval 一次、全部房间同 tick 齐发。
 {
     const liveRooms = ['W33S7', 'W34S7', 'W35S7', 'W33S8', 'W31S8', 'W31S6', 'W31S5', 'W33S3', 'W32S4', 'W31S4'];
     for (const interval of [5, 11, 20]) {
@@ -889,7 +848,7 @@ console.log('== 周期性工作的房名相位：真的错开，不是全账号�
 }
 
 console.log('== 布局规划（真实地形 W33S7，轮子方案是唯一来源）==');
-const room = makeRoom('W33S7', { rcl: 1, ctrl: { x: 34, y: 24 } });   // 真实 controller 位（轮子工位 (33,25) 与之相邻）
+const room = makeRoom('W33S7', { rcl: 1, ctrl: { x: 34, y: 24 } });
 room._sources = [makeSource(room, 14, 6, 's0'), makeSource(room, 31, 12, 's1')];
 room._mineral = { pos: new RoomPosition(33, 24, 'W33S7'), mineralType: 'L' };
 const spawnObj = makeSpawn(room, 23, 21);
@@ -913,11 +872,7 @@ const siteTypes = {};
 room.find(C.FIND_MY_CONSTRUCTION_SITES).forEach((s) => (siteTypes[s.structureType] = (siteTypes[s.structureType] || 0) + 1));
 console.log('  sites:', JSON.stringify(siteTypes));
 assert(siteTypes[C.STRUCTURE_CONTAINER] >= 1, '容器工地已放置');
-// 路要等 config.roadsMinRcl：线上 2026-09-06 全账号 100 个名额里 75 个是零进度的路，光 W33S3/W31S5 两个 RCL2 新房就占 48 条——
-// 两房自己还在建 spawn/extension，短期建不动路，名额却被占死（外矿容器工地因此放不出）
 assert(!siteTypes[C.STRUCTURE_ROAD], 'RCL1 不放道路工地（低于 roadsMinRcl）（得 ' + siteTypes[C.STRUCTURE_ROAD] + '）');
-// 门槛只挡新放的不够：线上上线后 W33S3/W31S5 仍各挂着 24 条零进度的路（改动前放的），全账号仍是 98——存量也要清，
-// 有进度的保留（RCL 降级时不丢进度）
 {
     const rtPlanned = plan.roads.all.split(';').map((s) => s.split('.'));
     let rtSeeded = 0;
@@ -944,7 +899,6 @@ room.controller.level = 1;
 
 console.log('== RCL2 回归：道路占满名额时 extension 工地仍能放下 ==');
 room.controller.level = Math.max(2, require('../src/config').roadsMinRcl);
-// 复现旧 bug 现场：把道路工地灌到超过 sitePace.roads（模拟旧代码道路抢满名额）
 let extraRoads = room.find(C.FIND_MY_CONSTRUCTION_SITES).filter((s) => s.structureType === C.STRUCTURE_ROAD).length;
 for (const p of plan.roads.all.split(';').map((s) => s.split('.'))) {
     if (extraRoads > require('../src/config').sitePace.roads) break;
@@ -1082,7 +1036,6 @@ assert(staticUpgrade && utils.bodyCost(staticUpgrade.body) === 550 &&
 assert(staticUpgrade && staticUpgrade.memory.staticMiner === true && world.creeps.sh0.memory.bodyUpgradePending === staticUpgrade.name,
     '静态矿工标记与替换租约均已记录');
 makeStructure(staticMinerRoom, C.STRUCTURE_LINK, 14, 7, { capacity: 800, energy: 0 });
-// 没有 ctrl link 的源 link 搬不走能量（links.run 无收货方），hauler 编制会先补一只：最多给 3 tick 让替换矿工排到
 let portableUpgrade = null;
 for (let tick = 0; tick < 3 && !portableUpgrade; tick++) {
     staticMinerRoom.energyAvailable = 550;
@@ -1250,11 +1203,10 @@ for (let i = 0; i < 3; i++) {
 }
 assert((Memory.errors || []).length === 0, '无运行时错误: ' + JSON.stringify(Memory.errors || []));
 
-// Memory.stats：按房记账 + 按模块/按房 CPU 均值（旧版只记 rooms[0] 一个任意房，整条经济序列是死数据）
 {
     Memory.stats = [];
     const statsSavedTime = world.time;
-    while (world.time % 30 !== 0) world.time++;   // 采样只在 %30===0 那一 tick
+    while (world.time % 30 !== 0) world.time++;
     try { main.sampleStats(); } catch (e) { fails++; console.log('  ✗ sampleStats throw: ' + e.message); }
     const stat = (Memory.stats || [])[Memory.stats.length - 1];
     assert(stat && stat.rooms && stat.rooms[room.name] && stat.rooms[room.name].length === 3,
@@ -1268,11 +1220,10 @@ assert((Memory.errors || []).length === 0, '无运行时错误: ' + JSON.stringi
     const srcOrder = stat && stat.cache && stat.cache.srcOrder;
     assert(Array.isArray(srcOrder) && srcOrder.length === 2 && srcOrder[0] >= srcOrder[1] && srcOrder[1] >= 0,
         'stats.cache.srcOrder 记下窗口内源顺序缓存的 [调用, 命中]（得 ' + JSON.stringify(srcOrder) + '）');
-    // 房级计时必须自己取起点：模块级打点会推进 cpuMark，直接 cpuLap 只量到最后一个模块之后的残渣
     assert(!/cpuLap\(cpuProf\.room/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'main.js'), 'utf8')),
         '房级 CPU 不再用 cpuLap（那会被模块级打点吃掉，线上第一版 cpuRooms 全空）');
     assert(stat && typeof stat.cpu === 'number', 'cpu 字段是数字（整 tick 收尾时会被回填成含 flush/endTick 的值）');
-    world.time = statsSavedTime;   // 直接调 sampleStats，不碰 broker 的池子/租约，时间线可以还原
+    world.time = statsSavedTime;
 }
 
 console.log('== RCL4 场景（storage/scout/布局配额）==');
@@ -1295,7 +1246,6 @@ try {
     main.loop();
     assert(Memory.rooms && Memory.rooms.W33S7, '空 Memory 自动初始化 rooms');
     assert((Memory.errors || []).length === 0, '空 Memory 启动无错误: ' + JSON.stringify(Memory.errors || []));
-    // pixel 闸门（config.pixel）。loop 会复用上一 tick 解析好的 Memory，所以改的是 loop 之后的那个 Memory 对象；避开 30 的倍数（sampleStats 会追加样本）
     const pixelTick = (stats) => {
         Memory.stats = stats;
         world.time++;
@@ -1305,21 +1255,17 @@ try {
         main.loop();
         return { calls: global.__pixelCalls, skipped: ((Memory.pixelGate && Memory.pixelGate.skip) || 0) - before };
     };
-    // 线上暂停产 pixel（maxCpuShare 0）：闸门语义按 0.75 测，块末还原
     const livePixelShare = config.pixel.maxCpuShare;
     config.pixel.maxCpuShare = 0.75;
     const noSamples = pixelTick([]);
     assert(noSamples.calls === 0 && noSamples.skipped === 1 && Memory.pixelGate.n === 0,
         '没有 CPU 样本（刚 respawn）时不产 pixel、记一次放弃（得 ' + JSON.stringify(noSamples) + '、' + JSON.stringify(Memory.pixelGate) + '）');
-    // 近期用量明显低于 limit（140 × 0.75 = 105）：产 pixel
     const lowUse = pixelTick([{ cpu: 60 }, { cpu: 70 }, { cpu: 80 }]);
     assert(lowUse.calls === 1 && lowUse.skipped === 0, 'CPU 桶满且近期用量低时 generatePixel 被调用（得 ' + JSON.stringify(lowUse) + '）');
-    // 近期用量贴着 limit（线上 145–166/150）：不产，bucket 留作缓冲
     const pixelLine = Game.cpu.limit * config.pixel.maxCpuShare;
     const tight = pixelTick([{ cpu: 60 }, { cpu: 130 }, { cpu: 135 }, { cpu: 140 }, { cpu: 138 }, { cpu: 136 }]);
     assert(tight.calls === 0 && tight.skipped === 1 && Memory.pixelGate.mean > pixelLine && Memory.pixelGate.n === config.pixel.samples && Memory.pixelGate.at === world.time,
         '近期用量均值高于 limit × maxCpuShare：不产 pixel、记放弃次数/tick/均值（得 ' + JSON.stringify(tight) + '、' + JSON.stringify(Memory.pixelGate) + '）');
-    // 均值只看最近 samples 条：老的低样本不把均值拉下来
     assert(main.pixelGate().n === config.pixel.samples && main.pixelGate().mean === 135.8, '均值取最近 ' + config.pixel.samples + ' 条（得 ' + JSON.stringify(main.pixelGate()) + '）');
     config.pixel.maxCpuShare = livePixelShare;
 } catch (e) {
@@ -1530,9 +1476,8 @@ const sameSpot = new RoomPosition(mover.pos.x, mover.pos.y, mover.pos.roomName);
 const beforeInRangeCalls = mover.moveCalls.length;
 assert(movement.go(mover, sameSpot, { range: 0 }) === C.OK && mover.moveCalls.length === beforeInRangeCalls, '已在精确站位时不发移动 intent');
 assert(movement.go(mover, null) === C.ERR_INVALID_TARGET, '无效移动目标返回 ERR_INVALID_TARGET');
-// 跨房寻路默认避开 SK 房与别人占领的房（线上 2026-09-05：W34S7 去 W33S5 的 hauler/矿工/reserver 全走 W34S6 挨 keeper 打，W33S5 长期预定 0）
 {
-    world.time++;   // 危险房集合按 tick 缓存（大脑在 tick 开头合并情报，creep 移动在之后）
+    world.time++;
     Memory.map = { W32S9: { owner: 'tidusfox9', level: 8 }, W33S6: { owner: null, class: 'normal' }, W33S7: { owner: 'me' }, W36S6: { class: 'sk' }, W30S9: { lairs: 2 } };
     mover.moveCalls.length = 0;
     movement.go(mover, new RoomPosition(25, 25, 'W33S5'), { range: 20 });
@@ -1566,19 +1511,16 @@ console.log('== movement: keeper lair 规避（claimer/pioneer 穿 SK 房去 SK 
         W33S7: { owner: 'me' },
         W37S6: { owner: null, class: 'normal' },
     };
-    // hostileTerritoryRooms：只避"他人占领房"，SK 房放行（交给 keeperAvoidCallback），自家/空房不含
     const ht = movement.hostileTerritoryRooms();
     assert(ht instanceof Set && ht.has('W32S9') && !ht.has('W36S6') && !ht.has('W33S7') && !ht.has('W37S6'),
         'hostileTerritoryRooms 只含他人占领房：SK 房放行、自家/空房不含（得 ' + [...ht].join(',') + '）');
-    // knownLairs：从 Memory.map.lairPos 读 lair 坐标（无视野也能绕）
     const lairs = movement.knownLairs('W36S6');
     assert(lairs.length === 2 && lairs.some((l) => l.x === 20 && l.y === 20) && lairs.some((l) => l.x === 30 && l.y === 35),
         'knownLairs 从 Memory.map.lairPos 读 lair 坐标');
     assert(movement.knownLairs('W37S6').length === 0, '非 SK 房（无 lairPos/无 lair 结构）knownLairs 为空');
-    // keeperAvoidCallback：lair 周围成本梯度、range 外不变、墙(255)保留、非 SK 房不动、坏输入不崩
     const cb = movement.keeperAvoidCallback();
     const cm = new CostMatrix();
-    cm.set(19, 20, 255);   // lair(20,20) 相邻的一堵墙：应保持 255
+    cm.set(19, 20, 255);
     cb('W36S6', cm);
     assert(cm.get(21, 20) === 200, 'lair 相邻格 dist1 成本 = (5-1+1)*40 = 200');
     assert(cm.get(23, 20) === 120, 'lair dist3 成本 = (5-3+1)*40 = 120');
@@ -1590,15 +1532,14 @@ console.log('== movement: keeper lair 规避（claimer/pioneer 穿 SK 房去 SK 
     cb('W37S6', cm2);
     assert(cm2.get(25, 25) === 0 && cm2.get(30, 35) === 0, '非 SK 房（无 lair）矩阵不变');
     assert(cb('W36S6', null) === null, 'costMatrix 非法时原样返回，不崩');
-    // noteKeeperTransit：记录过境期间到最近 lair 的 Chebyshev 最小距离
     delete Memory.keeperTransit;
-    movement.noteKeeperTransit({ pos: new RoomPosition(28, 20, 'W36S6') });   // 到 lair(20,20)=8、(30,35)=15 → min 8
+    movement.noteKeeperTransit({ pos: new RoomPosition(28, 20, 'W36S6') });
     assert(Memory.keeperTransit && Memory.keeperTransit.W36S6 === 8, 'noteKeeperTransit 记到最近 lair 的 Chebyshev 距离');
-    movement.noteKeeperTransit({ pos: new RoomPosition(24, 20, 'W36S6') });   // 到 (20,20)=4 更近
+    movement.noteKeeperTransit({ pos: new RoomPosition(24, 20, 'W36S6') });
     assert(Memory.keeperTransit.W36S6 === 4, '取过境期间的最小值（更近的覆盖）');
-    movement.noteKeeperTransit({ pos: new RoomPosition(10, 10, 'W36S6') });   // 到 (20,20)=10 更远
+    movement.noteKeeperTransit({ pos: new RoomPosition(10, 10, 'W36S6') });
     assert(Memory.keeperTransit.W36S6 === 4, '更远的不覆盖已记录的最小值');
-    movement.noteKeeperTransit({ pos: new RoomPosition(25, 25, 'W37S6') });   // 非 SK 房
+    movement.noteKeeperTransit({ pos: new RoomPosition(25, 25, 'W37S6') });
     assert(Memory.keeperTransit.W37S6 === undefined, '非 SK 房（无 lair）不记录');
     delete Memory.keeperTransit;
     delete Memory.map;
@@ -1641,8 +1582,6 @@ assert(movement.isWorkTile(upgraderWorker, new RoomPosition(22, 30, 'W33S7')) ==
 assert(movement.isWorkTile(upgraderWorker, new RoomPosition(23, 29, 'W33S7')) === true, '贴着锚点（ctrl link (23,30)）且 controller 3 格内的相邻格也是工位：第二只升级者不被推开（与 roles/upgrader.atStation 同一定义）');
 assert(movement.isWorkTile(remoteWorker, new RoomPosition(10, 10, 'W33S6')) === false, 'remoteMiner 离开远程工位时 workTile=false');
 assert(movement.isWorkTile(remoteWorker, new RoomPosition(11, 10, 'W33S6')) === true, 'remoteMiner 远程站位命中后 workTile=true');
-// 工位判定的每 creep 每 tick 缓存：轮子的堵车解算会为「挡路的 creep × 候选格」反复调它，
-// 而找源/找工位/lookForAt/算锚点这些贵活与 pos 无关，只该算一次；tick 内会变的几项必须逐次判定
 {
     let looks = 0;
     const origLook = infraRoom.lookForAt;
@@ -1658,27 +1597,23 @@ assert(movement.isWorkTile(remoteWorker, new RoomPosition(11, 10, 'W33S6')) === 
         '同一 tick 内不再重算工位、不再 lookForAt（这两只本 tick 已算过；重算 ' + (after.workTileComputes - before.workTileComputes) + '、look ' + looks + '）');
     assert(movement.isWorkTile(staticHarvester, new RoomPosition(15, 7, 'W33S7')) === true &&
         movement.isWorkTile(staticHarvester, new RoomPosition(14, 7, 'W33S7')) === false, '命中缓存后结果与重算一致');
-    // 不在三种角色里的 creep 不计数、不算 spec
     const otherCalls = movement.stats().workTileCalls;
     assert(movement.isWorkTile(makeCreep(infraRoom, 'wt.hauler', ['carry', 'move'], { home: 'W33S7', role: 'hauler' }), new RoomPosition(1, 1, 'W33S7')) === true &&
         movement.stats().workTileCalls === otherCalls, '非工位角色直接返回 true、不进缓存计数');
     world.time++;
     movement.isWorkTile(staticHarvester, new RoomPosition(15, 7, 'W33S7'));
     assert(movement.stats().workTileComputes - after.workTileComputes === 1, '换 tick 后重算一次');
-    // 同名的另一个 creep 对象（单测同一 Game.time 重建）：按对象身份不串用
     const twin = makeCreep(infraRoom, 'harvester.static', ['work', 'carry', 'move'], { home: 'W33S7', role: 'harvester', sourceId: 'mv0', sourceIdx: 0, dropMiner: true });
     twin.pos = new RoomPosition(14, 7, 'W33S7');
     const twinBefore = movement.stats().workTileComputes;
     movement.isWorkTile(twin, new RoomPosition(14, 6, 'W33S7'));
     assert(movement.stats().workTileComputes === twinBefore + 1, '同名不同对象的 creep 重新算 spec');
-    // 缓存不能吞掉 tick 内会变的几项：空载的升级者不在工作，装上货就在
     const saved = upgraderWorker.store[C.RESOURCE_ENERGY];
     assert(movement.isWorkTile(upgraderWorker, new RoomPosition(1, 1, 'W33S7')) === false, '载货的升级者在远处格：不是工位');
     upgraderWorker.store[C.RESOURCE_ENERGY] = 0;
     assert(movement.isWorkTile(upgraderWorker, new RoomPosition(1, 1, 'W33S7')) === true, '同一 tick 内卸空 ⇒ 立刻算不在工作');
     upgraderWorker.store[C.RESOURCE_ENERGY] = saved;
     assert(movement.isWorkTile(upgraderWorker, new RoomPosition(1, 1, 'W33S7')) === false, '同一 tick 内装回货 ⇒ 立刻算在工作（且不在工位）');
-    // 外矿当 tick 被停用（别的 creep 看到敌人）：远程矿工当场不算在工作
     assert(movement.isWorkTile(remoteWorker, new RoomPosition(10, 10, 'W33S6')) === false, '外矿启用时离开站位不是工位');
     const remoteRecord = Memory.rooms.W33S7.remotes.W33S6;
     remoteRecord.suspendedUntil = world.time + 50;
@@ -1686,8 +1621,6 @@ assert(movement.isWorkTile(remoteWorker, new RoomPosition(11, 10, 'W33S6')) === 
     remoteRecord.suspendedUntil = 0;
     infraRoom.lookForAt = origLook;
 }
-// storage 供能的房：升级者的工位是 storage 站位（roles/upgrader.ctrlStation storageFed 分支），不是容器/工作位那一格。
-// 线上 2026-09-05 W33S7：站在 (31,27) 的 19 部件 1-MOVE 升级者被当成闲人推来推去，(31,27) ↔ (30,27) 乒乓，16/tick 与 0/tick 交替
 {
     const sfRoom = makeRoom('W33S7', { rcl: 5, energy: 1800, cap: 1800, ctrl: { x: 34, y: 24 } });
     Memory.rooms.W33S7 = {
@@ -1959,7 +1892,6 @@ linkHarvester.actions.length = 0;
 ROLES.harvester.run(linkHarvester);
 assert(linkHarvester.actions.includes('transfer') && sourceLinkOnly.store[RESOURCE_ENERGY] === 48 && linkHarvester.actions.includes('harvest'),
     'harvester 在 work_pos 攒满一批（空位 < 2 次采集）整批送进 source link，同 tick 继续采');
-// 5W1C 连跑 9 tick：每 4 tick 交一次 40，不是每 tick 交 10
 sourceLinkOnly.store[RESOURCE_ENERGY] = 0;
 const batchMiner = makeCreep(linkOnlyRoom, 'link.batch', ['work', 'work', 'work', 'work', 'work', 'carry', 'move', 'move', 'move'],
     { home: 'W33S7', role: 'harvester', sourceId: 'lo0', sourceIdx: 0 });
@@ -1973,14 +1905,12 @@ for (let tick = 0; tick < 9; tick++) {
 }
 assert(batchSends.length === 2 && batchSends.every((amount) => amount === 40) && batchMiner.memory.xferBatch === 40,
     '5W1C 矿工 9 tick 只交 2 次（第 5、9 tick）、每次 40（得 ' + JSON.stringify(batchSends) + '）');
-// link 只剩 13 空位时的小额补交不拉低遥测：xferBatch 记生涯最大单次交货量（私服终态 link 满时最后一次只交 13）
 sourceLinkOnly.store[RESOURCE_ENERGY] = 787;
 batchMiner.store[RESOURCE_ENERGY] = 48;
 batchMiner.actions.length = 0;
 ROLES.harvester.run(batchMiner);
 assert(batchMiner.actions.includes('transfer') && sourceLinkOnly.store[RESOURCE_ENERGY] === 800 && batchMiner.memory.xferBatch === 40,
     '小额补交（13）后 xferBatch 仍是最大批量 40（得 ' + batchMiner.memory.xferBatch + '）');
-// link-only 工位（脚下没有容器）、link 满了：装不下这次采集就不采，不让溢出落地
 sourceLinkOnly.store[RESOURCE_ENERGY] = 800;
 batchMiner.store[RESOURCE_ENERGY] = 45;
 batchMiner.actions.length = 0;
@@ -2111,26 +2041,21 @@ console.log('== resolveSources 每房每 tick 只解析一次：同 tick 里矿�
     const statsAfter = layout.sourceOrderStats();
     assert(statsAfter.calls - statsBefore.calls === 7 && statsAfter.hits - statsBefore.hits === 6,
         '命中计数：7 次调用 6 次命中（得 ' + JSON.stringify([statsAfter.calls - statsBefore.calls, statsAfter.hits - statsBefore.hits]) + '）');
-    // 传别的方案进来（wheel 试算候选）不吃缓存，也不污染缓存
     const beforeOther = finds;
     layout.resolveSources(cacheRoom, cmem, { sourceIds: ['rc1', 'rc0'] });
     assert(finds > beforeOther, '传入别的方案时照常重算');
     assert(layout.resolveSources(cacheRoom, cmem, cmem.plan) === first, '别的方案的结果不覆盖本房缓存');
-    // 当 tick 换了方案对象（wheel 规划落地）：重算
     const beforeSwap = finds;
     cmem.plan = { sourceIds: ['rc0', 'rc1'], containers: {}, roads: {}, links: {} };
     layout.resolveSources(cacheRoom, cmem, cmem.plan);
     assert(finds > beforeSwap, 'mem.plan 当 tick 被换掉时重算');
-    // 同名的另一个房间对象（单测重建世界但 Game.time 没变）：不串用
     const otherRoom = makeRoom('W33S7', { rcl: 3, energy: 800, cap: 800, ctrl: { x: 22, y: 31 } });
     otherRoom._sources = [makeSource(otherRoom, 40, 40, 'rcX')];
     assert(layout.resolveSources(otherRoom, cmem, cmem.plan).map((source) => source.id).join(',') === 'rcX', '房间对象不同就重算（不吐旧房的源）');
-    // 换 tick：重新解析
     world.time++;
     const beforeTick = finds;
     layout.resolveSources(cacheRoom, cmem, cmem.plan);
     assert(finds > beforeTick, '换 tick 后重新解析');
-    // 副作用在首调用里完成：缓存命中时矿工身份已经是对的
     world.creeps.rcH = makeCreep(cacheRoom, 'rcH', ['work', 'carry', 'move'], { home: 'W33S7', role: 'harvester' });
     world.time++;
     layout.resolveSources(cacheRoom, cmem, cmem.plan);
@@ -2140,7 +2065,7 @@ console.log('== resolveSources 每房每 tick 只解析一次：同 tick 里矿�
 
 console.log('== spawn 阶段级 CPU 计时（cpuSpawn）：只在抽样 tick 量，各阶段之和 = spawn.run 总耗时 ==');
 {
-    resetWorld(3480);   // 3480 % 5 === 0：抽样 tick
+    resetWorld(3480);
     const phRoom = makeRoom('W33S7', { rcl: 3, energy: 800, cap: 800, ctrl: { x: 22, y: 31 } });
     phRoom._sources = [makeSource(phRoom, 14, 6, 'ph0'), makeSource(phRoom, 31, 12, 'ph1')];
     makeSpawn(phRoom, 23, 21);
@@ -2149,7 +2074,7 @@ console.log('== spawn 阶段级 CPU 计时（cpuSpawn）：只在抽样 tick 量
     let clock = 0;
     Game.cpu = Object.assign({}, savedCpu, { getUsed: () => (clock += 0.5) });
     try {
-        spawnMgr.cpuDigest();   // 清掉前面场景留下的累计
+        spawnMgr.cpuDigest();
         const startClock = clock;
         spawnMgr.run(phRoom);
         const spent = clock - startClock;
@@ -2158,15 +2083,12 @@ console.log('== spawn 阶段级 CPU 计时（cpuSpawn）：只在抽样 tick 量
         assert(keys.includes('pre') && keys.includes('counts') && keys.includes('targets') && keys.includes('schedule'),
             '全量推导的 tick 记下 pre/counts/targets/schedule 等阶段（得 ' + JSON.stringify(phases) + '）');
         const total = Object.values(phases).reduce((a, b) => a + b, 0);
-        // 首尾两次读数之间的每一段都归到某个阶段：总和 = 最后一次读数 − 第一次读数（时钟每读一次 +0.5）
         assert(Math.abs(total - (spent - 0.5)) < 1e-6, '各阶段之和等于 spawn.run 的总耗时（得 ' + total + '，应 ' + (spent - 0.5) + '）');
         assert(Object.keys(spawnMgr.cpuDigest()).length === 0, '取完清零');
-        // 非抽样 tick 一次 getUsed 都不读
         world.time = 3481;
         const before = clock;
         spawnMgr.run(phRoom);
         assert(clock === before && Object.keys(spawnMgr.cpuDigest()).length === 0, '非抽样 tick 不计时、不读 getUsed（读了 ' + ((clock - before) / 0.5) + ' 次）');
-        // 两个房同一抽样 tick：按 tick 合计（不是按房平均）
         world.time = 3485;
         const second = makeRoom('W34S7', { rcl: 3, energy: 800, cap: 800, ctrl: { x: 22, y: 31 } });
         second._sources = [makeSource(second, 14, 6, 'ph2')];
@@ -2252,8 +2174,6 @@ assert(sourceReplacement && sourceReplacement.memory.role === 'harvester', '将�
 assert(sourceReplacement && sourceReplacement.memory.sourceIdx === 1, '预补 harvester 分配到即将断档的 source1');
 
 console.log('== harvester 不成对孵化：孵化中的替补也算在源上（2 spawn、RCL7、源 link + 容器）==');
-// 线上 2026-10-08：26 个源 47 只 5W 矿工，同源两只 TTL 只差 1–36 tick——一只 spawn 孵替补的那几十 tick 里，
-// harvesterAssignmentStats 把孵化中的替补漏掉，源"没人覆盖"，另一只空闲 spawn 再孵一只同源矿工
 function pairRoomSetup(time) {
     resetWorld(time);
     const room = makeRoom('W33S7', { rcl: 7, energy: 5600, cap: 5600, ctrl: { x: 22, y: 31 } });
@@ -2277,7 +2197,6 @@ let pair = pairRoomSetup(3710);
 spawnMgr.run(pair.room);
 const pairFirst = pairHarvesters();
 assert(pairFirst.length === 1 && pairFirst[0].memory.sourceIdx === 0, '将死的源 0 矿工只预补一只（同 tick 两个空闲 spawn 也不成对）');
-// 下一 tick：替补在 spawn 0 里孵化（Game.creeps 里 spawning=true），spawn 1 空闲
 if (pairFirst[0]) {
     pairFirst[0].spawning = true;
     pair.spawns[0].spawning = { name: pairFirst[0].name, remainingTime: 20, needTime: 27 };
@@ -2292,7 +2211,6 @@ assert(pairCover && pairCover.src === 0 && pairCover.idle === 1 && pairCover.at 
     '遥测 harvesterSpawnCover 记下"源只靠孵化中的矿工覆盖、另有空闲 spawn"（得 ' + JSON.stringify(pairCover) + '）');
 const pairStats = Memory.rooms.W33S7.demand && Memory.rooms.W33S7.demand.targets;
 assert(!pairStats || Number(pairStats.harvester) <= 2, '2 源各 1 只 5W 足额：矿工目标不超过源数（实际 ' + (pairStats && pairStats.harvester) + '）');
-// 两只足额在岗、一只备用（同源 2 只）：同源多出的那只不该被算作需要补员的编制（自然老死后不再换代）
 pair = pairRoomSetup(3720);
 world.creeps.prA.ticksToLive = 1500;
 world.creeps.prA2 = makeCreep(pair.room, 'prA2', ['work', 'work', 'work', 'work', 'work', 'carry', 'move', 'move', 'move'],
@@ -2475,7 +2393,7 @@ assert(!(Memory.rooms.W33S7.plan.rawLayout && Memory.rooms.W33S7.plan.rawLayout[
     Memory.rooms.W33S7.plan.rawLayout[STRUCTURE_ROAD].length === 2, 'adopted plan 不保留重复 rawLayout');
 assert(world.creeps.adoptLive.memory.sourceId === 'adoptA' && world.creeps.adoptLive.memory.sourceIdx === 1, 'adopt 会 remap 活体 harvester 的 source 身份');
 assert(Memory.creeps.adoptPending.sourceId === 'adoptB' && Memory.creeps.adoptPending.sourceIdx === 0, 'adopt 会 remap 孵化中 harvester 的 source 身份');
-makeStructure(adoptRoom, C.STRUCTURE_TOWER, 28, 28, { store: mkStore(1000, 1000) });   // rampart 工地要有塔且塔能量充足
+makeStructure(adoptRoom, C.STRUCTURE_TOWER, 28, 28, { store: mkStore(1000, 1000) });
 layout.run(adoptRoom);
 const adoptedSites = adoptRoom.find(C.FIND_MY_CONSTRUCTION_SITES).reduce((acc, site) => (acc[site.structureType] = (acc[site.structureType] || 0) + 1, acc), {});
 assert(!(adoptedSites[C.STRUCTURE_ROAD] || 0), 'adopt 后 RCL2 不放道路工地（低于 roadsMinRcl）（得 ' + adoptedSites[C.STRUCTURE_ROAD] + '）');
@@ -2587,8 +2505,6 @@ world.creeps[remoteMiner.name] = remoteMiner;
 ROLES.remoteMiner.run(remoteMiner);
 assert(remoteMiner.actions.includes('transfer') && remoteMiner.actions.includes('harvest'), 'remoteMiner 在容器位会先 transfer 再 harvest');
 
-// 满仓 + 容器满：停手。引擎的 harvest intent 会把仓溢出的能量直接丢地上（落地能量每 tick 衰减 0.1%），
-// 线上 W32S6/W32S7/W33S6/W33S5 的源容器 2000/2000 而地面各堆 1000–2600 就是这条
 remoteContainer.store[C.RESOURCE_ENERGY] = 2000;
 remoteMiner.actions.length = 0;
 remoteMiner.store[C.RESOURCE_ENERGY] = 50;
@@ -2678,13 +2594,10 @@ const reserveDemand = demands.find((d) => d.role === 'reserver');
 const haulerDemands = demands.filter((d) => d.role === 'remoteHauler');
 assert(reserveDemand && reserveDemand.lead > 0, 'reserver demand 带 lead，供低 TTL 预补');
 assert(haulerDemands.length >= 2 && haulerDemands.some((d) => d.memory.haulSlot > 0), 'remoteHauler 会按吞吐拆成动态 slots');
-// reserver 只按预定余量补：预定 4998、在岗 reserver 快到期（TTL 60 ≤ lead）时不再续派——引擎拒绝把预定推过 5000，
-// 旧规则"有 reserver 活着就按 TTL 链式续派"让线上 8.7/15 只 reserver 顶在 ≥4500 的外矿上空转
 world.creeps.dhRes = makeCreep(demandHome, 'dhRes', ['claim', 'claim', 'move', 'move'], { home: 'W33S7', role: 'reserver', remoteRoom: 'W33S6' }, { ticksToLive: 60 });
 Memory.rooms.W33S7.remotes.W33S6.reservation = { username: 'me', ticksToEnd: 4998, seenAt: Game.time };
 assert(!remoteMod.getDemands(demandHome).some((d) => d.role === 'reserver'),
     '预定 4998 时在岗 reserver 到期也不续派（余量远高于提前量 + reservationKeep）');
-// 余量掉到提前量 + reservationKeep 以内：照常补（在岗者到期前接班）
 Memory.rooms.W33S7.remotes.W33S6.reservation = { username: 'me', ticksToEnd: 800, seenAt: Game.time };
 assert(remoteMod.getDemands(demandHome).some((d) => d.role === 'reserver'), '预定 800 时照常出 reserver 需求');
 delete world.creeps.dhRes;
@@ -2693,7 +2606,7 @@ Memory.rooms.W33S7.remotes.W33S6.reservation = { username: 'me', ticksToEnd: 10,
 console.log('== 10-17 战略：盯防房 Jumpp claimer——仅被非武装玩家 pvp 暂停时仍派 reserver 顶住预定（≥3000 门槛），对方占了不硬抢，中立抢回来，武装敌人只盯不打 ==');
 {
     resetWorld(3965);
-    const wHome = makeRoom('W33S7', { rcl: 6, energy: 5600, cap: 5600, owner: 'me' });   // 容量 ≥ 1300 → reserverBody 给 2 CLAIM
+    const wHome = makeRoom('W33S7', { rcl: 6, energy: 5600, cap: 5600, owner: 'me' });
     wHome._sources = [makeSource(wHome, 14, 6, 'wh0'), makeSource(wHome, 31, 12, 'wh1')];
     makeSpawn(wHome, 23, 21);
     const mkRec = () => ({ room: 'W33S6', enabled: true, sourceCount: 2, controllerDistance: 40,
@@ -2707,31 +2620,24 @@ console.log('== 10-17 战略：盯防房 Jumpp claimer——仅被非武装玩�
     const savedWatch = remoteCfg.reserveDespitePvp, savedKeep = remoteCfg.reservationKeepByRoom;
     remoteCfg.reserveDespitePvp = ['W33S6'];
     remoteCfg.reservationKeepByRoom = { W33S6: 3000 };
-    // 按房续订门槛导出：盯防房 3000，其余回落全局 1000
     assert(remoteMod.reservationKeepFor('W33S6') === 3000 && remoteMod.reservationKeepFor('W33S2') === remoteMod.reservationKeepFor('__none__') && remoteMod.reservationKeepFor('W33S2') === 1000,
         '续订门槛按房覆盖：盯防房 3000、其余全局 1000（得 ' + remoteMod.reservationKeepFor('W33S6') + '/' + remoteMod.reservationKeepFor('W33S2') + '）');
     assert(remoteMod.reserveDespitePvp('W33S6') === true && remoteMod.reserveDespitePvp('W33S2') === false, '盯防房名单可配');
-    // pvp 暂停 + 预定 800 < 3000 + 无武装 + 我方预定 ⇒ 仍派 2 CLAIM reserver
     Memory.rooms.W33S7 = { remotes: { W33S6: mkRec() } };
     const d1 = remoteMod.getDemands(wHome);
     const rv1 = d1.find((x) => x.role === 'reserver');
     assert(rv1 && rv1.body.filter((p) => p === 'claim').length === 2, '盯防房 pvp 暂停期间仍派 reserver，容量够用 2 CLAIM（得 ' + JSON.stringify(rv1 && rv1.body) + '）');
     assert(!d1.some((x) => x.role === 'remoteMiner' || x.role === 'remoteHauler'), '盯防暂停期间只派 reserver，矿工/hauler 仍按 pvp 回避（不出）');
-    // 预定已 ≥ 门槛（4000 > 3000）⇒ 不续派
     Memory.rooms.W33S7.remotes.W33S6.reservation = { username: 'me', ticksToEnd: 4000, seenAt: Game.time };
     assert(!remoteMod.getDemands(wHome).some((x) => x.role === 'reserver'), '预定已到 3000 门槛以上 ⇒ 不续派');
-    // 对方占了预定（foreign）⇒ 不硬抢、不派（只盯不打）
     Memory.rooms.W33S7.remotes.W33S6.reservation = { username: 'Jumpp', ticksToEnd: 1000, seenAt: Game.time };
     assert(!remoteMod.getDemands(wHome).some((x) => x.role === 'reserver'), '预定被对方占了 ⇒ 不硬抢（不派 reserver，不写攻击代码）');
-    // 打成中立（无预定）⇒ 派 reserver 去 reserve 抢回来
     Memory.rooms.W33S7.remotes.W33S6.reservation = { username: null, ticksToEnd: 0, seenAt: Game.time };
     assert(remoteMod.getDemands(wHome).some((x) => x.role === 'reserver'), '预定被打成中立 ⇒ 派 reserver reserve 抢回来（不是 attackController）');
-    // 出现武装敌人（record.threat）⇒ 盯防房也不派（只盯不打）
     Memory.rooms.W33S7.remotes.W33S6.reservation = { username: 'me', ticksToEnd: 800, seenAt: Game.time };
     Memory.rooms.W33S7.remotes.W33S6.threat = { count: 1 };
     assert(!remoteMod.getDemands(wHome).some((x) => x.role === 'reserver'), '出现武装敌人 ⇒ 盯防房也不派（只盯不打）');
     delete Memory.rooms.W33S7.remotes.W33S6.threat;
-    // 不在盯防名单的房：pvp 暂停照旧整条停（不派 reserver，原回避不变）
     remoteCfg.reserveDespitePvp = [];
     assert(!remoteMod.getDemands(wHome).some((x) => x.role === 'reserver'), '非盯防房 pvp 暂停 ⇒ 不派 reserver（原 pvp 回避不变）');
     remoteCfg.reserveDespitePvp = savedWatch;
@@ -2745,7 +2651,6 @@ console.log('== 外矿矿工：路线没铺完时给 5W1C5M（平地 1 tick/格�
         '没铺完路、容量够：5W1C5M（800）（得 ' + remoteMod.remoteMinerBody(2300, false).join(',') + '）');
     assert(rmMove(remoteMod.remoteMinerBody(2300, true)) === 3, '路铺完了：5W1C3M');
     assert(rmMove(remoteMod.remoteMinerBody(700, false)) === 3, '容量 700 买不起 800：仍是 5W1C3M');
-    // 编制账按源逐个计矿工：双源外矿的摊销含两只矿工
     const rmTwo = { room: 'W99N99', enabled: true, sources: [{ id: 'a', distance: 40, energyCapacity: 3000, roadComplete: true }, { id: 'b', distance: 40, energyCapacity: 3000, roadComplete: true }] };
     const rmOne = { room: 'W99N98', enabled: true, sources: [{ id: 'c', distance: 40, energyCapacity: 3000, roadComplete: true }] };
     const rmStaff = remoteMod.staffRemotes({ name: 'W33S7', energyCapacityAvailable: 1300, find: () => [] }, { remotes: { W99N99: rmTwo, W99N98: rmOne } });
@@ -2754,17 +2659,14 @@ console.log('== 外矿矿工：路线没铺完时给 5W1C5M（平地 1 tick/格�
 
 console.log('== 外矿路线失配自愈：满载腿的真实走线连续对不上规划路就改规划 ==');
 {
-    // 规划器（remote.planRoute 从母房锚点搜、range 1）与轮子的寻路（目标是卸货房房心 range 20）在代价并列的房里会各挑一条走廊。
-    // 路工地按规划路放，而顺手修路只发生在满载 hauler 的 3 格射程内——工地放在没人走的走廊上就永远建不起来：
-    // 线上 W31S9 的 6 个工地零进度挂了 1.45 万 tick、W31S8.remoteRoadBudget 从未建立，W31S7 / W32S6 / W31S1 同病。
     resetWorld(3990);
     const trailHome = makeRoom('W33S7', { rcl: 5, energy: 1300, cap: 1800, owner: 'me' });
     trailHome._sources = [makeSource(trailHome, 14, 6, 'th0')];
     makeSpawn(trailHome, 23, 21);
     makeRoom('W33S6', { my: false, rcl: 0, ctrl: { x: 26, y: 26 }, exits: { '5': 'W33S7' } })
         ._sources = [makeSource(world.rooms.W33S6, 11, 10, 'tr0')];
-    const plannedRoad = '20.4;19.5;18.6;17.7;16.8;15.9;14.10;13.10;12.11';   // 规划走北走廊
-    const walked = '12.11;13.12;14.13;15.14;16.15;17.16;18.17;19.18';        // 满载腿实际走中走廊
+    const plannedRoad = '20.4;19.5;18.6;17.7;16.8;15.9;14.10;13.10;12.11';
+    const walked = '12.11;13.12;14.13;15.14;16.15;17.16;18.17;19.18';
     const resetTrail = () => {
         Memory.rooms.W33S7 = {
             remotes: {
@@ -2777,7 +2679,6 @@ console.log('== 外矿路线失配自愈：满载腿的真实走线连续对不�
                 },
             },
         };
-        // 先取一次让 homeMemory 做完版本迁移（sourceRecord 是字段白名单，routeRoads 不在里面），再挂跨房路段
         remoteMod.getSource('W33S7', 'W33S6', 'tr0', 0).routeRoads = { W33S7: '30.30;31.31', W33S6: plannedRoad };
     };
     const trailSource = () => Memory.rooms.W33S7.remotes.W33S6.sources[0];
@@ -2823,13 +2724,10 @@ console.log('== 外矿路线失配自愈：满载腿的真实走线连续对不�
     assert(!trailSource().roadMismatch, '不连续的走线（被跳过/异常采样）整趟丢弃（得 ' + trailSource().roadMismatch + '）');
     assert(trailSource().road === plannedRoad, '不连续的走线不会改规划路');
 
-    // 改过一次就进冷却：路还没铺起来时各趟走线本来就会差几格，连着改只会把工地在相邻走廊之间搬来搬去，
-    // 而带进度的旧工地不会被 pruneOrphanRoadSites 清掉（remote.js 只清零进度的），会永久占着名额
     resetTrail();
     legs(walked, config.remote.roadTrailLegs);
     const adoptedOnce = trailSource().road;
     const firstReplan = JSON.parse(JSON.stringify(trailSource().roadReplan));
-    // 另一条同样连续、但与已采纳走线只共用起点的走廊（重叠 1/8 < roadTrailMatchShare，算失配）
     const other = '12.11;12.12;12.13;12.14;12.15;12.16;12.17;12.18';
     legs(other, config.remote.roadTrailLegs);
     assert(trailSource().road === adoptedOnce, '冷却期内不再改规划路（得 ' + trailSource().road + '）');
@@ -2845,8 +2743,6 @@ console.log('== 外矿路线失配自愈：满载腿的真实走线连续对不�
         '再次重规划只累计 n 与 lastAt，首次那条不动（得 ' + JSON.stringify(after) + '）');
     world.time -= config.remote.roadTrailCooldown;
 
-    // 双源外矿：两个源各自独立记遥测与冷却。遥测记在 record 上时，两个源各改一次会被记成 n=2（读起来像同一条路
-    // 改了两次），lastWas/lastTiles 还来自另一个源——2026-09-12 私服里就是这样让断言拿 A 源的 lastTiles 去比 B 源的路
     {
         resetTrail();
         const twoSrc = Memory.rooms.W33S7.remotes.W33S6.sources;
@@ -2866,12 +2762,9 @@ console.log('== 外矿路线失配自愈：满载腿的真实走线连续对不�
             '每个源的遥测 tiles 对得上它自己的路线长度');
     }
 
-    // 新世界的 tick 从 0 起算：冷却判据必须区分"从未改过"与"刚改过"。写成 `Number(x) || 0` 会把两者压成同一个语义，
-    // 条件退化成 `Game.time < cooldown`，把**首次**重规划也挡死——线上 Game.time 是全服累计的 7300 万看不出来，
-    // 私服验证整轮 tick 都 < 1500，2026-09-12 的 remote.roadTrailReplan 就是这样假阴性的。
     {
         const savedTime = world.time;
-        world.time = 300;   // < roadTrailCooldown
+        world.time = 300;
         resetTrail();
         legs(walked, config.remote.roadTrailLegs);
         assert(trailSource().road.split(';')[0] === '19.18',
@@ -2880,17 +2773,14 @@ console.log('== 外矿路线失配自愈：满载腿的真实走线连续对不�
         world.time = savedTime;
     }
 
-    // 改了规划路之后，旧走廊上"修了一半"的工地必须也能清掉：它离开了所有启用路线，没有 creep 会再路过，
-    // 永远修不完，却占着每外矿 6 / 每母房 roadSitesPerHome / 全账号 100 的名额。投进去的能量两种做法都收不回来，
-    // 留着还要搭上一个名额。线上 2026-09-12：W32S5 (20,4) 搁浅 145 进度、W32S6 (20,43) 搁浅 10 进度。
     {
         resetTrail();
         trailSource().road = '20.20;21.21;22.22';
         trailSource().routeRoads = { W33S6: '20.20;21.21;22.22' };
         const pruneRoom = world.rooms.W33S6;
-        pruneRoom.createConstructionSite(20, 20, C.STRUCTURE_ROAD);   // 在路线上
-        pruneRoom.createConstructionSite(30, 30, C.STRUCTURE_ROAD);   // 旧走廊、零进度
-        pruneRoom.createConstructionSite(31, 31, C.STRUCTURE_ROAD);   // 旧走廊、修了一半
+        pruneRoom.createConstructionSite(20, 20, C.STRUCTURE_ROAD);
+        pruneRoom.createConstructionSite(30, 30, C.STRUCTURE_ROAD);
+        pruneRoom.createConstructionSite(31, 31, C.STRUCTURE_ROAD);
         const siteAt = (x, y) => pruneRoom.find(C.FIND_MY_CONSTRUCTION_SITES).find((s) => s.pos.x === x && s.pos.y === y);
         siteAt(20, 20).progress = 120;
         siteAt(31, 31).progress = 145;
@@ -2949,13 +2839,11 @@ console.log('== 外矿运输：只记满载腿的走线，离开外矿房时汇�
     assert(Memory.rooms.W33S7.remotes.W33S6.sources[0].roadMismatch === 1,
         '走线汇总进外矿记录并判定失配（得 ' + Memory.rooms.W33S7.remotes.W33S6.sources[0].roadMismatch + '）');
 
-    // sourceRecord 是字段白名单：外矿有视野时每 tick 重建 source，失配计数必须手动带过去，否则永远攒不到阈值
     Memory.rooms.W33S7.remotes.W33S6.lastSeen = 0;
     remoteMod.observe(thHome, thRemote);
     assert(Memory.rooms.W33S7.remotes.W33S6.sources[0].roadMismatch === 1,
         '外矿有视野时重建 source 不丢失配计数（得 ' + Memory.rooms.W33S7.remotes.W33S6.sources[0].roadMismatch + '）');
 
-    // 冷却时间戳同样要过白名单，否则每 tick 重建就永远进不了冷却
     Memory.rooms.W33S7.remotes.W33S6.sources[0].roadAdoptedAt = 3991;
     Memory.rooms.W33S7.remotes.W33S6.lastSeen = 0;
     remoteMod.observe(thHome, thRemote);
@@ -2976,36 +2864,28 @@ const staffRemote = (room, sourceId, distance, drop) => ({
 });
 Memory.rooms.W33S7 = {
     sources: ['sf0', 'sf1'],
-    remoteMemoryVersion: 1,   // 已是当前版本：homeMemory 不再用 remoteRecord 重写记录（会丢掉本 tick 打的 staffed）
+    remoteMemoryVersion: 1,
     spawnIncome: { ema: 10, n: 500, last: 1300, at: Game.time },
     remotes: {
         W33S6: staffRemote('W33S6', 'sfR0', 37, { room: 'W33S7', distance: null }),
         W32S6: staffRemote('W32S6', 'sfR1', 120, { room: 'W32S4', distance: 92 }),
     },
 };
-// 摊销成本：W33S6 = 矿工 700/1500 + reserver 650/600 + hauler 1750/1500 ≈ 2.72/tick；W32S6 还要多一只 hauler（≈4.18/tick）
-// 收入 10/tick × upkeepShare 0.6 = 6/tick 预算：只装得下近的、运回本房的 W33S6
 const staffPlan = remoteMod.staffRemotes(staffHome, Memory.rooms.W33S7);
 assert(staffPlan.staffed.join(',') === 'W33S6' && staffPlan.dropped.join(',') === 'W32S6',
     '收入 10/tick 时只养运回本房的近外矿，运给 W32S4 的远外矿不在编（得 ' + JSON.stringify(staffPlan) + '）');
 const staffDemands = remoteMod.getDemands(staffHome);
 assert(!staffDemands.some((d) => d.memory.remoteRoom === 'W32S6'), '不在编的外矿不产生任何 creep 需求');
 assert(staffDemands.some((d) => d.memory.remoteRoom === 'W33S6' && d.role === 'remoteHauler'), '在编的外矿照常补员');
-// 槽 0 身体按"还差多少 CARRY 在途"封顶，不按房容量顶格。需求 = ceil(10 × (37×2 + 4 + 停靠 10) / (50 × 利用率 0.9)) = 20 CARRY
-// （2026-09-11 起往返里算上投递停靠与利用率；以前零余量只要 16，贴线的外矿容器常年满仓）
 const staffHauler = staffDemands.find((d) => d.role === 'remoteHauler');
 assert(staffHauler && staffHauler.body.filter((p) => p === 'carry').length === 20 && utils.bodyCost(staffHauler.body) === 2150,
     '槽 0 身体按需求封顶（20 CARRY = 2150），不是按房容量顶格（得 ' + (staffHauler ? utils.bodyCost(staffHauler.body) : 'none') + '）');
-// 收入掉到 5/tick（预算 2.5，滞回 3.25）：已在编的 W33S6（2.72）保留，不来回停启
 Memory.rooms.W33S7.spawnIncome.ema = 5;
 const staffDip = remoteMod.staffRemotes(staffHome, Memory.rooms.W33S7);
 assert(staffDip.staffed.includes('W33S6'), '收入下滑时已在编的外矿按滞回保留（得 ' + JSON.stringify(staffDip) + '）');
-// 收入视为 0（EMA < minIncome）：运回本房、产出 > 摊销的外矿自负盈亏，照样在编——它正是收入回升要靠的那条；
-// 替别的房养的（W32S6 运给 W32S4）没有预算就不在编。旧规则一条都不留，线上 W33S7 因此四条外矿全裁、形成死亡螺旋
 const staffZero = remoteMod.staffRemotes(staffHome, { sources: ['a', 'b'], spawnIncome: { ema: 0.2, n: 500 }, remotes: Memory.rooms.W33S7.remotes });
 assert(staffZero.staffed.join(',') === 'W33S6' && staffZero.dropped.join(',') === 'W32S6',
     '收入为 0 时自负盈亏的自卸外矿仍在编，替别房养的外矿不在编（得 ' + JSON.stringify(staffZero) + '）');
-// 线上 2026-09-11 W33S7 的形态：两条自卸外矿（W32S7 距 41、W33S6 距 37），收入估计从 7.5 掉到 0.04 —— 两条都要留住
 Memory.rooms.W33S7.remotes.W32S7 = staffRemote('W32S7', 'sfR2', 41, { room: 'W33S7', distance: null });
 const staffSpiral = remoteMod.staffRemotes(staffHome, { sources: ['a', 'b'], spawnIncome: { ema: 0.04, n: 500 }, remotes: Memory.rooms.W33S7.remotes });
 assert(staffSpiral.staffed.includes('W32S7') && staffSpiral.staffed.includes('W33S6'),
@@ -3035,13 +2915,11 @@ console.log('== storage 富到能量没有边际价值时外矿按孵化时间�
     assert(Memory.rooms.W33S3.remoteSpawnCapped === true && scPlan.spawnCap === 0.5, 'storage ≥ 10 万：外矿孵化时间上限 = 1 spawn × 0.5（得 ' + JSON.stringify(scPlan) + '）');
     assert(scPlan.spawnUsed <= 0.5 * 1.1 + 1e-9 && scPlan.spawnCapped.length >= 1 && scPlan.dropped.includes('W31S1'),
         '超出孵化时间上限的外矿（最远的 W31S1）即使自负盈亏也不在编（得 ' + JSON.stringify(scPlan) + '）');
-    // 普通房（storage 5000）：不按孵化时间限，四条自负盈亏的外矿全在编
     scStorage.store[C.RESOURCE_ENERGY] = 5000;
     for (const r of Object.values(Memory.rooms.W33S3.remotes)) delete r.staffed;
     const scPoor = remoteMod.staffRemotes(scHome, Memory.rooms.W33S3);
     assert(scPoor.spawnCap === null && scPoor.staffed.length === 4 && Memory.rooms.W33S3.remoteSpawnCapped === false,
         'storage 不富时不限孵化时间（得 ' + JSON.stringify(scPoor) + '）');
-    // 滞回：从 5000 涨到 8 万（< 10 万）不进入；进入后掉到 7 万（≥ 6 万）不退出
     scStorage.store[C.RESOURCE_ENERGY] = 80000;
     assert(remoteMod.staffRemotes(scHome, Memory.rooms.W33S3).spawnCap === null, '8 万 < spawnCapStorageAbove：不进入');
     scStorage.store[C.RESOURCE_ENERGY] = 120000;
@@ -3091,17 +2969,13 @@ const src1Link6 = makeStructure(rcl6Room, C.STRUCTURE_LINK, 30, 13, { id: 'src1L
 const ctrlLink6 = makeStructure(rcl6Room, C.STRUCTURE_LINK, 22, 30, { id: 'ctrlL6', capacity: 2000, energy: 0 });
 const storeLink6 = makeStructure(rcl6Room, C.STRUCTURE_LINK, 24, 22, { id: 'storeL6', capacity: 800, energy: 0 });
 linksMod.run(rcl6Room);
-// RCL6 没有 store link：ctrl link 低于保留线（linkKeepAt 400）才补，第一批 800 送到后第二个 sender 留着自己的能量——
-// 超出升级者消耗的部分要堵在源 link 里，让矿工溢进源容器、由 hauler 送去 spawn/ext（线上 W33S7 2026-09-11 的漏能）
 assert(src0Link6.actions.length === 1 && src0Link6.actions[0].target === 'ctrlL6', 'RCL6 src0 往空的 ctrl link 送能');
 assert(src1Link6.actions.length === 0, 'ctrl link 已有一批在途（≥ linkKeepAt）时第二个 sender 不再往里灌（得 ' + JSON.stringify(src1Link6.actions) + '）');
 assert(storeLink6.store[C.RESOURCE_ENERGY] === 0, 'RCL6 不往 store link 送（store 是 RCL7 的收货端）');
-// 升级者吃掉一部分、ctrl link 还在保留线以上：两个源 link 都按兵不动（旧代码只要 ctrl 有空位就送）
 src0Link6.actions.length = 0; src1Link6.actions.length = 0;
 ctrlLink6.store[C.RESOURCE_ENERGY] = 500;
 linksMod.run(rcl6Room);
 assert(src0Link6.actions.length === 0 && src1Link6.actions.length === 0, 'ctrl link 在保留线以上时源 link 不补（让链路堵满、溢进源容器）');
-// 掉到保留线以下：src1 也是 sender，能照常补
 src0Link6.cooldown = 5;
 ctrlLink6.store[C.RESOURCE_ENERGY] = 300;
 linksMod.run(rcl6Room);
@@ -3137,7 +3011,6 @@ assert(observer.actions.length === 1, '低储备时 observer 仍可 observeRoom'
 assert(labOut.actions.length === 0 && factory.actions.length === 0 && powerSpawn.actions.length === 0, '低储备时 lab/factory/powerSpawn 零消耗');
 assert(Memory.rooms.W33S7.industryState && Memory.rooms.W33S7.industryState.spendingUnlocked === false, '低储备时 industryState 标记 spendingUnlocked=false');
 
-// lab 分工按几何推导：没有人手配置也该开工（否则 labs 建好了也永远不反应）
 {
     const ind = require('../src/industry');
     global.REACTIONS = { H: { O: 'OH' }, O: { H: 'OH' } };
@@ -3160,7 +3033,6 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
 {
     const ind = require('../src/industry');
     const spawnLab = require('../src/spawn');
-    // 引擎常量的等价子集：够拆出 XZH2O 与 XGH2O 两条链
     const FULL_REACTIONS = {
         H: { O: 'OH', L: 'LH', K: 'KH', U: 'UH', Z: 'ZH', G: 'GH' },
         O: { H: 'OH', L: 'LO', K: 'KO', U: 'UO', Z: 'ZO', G: 'GO' },
@@ -3178,7 +3050,6 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
         UH2O: { X: 'XUH2O' }, GH2O: { X: 'XGH2O' },
     };
     global.REACTIONS = FULL_REACTIONS;
-    // ---- 反应链：先定目标化合物，再自底向上找现在就做得起的那一步 ----
     const base = { H: 5000, O: 5000, Z: 5000, K: 5000, U: 5000, L: 5000, X: 5000 };
     const first = ind.nextReactionFor('XZH2O', base, 500, 0);
     assert(first && first.product !== 'XZH2O' && [first.a, first.b].every((t) => base[t]),
@@ -3207,7 +3078,6 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
     assert(JSON.stringify(ind.pickPair({ H: 600, O: 600, Z: 100 }, 500)) === JSON.stringify({ a: 'H', b: 'O', product: 'OH' }), '机会主义配对：两种各 ≥ minBatch');
     assert(ind.pickPair({ H: 600 }, 500) === null, '只有一种矿物 ⇒ 配不出');
 
-    // ---- 取送计划：矿物在 terminal 里、三个空 lab ----
     resetWorld(52000);
     Memory.rooms = {};
     const lr = makeRoom('W33S7', { rcl: 7, energy: 2300, cap: 2300, owner: 'me' });
@@ -3232,7 +3102,6 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
         'lab 分工存进 Memory.rooms[房].labRoles');
     assert(ind.labPlan(lr) === plan0, '同一 tick 只算一次（labTech / spawn / industry 共用）');
 
-    // labTech：空手 ⇒ 去 terminal 取第一种
     const tech = makeCreep(lr, 'lt0', Array(20).fill('carry').concat(Array(10).fill('move')), { home: 'W33S7', role: 'labTech' });
     world.creeps[tech.name] = tech;
     tech.pos = new RoomPosition(25, 23, 'W33S7');
@@ -3241,7 +3110,6 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
     const firstWant = plan0.wants[0];
     assert(tech.actions.includes('withdraw') && tech.store[firstWant.mineral] === config.industry.labFill, 'labTech 从 terminal 取一趟 labFill 的矿（得 ' + JSON.stringify(tech.store) + '）');
     assert(tech.memory.labId === firstWant.labId, '记下这批货要送去的 lab');
-    // 装货中途（一个输入有货、另一个空）：分工不翻、计划不变
     world.time++;
     const midPlan = ind.labPlan(lr);
     assert(midPlan.product === 'OH' && midPlan.output === plan0.output, '搬运中的货也算库存：取完 terminal 里的这一种，计划仍是 OH（得 ' + midPlan.product + '）');
@@ -3255,7 +3123,6 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
     const halfPlan = ind.labPlan(lr);
     assert(halfPlan.output === plan0.output && halfPlan.inputs.join() === plan0.inputs.join(), '一个输入有货时 lab 分工不翻（deriveReaction 不会换输出）');
     assert(halfPlan.wants.length === 1 && halfPlan.wants[0].labId !== firstWant.labId, '只剩另一个输入要装');
-    // 第二趟
     tech.actions.length = 0;
     tech.pos = new RoomPosition(25, 23, 'W33S7');
     ROLES.labTech.run(tech);
@@ -3263,7 +3130,6 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
     tech.pos = new RoomPosition(Game.getObjectById(halfPlan.wants[0].labId).pos.x, 22, 'W33S7');
     ROLES.labTech.run(tech);
     world.time++;
-    // 储备不够（canSpend 关）：不反应、也不孵 labTech
     lrStorage.store[C.RESOURCE_ENERGY] = 1000;
     ind.run(lr);
     const out = Game.getObjectById(plan0.output);
@@ -3277,7 +3143,6 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
         '两个输入装好且储备闸开：反应跑起来，state 记下它为哪个目标服务（得 ' + JSON.stringify(labsState) + '）');
     assert(labsState.derived && labsState.derived.product === 'OH', '接着做 lab 里已装好的这一批（derived）');
     assert(ind.labPlan(lr).wants.length === 0 && spawnLab.labTechTarget(lr, Memory.rooms.W33S7) === 0, '都装满了：没有活，不孵 labTech');
-    // 没活：等 labTechIdleTicks 再退役
     tech.actions.length = 0; tech.moveCalls.length = 0;
     ROLES.labTech.run(tech);
     assert(!tech.memory.retired && tech.memory.labIdleSince === Game.time, '没活先等，不立刻退役');
@@ -3285,7 +3150,6 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
     ROLES.labTech.run(tech);
     assert(tech.memory.retired === true, '空闲超过 labTechIdleTicks 退役回收');
     delete world.creeps[tech.name];
-    // 输出 lab 攒够一批 ⇒ 收回 terminal；装着别的产物 ⇒ 不论多少都清掉
     world.time++;
     out.store.OH = config.industry.labMinBatch;
     let p = ind.labPlan(lr);
@@ -3300,7 +3164,6 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
     ind.run(lr);
     assert(out.actions.filter((a) => a.action === 'runReaction').length === reactionsBefore, '输出 lab 装着别的产物时不发 runReaction');
     out.store.ZK = 0;
-    // labTech：有 drain 先收回
     const tech2 = makeCreep(lr, 'lt1', Array(20).fill('carry').concat(Array(10).fill('move')), { home: 'W33S7', role: 'labTech' });
     world.creeps[tech2.name] = tech2;
     world.time++;
@@ -3312,7 +3175,6 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
     tech2.pos = new RoomPosition(25, 23, 'W33S7');
     ROLES.labTech.run(tech2);
     assert(lrTerminal.store.OH === 800 && Memory.rooms.W33S7.labTech.drained === 1, '产物送回 terminal（得 ' + lrTerminal.store.OH + '）');
-    // 输入用完、下一步换了料：装着旧料的输入要先清
     world.time++;
     for (const id of plan0.inputs) { const lab = Game.getObjectById(id); lab.store.H = 0; lab.store.O = 0; }
     Game.getObjectById(plan0.inputs[0]).store.H = 10;
@@ -3321,7 +3183,6 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
     p = ind.labPlan(lr);
     assert(p.product === 'ZK' && p.drains.some((d) => d.labId === plan0.inputs[0] && d.mineral === 'H'),
         '库存换成 Z/K：选 ZK，装着 10 H 的输入先清（得 ' + JSON.stringify({ p: p.product, d: p.drains }) + '）');
-    // 输入 lab 剩零头（Z 4 < 一次反应 5）且别处没有 Z：不能「接着做」卡死，按库存换下一步（ZK+UL ⇒ G），旧料先清
     world.time++;
     for (const id of plan0.inputs) { const lab = Game.getObjectById(id); for (const k of Object.keys(lab.store)) if (k !== 'energy') lab.store[k] = 0; }
     Game.getObjectById(plan0.inputs[0]).store.K = 1000;
@@ -3336,12 +3197,10 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
     p = ind.labPlan(lr);
     assert(p.product === 'ZK', 'terminal 里还有 Z：照旧接着做 ZK（得 ' + p.product + '）');
     delete lrTerminal.store.Z; delete lrTerminal.store.ZK; delete lrTerminal.store.UL;
-    // lab 不足 3 个：没有计划
     world.time++;
     for (const lab of [la, lb, lc, lfar].slice(1)) lr._structs.splice(lr._structs.indexOf(lab), 1);
     assert(ind.labPlan(lr) === null && spawnLab.labTechTarget(lr, Memory.rooms.W33S7) === 0, '不足 3 个 lab ⇒ 没有计划、不孵');
     delete world.creeps[tech2.name];
-    // 身体：CARRY 一趟装满一个输入 lab
     const ltBody = spawnLab.labTechBody(2300);
     assert(utils.bodyPartCount(ltBody, 'carry') * 50 === config.industry.labFill && utils.bodyCost(ltBody) <= 2300, 'labTech 身体一趟装 labFill（得 ' + ltBody.length + ' 部件）');
     assert(utils.bodyCost(spawnLab.labTechBody(800)) <= 800 && utils.bodyPartCount(spawnLab.labTechBody(800), 'carry') >= 2, '预算不够就减 CARRY');
@@ -3369,7 +3228,6 @@ console.log('== boost lab（2026-10-13，移植 overmind-absorb 019c5b1）：目
     assert(bp.boost === 'blab9' && bw && bw.labId === 'blab9' && bw.mineral === 'XZH2O' && bw.amount === indCfg.labBoostStock,
         'XZH2O 库存 ≥ labBoostStock ⇒ 往三连之外的 boost lab 装一份（得 ' + JSON.stringify(bp.wants) + '）');
     assert(bp.wants.filter((w) => !w.boost).length === 2, '反应三连的装货需求照常');
-    // labTech 不用改：照 wants 搬进 boost lab
     const bt = makeCreep(br, 'blt', Array(20).fill('carry').concat(Array(10).fill('move')), { home: 'W33S7', role: 'labTech' });
     world.creeps.blt = bt;
     for (const id of ['blab2', 'blab3']) { const lab = Game.getObjectById(id); lab.store[bp.need[id]] = indCfg.labFill; }
@@ -3398,7 +3256,6 @@ console.log('== boost lab（2026-10-13，移植 overmind-absorb 019c5b1）：目
     bp = ind.labPlan(br);
     assert(!bp.wants.some((w) => w.boost), '目标化合物不到 labBoostStock ⇒ 先攒，不装');
     delete world.creeps.blt;
-    // task_broker：只给 boost lab 补能量
     world.time++;
     industry.run(br);
     assert(Memory.rooms.W33S7.industryState.labs.boostLab === 'blab9', 'industryState 记下 boost lab');
@@ -3408,7 +3265,6 @@ console.log('== boost lab（2026-10-13，移植 overmind-absorb 019c5b1）：目
         taskBroker.beginTick();
         return taskBroker.roomTasks(br).filter((t) => t.kind === 'deliver' && t.target && t.target.structureType === C.STRUCTURE_LAB);
     };
-    // 2026-10-14 复审：强化默认关闭（config.conquest.boosts 空、没有带 boosts 的指令）⇒ 没有 creep 会来强化，补进去的能量永远锁在 lab 里
     const lbConquest = require('../src/conquest');
     const lbCfg = require('../src/config');
     delete Memory.conquest;
@@ -3418,24 +3274,20 @@ console.log('== boost lab（2026-10-13，移植 overmind-absorb 019c5b1）：目
     assert(lt.length === 0, '强化关闭：boost lab 不出能量投递任务（得 ' + JSON.stringify(lt.map((t) => [t.id, t.backlog])) + '）');
     assert(!Memory.rooms.W33S7.labEnergy && Memory.rooms.W33S7.labEnergyHeld && Memory.rooms.W33S7.labEnergyHeld.lab === 'blab9' && Memory.rooms.W33S7.labEnergyHeld.want > 0,
         '强化关闭：记 labEnergyHeld、不记 labEnergy（得 ' + JSON.stringify({ held: Memory.rooms.W33S7.labEnergyHeld, energy: Memory.rooms.W33S7.labEnergy }) + '）');
-    // 已完成的指令、boosts 全空的指令都不算打开
     Memory.conquest = [{ target: 'W1N1', sponsors: ['W33S7'], dismantlers: 0, guards: 0, completed: true, boosts: { dismantler: ['XZH2O'] } },
         { target: 'W1N2', sponsors: ['W33S7'], dismantlers: 0, guards: 0, boosts: { dismantler: [], guard: [] } }];
     assert(!lbConquest.boostingEnabled() && labTasks().length === 0, '已完成 / boosts 全空的指令不打开强化');
-    // config 打开（改 config.conquest.boosts）同样算
     const lbPrevBoosts = lbCfg.conquest.boosts;
     delete Memory.conquest;
     lbCfg.conquest.boosts = { dismantler: ['XZH2O'], guard: [] };
     assert(lbConquest.boostingEnabled() && labTasks().length === 1, 'config.conquest.boosts 写了化合物 ⇒ 强化打开、boost lab 出补能任务');
     lbCfg.conquest.boosts = lbPrevBoosts;
-    // 指令打开（推荐方式，部署不重置）：生效指令的 boosts 里有化合物
     Memory.conquest = [{ target: 'W1N2', sponsors: ['W33S7'], dismantlers: 0, guards: 0, boosts: { dismantler: ['XZH2O'] } }];
     assert(lbConquest.boostingEnabled(), '指令 boosts 写了化合物 ⇒ 强化打开');
     lt = labTasks();
     assert(lt.length === 1 && lt[0].target === boostLab && lt[0].tier === 4 && lt[0].weight < 0.5 && lt[0].roles.join() === 'hauler' && lt[0].backlog === indCfg.labEnergyTarget,
         'storage 富余：只有 boost lab 有能量投递任务（第 4 层、权重低于 terminal、只给 hauler、补到 labEnergyTarget）（得 ' + JSON.stringify(lt.map((t) => [t.id, t.tier, t.weight, t.backlog])) + '）');
     assert(Memory.rooms.W33S7.labEnergy && Memory.rooms.W33S7.labEnergy.lab === 'blab9', '遥测 Memory.rooms[房].labEnergy');
-    // 空载 hauler 没有源容器可取：从富余 storage 取货去补 boost lab（消费者兜底把它当消费者需求；terminal 已在目标水位，不混淆）
     brTerminal.store[C.RESOURCE_ENERGY] = indCfg.terminalTarget;
     Memory.rooms.W33S7.sources = ['br0', 'br1'];
     Memory.rooms.W33S7.plan = { anchor: { x: 23, y: 21 }, containers: {}, workPositions: {}, roads: {}, links: {} };
@@ -3449,8 +3301,6 @@ console.log('== boost lab（2026-10-13，移植 overmind-absorb 019c5b1）：目
     brStorage.store[C.RESOURCE_ENERGY] = 200000;
     boostLab.store[C.RESOURCE_ENERGY] = indCfg.labEnergyTarget;
     assert(labTasks().length === 0, '补满就不再补');
-    // 2026-10-13 复审：储备闸关着（storage 7 万 < storageReserve 10 万）时 runLabs 不算取送计划，但 boost lab 的 id 照记——
-    // 补能闸（富余且 ≥ terminalFillStorageAbove）是开着的，丢了 boostLab 就没人给已装好化合物的 boost lab 补能量，强化半路断粮
     boostLab.store[C.RESOURCE_ENERGY] = 0;
     brStorage.store[C.RESOURCE_ENERGY] = indCfg.terminalFillStorageAbove + 20000;
     world.time++;
@@ -3467,7 +3317,6 @@ console.log('== boost lab（2026-10-13，移植 overmind-absorb 019c5b1）：目
     brStorage.store[C.RESOURCE_ENERGY] = indCfg.terminalFillStorageAbove + 300;
     lt = labTasks();
     assert(lt.length === 1 && lt[0].backlog === 300, 'storage 只比门槛多 300 ⇒ 最多补 300（得 ' + (lt[0] && lt[0].backlog) + '）');
-    // 10-16 富余线升到 3 万后可能高于 terminalFillStorageAbove，"富余但低于门槛"这一态不存在时跳过
     if (SF_RICH < indCfg.terminalFillStorageAbove) {
         brStorage.store[C.RESOURCE_ENERGY] = indCfg.terminalFillStorageAbove - 1;
         assert(labTasks().length === 0, 'storage 富余但低于 terminalFillStorageAbove ⇒ 不补');
@@ -3495,7 +3344,6 @@ console.log('== boost（2026-10-13，移植 overmind-absorb 79a5ee4/6dd5cbb）�
     const mkLab = (x, y, id, energy, store) => {
         const lab = makeStructure(br, C.STRUCTURE_LAB, x, y, { id, capacity: 5000, energy, extraStore: store || {} });
         lab.boosted = [];
-        // 引擎语义：相邻才行，每部件扣 30 化合物 + 20 能量；身体上的 boost 字段下一 tick 才看得到（这里直接写上）
         lab.boostCreep = (creep) => {
             if (Math.max(Math.abs(creep.pos.x - lab.pos.x), Math.abs(creep.pos.y - lab.pos.y)) > 1) return C.ERR_NOT_IN_RANGE;
             const type = Object.keys(lab.store).find((k) => typeof lab.store[k] === 'number' && k !== C.RESOURCE_ENERGY && lab.store[k] > 0);
@@ -3509,7 +3357,6 @@ console.log('== boost（2026-10-13，移植 overmind-absorb 79a5ee4/6dd5cbb）�
         };
         return lab;
     };
-    // 三连里的 lab 也装着 XZH2O（例如上一批的残货）：强化应该从 industry 选的 boost lab 取，不抽反应三连
     const input = mkLab(35, 21, 'sb1', 2000, { XZH2O: 900 });
     mkLab(36, 21, 'sb2', 0); mkLab(37, 21, 'sb3', 0);
     const boostLab = mkLab(10, 40, 'sb9', 2000, { XZH2O: 900 });
@@ -3531,17 +3378,14 @@ console.log('== boost（2026-10-13，移植 overmind-absorb 79a5ee4/6dd5cbb）�
         '成功的强化记进母房 boostLog（得 ' + JSON.stringify(log) + '）');
     world.time++;
     assert(bo.wanted(sd).length === 0 && bo.pending(sd) === false && bo.run(sd) === false, '强化后不再想要，boost.run 放行');
-    // boostLog 只留最近 10 条
     for (let i = 0; i < 12; i++) bo.noteBoost(sd, 'XZH2O', 'work', 1);
     assert(Memory.rooms.W33S7.boostLog.length === 10, 'boostLog 只留最近 10 条');
-    // 货不够 / 能量不够：这项做不到，不 pending（否则整队在家等一个永远不会来的化合物）
     const sd2 = makeCreep(br, 'boSd2', ['work', 'work', 'move', 'move'], { role: 'siegeDismantler', home: 'W33S7', targetRoom: 'W31S4', boosts: ['XZH2O'] });
     world.creeps.boSd2 = sd2;
-    boostLab.store.XZH2O = 50; input.store.XZH2O = 50;   // 2 个 WORK 要 60
+    boostLab.store.XZH2O = 50; input.store.XZH2O = 50;
     assert(bo.labFor(br, 'XZH2O', 2) === null && bo.pending(sd2) === false, '货不够 ⇒ 跳过，不 pending');
     boostLab.store.XZH2O = 900; boostLab.store[C.RESOURCE_ENERGY] = 10; input.store[C.RESOURCE_ENERGY] = 10;
     assert(bo.pending(sd2) === false, 'lab 能量不够 ⇒ 也跳过');
-    // 没配置 boosts 的 creep（默认 config）完全不受影响
     const sd3 = makeCreep(br, 'boSd3', ['work', 'move'], { role: 'siegeDismantler', home: 'W33S7', targetRoom: 'W31S4' });
     assert(bo.wanted(sd3).length === 0 && bo.pending(sd3) === false && bo.run(sd3) === false, '没配置 boosts 的 creep 不受影响');
     assert(Array.isArray(config.conquest.boosts.dismantler) && !config.conquest.boosts.dismantler.length && !config.conquest.boosts.guard.length,
@@ -3553,14 +3397,11 @@ console.log('== boost（2026-10-13，移植 overmind-absorb 79a5ee4/6dd5cbb）�
 
 console.log('== 实验室三连位：前三个 lab 必须能真的反应（切比雪夫 ≤ 2）==');
 {
-    // 引擎 processor/intents/labs/run-reaction.js：两个输入 lab 都要在输出 lab 的 |dx|,|dy| ≤ 2 内。
-    // RCL6 只有 3 个 lab 名额，按轮子的原始顺序放，三个固定件里有两个凑不出一组反应。
     const cheb = (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
     const reactable = (list) => list.length >= 3 &&
         list.slice(0, 3).some((out, i) => list.slice(0, 3).every((other, k) => k === i || cheb(out, other) <= 2));
     let fixed = 0;
     for (const name of ['W33S7', 'W34S7', 'sample']) {
-        // 直接读固定件原文：wheelFixture 会把 lab 键改名成 C.STRUCTURE_LAB（'structure_lab'）
         const rawFile = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'wheel_layout_' + name + '.json'), 'utf8'));
         const labs = (rawFile.layout && rawFile.layout.lab) || [];
         if (labs.length < 3) continue;
@@ -3572,12 +3413,10 @@ console.log('== 实验室三连位：前三个 lab 必须能真的反应（切�
         if (!before) fixed++;
     }
     assert(fixed >= 2, '三个固定件里至少两个原本不可反应、被这次排序修好（得 ' + fixed + '）');
-    // 已经可用的方案不动（避免打乱已建成的顺序）
     const okPlan = { labs: [{ x: 10, y: 10 }, { x: 11, y: 10 }, { x: 12, y: 10 }, { x: 30, y: 30 }] };
     const snapshot = JSON.stringify(okPlan.labs);
     layout.normalizeLabPlan(okPlan);
     assert(JSON.stringify(okPlan.labs) === snapshot, '前三个本来就能反应时保持原顺序');
-    // 方案里根本没有合法三连：保持原样，不搅乱
     const nonePlan = { labs: [{ x: 1, y: 1 }, { x: 20, y: 20 }, { x: 40, y: 40 }] };
     const noneSnap = JSON.stringify(nonePlan.labs);
     layout.normalizeLabPlan(nonePlan);
@@ -3597,7 +3436,6 @@ console.log('== 外矿每 tick 的静态扫描：keeper lair 只数一次，房�
     } } };
     delete Memory.brain;
     Memory.map = {};
-    // 记一次 FIND_STRUCTURES 的调用次数
     let finds = 0;
     const origFind = rvRemote.find;
     rvRemote.find = function (kind, opts) { if (kind === C.FIND_STRUCTURES) finds++; return origFind.call(this, kind, opts); };
@@ -3605,7 +3443,6 @@ console.log('== 外矿每 tick 的静态扫描：keeper lair 只数一次，房�
     const afterFirst = finds;
     for (let i = 0; i < 5; i++) { world.time++; remoteMod.run(rvHome); }
     assert(afterFirst === 2, '第一次看到外矿：一次数 keeper lair + 一次找 InvaderCore（得 ' + afterFirst + '）');
-    // InvaderCore 是动态的，必须每 tick 看；keeper lair 是静态地物，只该看一次
     assert(finds === afterFirst + 5, '之后每 tick 只剩 InvaderCore 那一次扫描（旧代码是每 tick 两次，得 ' + finds + '）');
     assert(Memory.rooms.W33S7.remotes.W33S6.lairs === 0, 'lair 数记在外矿记录上（得 ' + Memory.rooms.W33S7.remotes.W33S6.lairs + '）');
     rvRemote.find = origFind;
@@ -3619,12 +3456,12 @@ console.log('== SK 采矿（2026-10-13，默认关）：大脑点名 + 开关 + 
     skHome._sources = [makeSource(skHome, 14, 6, 'sk0'), makeSource(skHome, 31, 12, 'sk1')];
     makeSpawn(skHome, 23, 21);
     const skRoom = makeRoom('W44S5', { my: false, rcl: 0 });
-    skRoom.controller = undefined;   // keeper 房没有 controller
+    skRoom.controller = undefined;
     skRoom._sources = [makeSource(skRoom, 20, 20, 'skr0'), makeSource(skRoom, 30, 30, 'skr1')];
-    for (const source of skRoom._sources) { source.energy = 4000; source.energyCapacity = 4000; }   // SOURCE_ENERGY_KEEPER_CAPACITY
+    for (const source of skRoom._sources) { source.energy = 4000; source.energyCapacity = 4000; }
     world.exits.W44S4 = { '5': 'W44S5' };
     const mapEntry = () => ({ at: Game.time, sources: 2, lairs: 2, owner: null, controllerId: null,
-        armedHostiles: 2, threat: true, invaderCore: false,   // scout 不分主人：keeper 也算进 armedHostiles
+        armedHostiles: 2, threat: true, invaderCore: false,
         sourceData: [{ id: 'skr0', x: 20, y: 20, energyCapacity: 4000 }, { id: 'skr1', x: 30, y: 30, energyCapacity: 4000 }] });
     const setBrain = (room) => {
         Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 3600000, rooms: { W44S4: room } };
@@ -3638,12 +3475,10 @@ console.log('== SK 采矿（2026-10-13，默认关）：大脑点名 + 开关 + 
     const countPart = (body, type) => body.filter((part) => (part.type || part) === type).length;
 
     assert(config.sk && config.sk.enabled === false, 'config.sk.enabled 默认关（开之前要同快照 A/B）');
-    // 默认关：大脑白名单点了名、RCL7，也不收
     fresh();
     setBrain({ remotes: ['W44S5'] });
     remoteMod.run(skHome);
     assert(!record() || !record().sk, '默认关 ⇒ 不收 keeper 房（得 ' + JSON.stringify(record() || null) + '）');
-    // 开关打开但没有白名单（自治模式）：永远不碰 keeper 房
     const skEnabledSaved = config.sk.enabled;
     config.sk.enabled = true;
     fresh();
@@ -3652,20 +3487,17 @@ console.log('== SK 采矿（2026-10-13，默认关）：大脑点名 + 开关 + 
     remoteMod.run(skHome);
     assert(!record() || !record().sk, '自治模式（无白名单）不收 keeper 房');
     config.sk.enabled = skEnabledSaved;
-    // 大脑 skMining:true（优先于 config）+ 白名单 + RCL6：RCL 不够仍不收
     fresh();
     skHome.controller.level = 6;
     setBrain({ remotes: ['W44S5'], skMining: true });
     remoteMod.run(skHome);
     assert(!record() || !record().sk, 'RCL6 不收 keeper 房（minRcl 7）');
-    // RCL7：收成 SK 外矿（scout 数的 keeper "敌情" 不挡）
     skHome.controller.level = 7;
     fresh();
     remoteMod.run(skHome);
     assert(record() && record().sk && record().enabled && record().lairs === 2,
         '大脑 skMining + 白名单 + RCL7 ⇒ 收成 SK 外矿（得 ' + JSON.stringify(record() || null) + '）');
 
-    // reaper 没在岗：只出 reaper 一条需求，身体净回血、不缩身
     const first = remoteMod.getDemands(skHome);
     assert(first.length === 1 && first[0].role === 'skReaper' && first[0].slot === 'skReaper:W44S5',
         'reaper 没在岗时只出 reaper（得 ' + JSON.stringify(first.map((d) => d.slot)) + '）');
@@ -3675,12 +3507,9 @@ console.log('== SK 采矿（2026-10-13，默认关）：大脑点名 + 开关 + 
         'MOVE 与非 MOVE 1:1、≤ 50 部件（得 ' + reaperBody.length + '）');
     assert(reaperBody[reaperBody.length - 1] === 'heal', 'HEAL 放最后（引擎从前往后掉部件）');
     assert(typeof first[0].bodyFor !== 'function', 'reaper 不给 bodyFor：买不起就等，不缩身');
-    // 容量撑不起净回血的组数：一条需求都不出（也不派矿工）
     skHome.energyCapacityAvailable = 4000;
     assert(remoteMod.getDemands(skHome).length === 0 && record().skHeld, '容量 4000（8 组 < 9）⇒ 不派 reaper 也不派别人');
     skHome.energyCapacityAvailable = 5600;
-    // spawn 队列里 reaper 能孵：走 demandRequest 的固定身体
-    // reaper 进房在岗：矿工 7 WORK、不派 reserver，reaper 需求照挂（spawn 按寿命提前量换代）
     world.creeps.skRp = makeCreep(skRoom, 'skRp', reaperBody, { home: 'W44S4', role: 'skReaper', remoteRoom: 'W44S5', slotKey: 'skReaper:W44S5' });
     const staffed = remoteMod.getDemands(skHome);
     const miners = staffed.filter((d) => d.role === 'remoteMiner');
@@ -3689,7 +3518,6 @@ console.log('== SK 采矿（2026-10-13，默认关）：大脑点名 + 开关 + 
     assert(staffed.every((d) => d.role !== 'reserver'), 'keeper 房没有 controller，不派 reserver');
     assert(staffed.some((d) => d.role === 'skReaper'), 'reaper 需求一直挂着，交给 spawn 按提前量判断要不要换代');
     assert(Math.abs(miners[0].throughput(miners[0].body) - 4000 / 300) < 0.01, '矿工吞吐封顶 SK 源的 13.3/tick（得 ' + miners[0].throughput(miners[0].body) + '）');
-    // 还在路上（不在 SK 房里）的 reaper 不算在岗
     world.creeps.skRp.room = skHome;
     world.creeps.skRp.pos = new RoomPosition(25, 25, 'W44S4');
     assert(remoteMod.getDemands(skHome).every((d) => d.role === 'skReaper'), '路上的 reaper 不算在岗：不派矿工');
@@ -3698,11 +3526,9 @@ console.log('== SK 采矿（2026-10-13，默认关）：大脑点名 + 开关 + 
     world.creeps.skRp.room = skRoom;
     world.creeps.skRp.pos = new RoomPosition(25, 25, 'W44S5');
 
-    // 编制账算上 reaper：12 组 6000 / 1500 = 4/tick
     const staffCost = remoteMod.staffRemotes(skHome, Memory.rooms.W44S4).cost.W44S5;
     assert(staffCost >= 4, 'SK 外矿的摊销含 reaper（11 组 5500 / 1500 = 3.7/tick）与两只 7W 矿工（得 ' + staffCost + '）');
 
-    // 有视野：只有 keeper 的房不判敌情，记录不被停用；混进别的敌人照常停用
     const keeper = makeHostile(skRoom, 21, 21, ['attack', 'ranged_attack'], { owner: 'Source Keeper' });
     makeStructure(skRoom, C.STRUCTURE_KEEPER_LAIR, 22, 22, { my: false });
     makeStructure(skRoom, C.STRUCTURE_KEEPER_LAIR, 32, 32, { my: false });
@@ -3710,7 +3536,6 @@ console.log('== SK 采矿（2026-10-13，默认关）：大脑点名 + 开关 + 
     remoteMod.observe(skHome, skRoom);
     assert(record().enabled && !(record().suspendedUntil > Game.time) && !record().suspendReason,
         '只有 keeper ⇒ 不停用（得 ' + JSON.stringify([record().enabled, record().suspendReason, record().suspendedUntil]) + '）');
-    // defense 不对 SK 外矿里的 keeper 出兵 / 停用
     const defenseSk = require('../src/defense');
     assert(defenseSk.getDemands(skHome).every((d) => d.memory.targetRoom !== 'W44S5') && record().suspendReason == null,
         'defense 不把 keeper 当外矿敌情');
@@ -3724,7 +3549,6 @@ console.log('== SK 采矿（2026-10-13，默认关）：大脑点名 + 开关 + 
     remoteMod.observe(skHome, skRoom);
     assert(!record().suspendReason, 'Invader 走了 ⇒ 立刻解除');
 
-    // keeperRoom 停用：标成 SK 后完整撤销；别的模块的停用理由不碰
     record().enabled = false; record().suspendReason = 'keeperRoom'; record().suspendedUntil = Number.MAX_SAFE_INTEGER;
     world.time++;
     remoteMod.observe(skHome, skRoom);
@@ -3735,7 +3559,6 @@ console.log('== SK 采矿（2026-10-13，默认关）：大脑点名 + 开关 + 
     assert(record().enabled === false && record().suspendReason === 'notWhitelisted', '别的停用理由原样保留');
     record().enabled = true; record().suspendReason = null;
 
-    // 开关关掉（大脑 skMining:false 优先于 config）：退回永久停用的 keeperRoom；再打开就升级回来
     setBrain({ remotes: ['W44S5'], skMining: false });
     remoteMod.run(skHome);
     assert(!record().sk && record().enabled === false && record().suspendReason === 'keeperRoom',
@@ -3744,14 +3567,12 @@ console.log('== SK 采矿（2026-10-13，默认关）：大脑点名 + 开关 + 
     setBrain({ remotes: ['W44S5'], skMining: true });
     remoteMod.run(skHome);
     assert(record().sk && record().enabled && !record().suspendReason, '再打开 ⇒ 早先的 keeperRoom 记录升级成 SK 外矿');
-    // 大脑把它移出白名单：同样退回 keeperRoom
     setBrain({ remotes: [], skMining: true });
     remoteMod.run(skHome);
     assert(!record().sk && record().suspendReason === 'keeperRoom', '不在白名单 ⇒ 退回 keeperRoom');
     setBrain({ remotes: ['W44S5'], skMining: true });
     remoteMod.run(skHome);
 
-    // reaper 被打死两次（寿终不算）⇒ 停 lossCooldown
     remoteMod.noteReaperLoss('old', { role: 'skReaper', home: 'W44S4', remoteRoom: 'W44S5', lastTtl: 1 });
     assert(!record().skLosses, '寿终的 reaper 不算阵亡');
     remoteMod.noteReaperLoss('rp1', { role: 'skReaper', home: 'W44S4', remoteRoom: 'W44S5', lastTtl: 900 });
@@ -3760,8 +3581,6 @@ console.log('== SK 采矿（2026-10-13，默认关）：大脑点名 + 开关 + 
     assert(record().suspendReason === 'skReaperLost' && record().suspendedUntil >= Game.time + config.sk.lossCooldown,
         '连死两只 ⇒ 停 lossCooldown（得 ' + JSON.stringify([record().suspendReason, record().suspendedUntil - Game.time]) + '）');
     assert(remoteMod.getDemands(skHome).length === 0, '停用期间不再派 reaper');
-    // 2026-10-13 复审：白名单抖动把 SK 房退回 keeperRoom 后，路上/岗上的 reaper 死了不能把永久停用改写成 skReaperLost——
-    // 否则 syncKeeperRooms 只认 keeperRoom，这个房再也升级不回来
     record().suspendedUntil = 0; record().suspendReason = null; record().enabled = true; delete record().skLosses;
     setBrain({ remotes: [], skMining: true });
     remoteMod.run(skHome);
@@ -3802,7 +3621,6 @@ console.log('== SK 外矿的矿工/运输工：keeper 在射程边缘或 lair �
     assert(fled && Math.max(Math.abs(fled.x - 20), Math.abs(fled.y - 22)) === 5, '退到 keeper 5 格外（得 ' + JSON.stringify(fled) + '）');
     assert(!miner.actions.includes('harvest'), '撤退这一 tick 不采');
     assert(Memory.rooms.W46S4.remotes.W46S5.skRetreat && Memory.rooms.W46S4.remotes.W46S5.skRetreat.kind === 'keeper', '遥测 skRetreat');
-    // keeper 被打死：不再受威胁；lair 还有 5 tick 孵化且就在旁边：提前撤
     room._hostiles = [];
     assert(remoteMod.keeperThreatFor(miner) === null, 'keeper 没了 ⇒ 不再受威胁');
     const lair = makeStructure(room, C.STRUCTURE_KEEPER_LAIR, 19, 22, { my: false });
@@ -3811,20 +3629,17 @@ console.log('== SK 外矿的矿工/运输工：keeper 在射程边缘或 lair �
     lair.ticksToSpawn = 5;
     const lairThreat = remoteMod.keeperThreatFor(miner);
     assert(lairThreat && lairThreat.kind === 'lair', 'lair 5 tick 后孵出 keeper ⇒ 提前撤（得 ' + JSON.stringify(lairThreat) + '）');
-    // 运输工同一条规则
     const hauler = makeCreep(room, 'skh', ['carry', 'carry', 'move'], { home: 'W46S4', role: 'remoteHauler', remoteRoom: 'W46S5', sourceId: 'fsrc', state: 'collect' });
     hauler.pos = new RoomPosition(21, 21, 'W46S5');
     world.creeps.skh = hauler;
     require('roles_remoteHauler').run(hauler);
     const hFled = hauler.moveCalls.length ? hauler.moveCalls[hauler.moveCalls.length - 1].target : null;
     assert(hFled && Math.max(Math.abs(hFled.x - 19), Math.abs(hFled.y - 22)) === 5, '运输工也退到 5 格外（得 ' + JSON.stringify(hFled) + '）');
-    // 开采遥测：只记 SK 外矿上返回 OK 的 harvest
     remoteMod.noteSkHarvest(miner, C.ERR_NOT_IN_RANGE);
     assert(!Memory.rooms.W46S4.remotes.W46S5.skHarvest, 'harvest 失败不记');
     remoteMod.noteSkHarvest(miner, C.OK);
     remoteMod.noteSkHarvest(miner, C.OK);
     assert(Memory.rooms.W46S4.remotes.W46S5.skHarvest.n === 2 && Memory.rooms.W46S4.remotes.W46S5.skHarvest.first === Game.time, '遥测 skHarvest {first, n}');
-    // 普通外矿（非 SK）不走这条规则
     Memory.rooms.W46S4.remotes.W46S5.sk = false;
     room._hostiles = [keeper];
     assert(remoteMod.keeperThreatFor(miner) === null, '普通外矿不走 keeper 躲避');
@@ -3836,7 +3651,7 @@ console.log('== SK reaper：3 格外开火、贴脸就退、同 tick 自愈；�
     const rHome = makeRoom('W45S4', { rcl: 7, energy: 5600, cap: 5600, owner: 'me' });
     makeSpawn(rHome, 23, 21);
     const room = makeRoom('W45S5', { my: false, rcl: 0 });
-    room._sources = [makeSource(room, 12, 40, 'rsrc')];   // observe 会按可见源数校验（0 源的房会被停用）
+    room._sources = [makeSource(room, 12, 40, 'rsrc')];
     Memory.rooms = { W45S4: { sources: [], plan: {}, remotes: { W45S5: {
         room: 'W45S5', enabled: true, sk: true, lairs: 2, sourceCount: 1, suspendedUntil: 0, sources: [],
         reservation: { username: null, ticksToEnd: 0, seenAt: 0 },
@@ -3880,7 +3695,6 @@ console.log('== SK reaper：3 格外开火、贴脸就退、同 tick 自愈；�
     assert(healed === reaper && ranged === keeper, '同一 tick 既自愈又开火');
     const combat = Memory.rooms.W45S4.remotes.W45S5.skReaper;
     assert(combat && combat.shots === 3 && combat.kills === 0, '遥测 skReaper.shots 记每次命中的开火（得 ' + JSON.stringify(combat) + '）');
-    // 打到只剩一口气后 keeper 消失 ⇒ 记一次击杀；满血 keeper 被 lair 到点重生换掉不算
     keeper.hits = 100;
     skReaperRole.run(reaper);
     room._hostiles = [];
@@ -3889,7 +3703,6 @@ console.log('== SK reaper：3 格外开火、贴脸就退、同 tick 自愈；�
     assert(Memory.rooms.W45S4.remotes.W45S5.skReaper.kills === 1, 'keeper 残血消失 ⇒ kills 1（得 ' + JSON.stringify(Memory.rooms.W45S4.remotes.W45S5.skReaper) + '）');
     assert(reaper.memory.skTarget == null, '没有 keeper 时清掉目标记忆');
 
-    // 外矿停用（开关关了 / 不在白名单）⇒ 回去回收退役
     Memory.rooms.W45S4.remotes.W45S5.enabled = false;
     reaper.actions.length = 0; reaper.moveCalls.length = 0; ranged = null;
     skReaperRole.run(reaper);
@@ -3908,12 +3721,10 @@ console.log('== spawn 全忙时降频：编制推导只服务于遥测，不必�
     Memory.rooms = { W33S7: { sources: ['bd0', 'bd1'], plan: {} } };
     const interval = require('../src/config').spawnQueue.busyDemandInterval;
     assert(interval > 1, 'busyDemandInterval 默认开启（得 ' + interval + '）');
-    // spawn 空闲：永远全跑（孵化决策一 tick 都不能延后）
     bdSpawn.spawning = null;
-    while (utils.isRoomPhaseTick('W33S7', interval)) world.time++;   // 停在"非刷新 tick"
+    while (utils.isRoomPhaseTick('W33S7', interval)) world.time++;
     spawnMgr.run(bdRoom);
     assert(Memory.rooms.W33S7.demand && Memory.rooms.W33S7.demand.at === Game.time, 'spawn 空闲时照常算出编制');
-    // spawn 全忙 + 非刷新 tick：跳过，遥测保持上一次的值并计数
     const beforeAt = Memory.rooms.W33S7.demand.at;
     bdSpawn.spawning = { name: 'x', remainingTime: 10 };
     world.time++;
@@ -3921,15 +3732,13 @@ console.log('== spawn 全忙时降频：编制推导只服务于遥测，不必�
     spawnMgr.run(bdRoom);
     assert(Memory.rooms.W33S7.demand.at === beforeAt, '全忙且非刷新 tick：不重算编制（得 at=' + Memory.rooms.W33S7.demand.at + '）');
     assert(Memory.rooms.W33S7.demand.skipped >= 1, '跳过次数被计入遥测');
-    // 供给 EMA 是 upgraderTarget 的每 tick 副作用（alpha 按次不按 tick），降频会让它收敛慢 interval 倍、
-    // 并让"EMA 达标且本 tick 满仓"的加员条件难以撞上——私服 upgrade.storageRich 就是这么挂的
     {
         makeStructure(bdRoom, C.STRUCTURE_STORAGE, 24, 21, { id: 'bdStore', capacity: 1000000, energy: 40000 });
         Memory.rooms.W33S7.plan = { containers: { ctrl: { x: 22, y: 30 } } };
         makeStructure(bdRoom, C.STRUCTURE_CONTAINER, 22, 30, { id: 'bdCtrlCont', capacity: 2000, energy: 1800 });
         const supplyBefore = JSON.parse(JSON.stringify(Memory.rooms.W33S7.upgradeSupply || {}));
         world.time++;
-        while (utils.isRoomPhaseTick('W33S7', interval)) world.time++;   // 保证落在"跳过"的 tick 上
+        while (utils.isRoomPhaseTick('W33S7', interval)) world.time++;
         spawnMgr.run(bdRoom);
         const supplyAfter = Memory.rooms.W33S7.upgradeSupply;
         assert(supplyAfter && supplyAfter.at === Game.time,
@@ -3937,7 +3746,6 @@ console.log('== spawn 全忙时降频：编制推导只服务于遥测，不必�
         assert(supplyBefore.at !== supplyAfter.at, 'EMA 的采样 tick 确实前进了');
     }
     assert(Memory.rooms.W33S7.spawnQueue && Memory.rooms.W33S7.spawnQueue.busy === true, '仍然写 spawnQueue.busy');
-    // 全忙 + 刷新 tick：照常重算
     while (!utils.isRoomPhaseTick('W33S7', interval)) world.time++;
     spawnMgr.run(bdRoom);
     assert(Memory.rooms.W33S7.demand.at === Game.time, '轮到本房的刷新 tick 时重算遥测');
@@ -3967,14 +3775,12 @@ resetWorld(4150);
     ROLES.mineralMiner.run(drone);
     assert(drone.actions.includes('harvest'), '外部指令下在相邻站位开挖');
 
-    // 满仓 → 送 terminal
     drone.actions.length = 0;
     drone.store[C.RESOURCE_ENERGY] = drone.store.getCapacity();
     drone.pos = new RoomPosition(25, 22, 'W33S7');
     ROLES.mineralMiner.run(drone);
     assert(drone.actions.includes('transfer'), '满仓走 terminal 卸货');
 
-    // 矿脉挖空 → 退役回收，不白养到再生
     drone.actions.length = 0;
     drone.store[C.RESOURCE_ENERGY] = 0;
     mmRoom._mineral.mineralAmount = 0;
@@ -4015,7 +3821,6 @@ assert(utils.occupied(overlapRoom, repairedControllerSpot.x, repairedControllerS
 const roadSitePos = { x: 20, y: 30 };
 overlapRoom.createConstructionSite(roadSitePos.x, roadSitePos.y, C.STRUCTURE_ROAD);
 assert(utils.occupied(overlapRoom, roadSitePos.x, roadSitePos.y) === true, 'construction site 仍阻止共格选点');
-// 轮子是唯一规划来源：layout.run 会用轮子方案替换 legacy plan；控制器工位 (33,25) 上预置一条 road，容器工地可与之共格
 makeStructure(overlapRoom, C.STRUCTURE_ROAD, 33, 25, { id: 'ctrlWorkRoad' });
 overlapRoom.controller.pos = new RoomPosition(34, 24, 'W33S7');
 plannerState.cache.W33S7 = { layout: wheelFixture('W33S7') };
@@ -4062,7 +3867,7 @@ const adoptedHarvester = makeCreep(adoptContainerRoom, 'adopted.harvester', ['wo
     home: 'W33S7', role: 'harvester', sourceId: 'adoptContainer0', sourceIdx: 0,
 });
 adoptedHarvester.pos = new RoomPosition(32, 13, 'W33S7');
-adoptedHarvester.store[C.RESOURCE_ENERGY] = 45;   // 攒批交货：空位 < 2 次采集量才交
+adoptedHarvester.store[C.RESOURCE_ENERGY] = 45;
 ROLES.harvester.run(adoptedHarvester);
 assert(adoptedHarvester.actions.includes('transfer') && adoptedHarvester.actions.includes('harvest'),
     '计划坐标漂移时 harvester 仍在邻近成品 container 上 transfer+harvest');
@@ -4125,7 +3930,6 @@ assert(occupiedPlan.workPositions && occupiedPlan.workPositions.src0 &&
     occupiedPlan.workPositions.src0.y === occupiedPlan.containers.src0.y,
     '容器冲突改位后同步更新 source workPosition');
 
-
 console.log('== 维修策略：rampart 按动态目标封顶（没收入/存量 ⇒ floorHits），无工地时不养 builder ==');
 resetWorld(4300);
 const repairRoom = makeRoom('W33S7', { rcl: 3, energy: 800, cap: 800, ctrl: { x: 34, y: 24 } });
@@ -4140,7 +3944,6 @@ const wornRoad = makeStructure(repairRoom, C.STRUCTURE_ROAD, 24, 20, { hits: 340
 Memory.rooms.W33S7 = { sources: [], state: { at: Game.time, recovering: false, emergencyHarvest: false } };
 (towerMod.resetCache(), towerMod.run)(repairRoom);
 assert(!repairTower.actions.some((a) => a.action === 'repair'), 'RCL3 tower 不把 41.8 万 hits 的 rampart 继续修向 60 万');
-// 没有收入样本也没有 storage ⇒ 动态目标 = config.ramparts.floorHits（5000），不是 RCL 表的 15000
 bigRampart.hits = require('../src/config').ramparts.floorHits - 1000;
 (towerMod.resetCache(), towerMod.run)(repairRoom);
 assert(repairTower.actions.some((a) => a.action === 'repair' && a.id === bigRampart.id), 'rampart 低于动态目标时 tower 才维修');
@@ -4193,14 +3996,10 @@ assert(spawnMgr.builderTarget(repairRoom, idleBacklog) >= 1, '塔缺能量时存
 repairTower.store[RESOURCE_ENERGY] = 990;
 wornRoad.hits = 3400;
 
-// 塔射程（20 格）外的维修债：塔够不着的路只有 builder 能修——"塔有能量"不该把射程外的活一起挡住
-// （线上 2026-09-10 W33S8：射程外 48 条路 21.6%、债 47.9 万血，而 builderTarget 是 0、一只 builder 都没有）
 const farWorn = makeStructure(repairRoom, C.STRUCTURE_ROAD, 47, 47, { hits: 2000, hitsMax: 5000 });
 world.time++;
-// 只有一条 40% 的路（债 1000 血 ≈ 10 能量的活）：低于 outOfReachMinDebt，不为它常驻一只 builder（一只满容量 builder 摊销约 0.9/tick）
 assert(spawnMgr.builderTarget(repairRoom, idleBacklog) === 0,
     '射程外维修债低于 outOfReachMinDebt（1000 < 1 万）：不为它孵 builder（得 ' + spawnMgr.builderTarget(repairRoom, idleBacklog) + '）');
-// 债够大时需求侧（horizon 内清完）要更多 builder：4 个源 = 40/tick 收入，够养 3 只
 repairRoom._sources = [makeSource(repairRoom, 6, 30, 'rp0'), makeSource(repairRoom, 8, 30, 'rp1'), makeSource(repairRoom, 10, 30, 'rp2'), makeSource(repairRoom, 12, 30, 'rp3')];
 for (let index = 0; index < 20; index++) {
     makeStructure(repairRoom, C.STRUCTURE_ROAD, 40 + (index % 5), 40 + Math.floor(index / 5), { hits: 2000, hitsMax: 5000 });
@@ -4211,7 +4010,6 @@ assert(spawnMgr.builderTarget(repairRoom, idleBacklog) >= 2,
 const farDebt = Memory.rooms.W33S7.outOfReachRepair;
 assert(farDebt && farDebt.count >= 21 && farDebt.debt >= 20000,
     '决策事件记下射程外的维修债（count/debt）（得 ' + JSON.stringify(farDebt) + '）');
-// rampart 的债不算：它的目标是按收支动态定的"够用即止"，不该拉着编制走
 Memory.rooms.W33S7.plan = { wheel: true, roads: { all: '' } };
 world.time++;
 assert(utils.needsRepair(repairRoom, farWorn) === false, '空方案（roads.all 为空）时旧路不再需要维修');
@@ -4224,22 +4022,18 @@ console.log('== 方案外的旧建筑不修：needsRepair 与危急目标都要�
     makeSpawn(pfRoom, 23, 21);
     const pfOn = makeStructure(pfRoom, C.STRUCTURE_ROAD, 24, 20, { hits: 2000, hitsMax: 5000 });
     const pfOff = makeStructure(pfRoom, C.STRUCTURE_ROAD, 30, 20, { hits: 2000, hitsMax: 5000 });
-    // 外矿路网的键 remote:<外矿>:<源> 存的是路线在**本房**里的那一段（remote.syncHomeRoads 写 routeRoads[本房]）：
-    // 这些路属于方案，要照常维修（2026-09-10 曾把它们当外矿房坐标过滤掉，母房外矿路段烂到 0 又被 layout 重建）
     const pfRemoteLeg = makeStructure(pfRoom, C.STRUCTURE_ROAD, 26, 19, { hits: 2000, hitsMax: 5000 });
     Memory.rooms.W33S7 = { sources: [], plan: { wheel: true, roads: { all: '24.20', 'remote:W32S7:abc': '26.19' }, containers: {} } };
     world.time++;
     assert(utils.needsRepair(pfRoom, pfOn) === true, '方案内的路照常需要维修');
     assert(utils.needsRepair(pfRoom, pfOff) === false, '方案外的旧路不再需要维修');
     assert(utils.needsRepair(pfRoom, pfRemoteLeg) === true, '外矿路线的母房段是方案内的路，照常维修');
-    pfOn.hits = 400;    // 8% < criticalRepairShare
+    pfOn.hits = 400;
     pfOff.hits = 400;
     pfRemoteLeg.hits = 400;
     assert(utils.criticallyDamaged(pfRoom, pfOn) === true, '方案内的路掉到 8% 仍是危急目标');
     assert(utils.criticallyDamaged(pfRoom, pfOff) === false, '方案外的旧路掉到 8% 也不是危急目标（builder 不为它走 20 格）');
     assert(utils.criticallyDamaged(pfRoom, pfRemoteLeg) === true, '外矿路线的母房段掉到 8% 同样是危急目标（烂到 0 就要重建）');
-    // 墙不衰减、不在维修范围：维修目标是 3 亿 hitsMax，按比例永远在 20% 以下，但它不是危急结构
-    // （线上 2026-09-11 W34S7：builder 停在两面 1200 万血的方案外旧墙旁，每 tick 往墙里灌 2 能量）
     const pfWall = makeStructure(pfRoom, C.STRUCTURE_WALL, 10, 42, { hits: 11954101, hitsMax: 300000000 });
     world.time++;
     assert(utils.needsRepair(pfRoom, pfWall) === false, '墙不需要维修');
@@ -4248,7 +4042,6 @@ console.log('== 方案外的旧建筑不修：needsRepair 与危急目标都要�
     pfRemoteLeg.hits = 5000;
     world.time++;
     assert(utils.hasCriticalStructure(pfRoom) === false, '只剩墙时房里没有危急结构（builder 不会因墙升生存档）');
-    // 没有轮子方案（plan.wheel 缺失）的房保持旧行为
     Memory.rooms.W33S7 = { sources: [], plan: { roads: {} } };
     world.time++;
     assert(utils.needsRepair(pfRoom, pfOff) === true, '没有轮子方案的房不判断方案内外（保持旧行为）');
@@ -4262,7 +4055,6 @@ console.log('== 塔按"离维修目标还剩几成"挑维修对象：25% 的容�
     const trTower = makeStructure(trRoom, C.STRUCTURE_TOWER, 24, 22, { store: mkStore(1000, 1000) });
     trTower.repairCalls = [];
     trTower.repair = (target) => (trTower.repairCalls.push(target), C.OK);
-    // 线上 W34S7 的形态：道路 2580/5000（52%）绝对血量更低，容器 62000/250000（25%）比例更差
     const trRoad = makeStructure(trRoom, C.STRUCTURE_ROAD, 25, 22, { hits: 2580, hitsMax: 5000 });
     const trContainer = makeStructure(trRoom, C.STRUCTURE_CONTAINER, 26, 22, { my: false, energy: 0, capacity: 2000, hits: 62000, hitsMax: 250000 });
     Memory.rooms.W33S7 = { sources: [], plan: { anchor: { x: 23, y: 21 }, containers: { ctrl: { x: 26, y: 22 } }, roads: { all: '25.22' }, links: {} },
@@ -4270,8 +4062,7 @@ console.log('== 塔按"离维修目标还剩几成"挑维修对象：25% 的容�
     (towerMod.resetCache(), towerMod.run)(trRoom);
     assert(trTower.repairCalls.length === 1 && trTower.repairCalls[0] === trContainer,
         '塔先修比例更差的容器（25%），不是绝对血量更低的道路（52%）（得 ' + (trTower.repairCalls[0] && trTower.repairCalls[0].structureType) + '）');
-    // 道路掉到比例更差时反过来
-    trRoad.hits = 500;          // 10%
+    trRoad.hits = 500;
     trTower.repairCalls.length = 0;
     world.time++;
     (towerMod.resetCache(), towerMod.run)(trRoom);
@@ -4280,7 +4071,6 @@ console.log('== 塔按"离维修目标还剩几成"挑维修对象：25% 的容�
 
 console.log('== broker：rampart 维修 backlog 按动态目标计（能量预算 × 份额 ÷ 已建 rampart 数），不按百万级 hitsMax ==');
 {
-    // 独立场景 + 独立房名：repairRoom 是上一个 resetWorld 之前的对象，用它会命中 findCached 的房名缓存
     resetWorld(4760);
     const rpRoom = makeRoom('W47S47', { rcl: 3, energy: 800, cap: 800, ctrl: { x: 34, y: 24 }, owner: 'me' });
     makeSpawn(rpRoom, 23, 21);
@@ -4293,17 +4083,14 @@ console.log('== broker：rampart 维修 backlog 按动态目标计（能量预�
         taskBroker.beginTick();
         return taskBroker.roomTasks(rpRoom).find((task) => task.kind === 'repair' && task.id === rpRampart.id);
     };
-    // 没有收入样本、没有 storage ⇒ 预算 0 ⇒ 目标 = floorHits（而不是 RCL 表的 15000）
     const floorTask = rampartTask();
     assert(floorTask && floorTask.backlog === rampartCfg.ramparts.floorHits - 1000,
         '没有收入/存量时 rampart 目标回落到 floorHits（得 ' + JSON.stringify(floorTask && floorTask.backlog) + '）');
-    // 收入上来：目标抬到 RCL 表上限
     Memory.rooms.W47S47.spawnIncome = { ema: 200, n: 500, at: world.time };
     rpRampart.hits = 10000;
     const richTask = rampartTask();
     assert(richTask && richTask.backlog === rampartCfg.rampartTargetHits[3] - 10000,
         '收入充足时 rampart 目标抬到 RCL 表上限（得 ' + JSON.stringify(richTask && richTask.backlog) + '）');
-    // 同样的收入摊到 81 格上：每格目标按预算缩水（84 格外环不该按 2 格的目标修）
     const budget = 4;
     Memory.rooms.W47S47.spawnIncome = { ema: budget, n: 500, at: world.time };
     for (let i = 0; i < 79; i++) makeStructure(rpRoom, C.STRUCTURE_RAMPART, 2 + (i % 20), 40 - Math.floor(i / 20), { hits: 5000000, hitsMax: 30000000 });
@@ -4347,14 +4134,10 @@ makeStructure(ctrlLegRoom, C.STRUCTURE_LINK, 32, 24, { energy: 0, capacity: 800 
 world.time++;
 spawnMgr.run(ctrlLegRoom);
 assert(Memory.rooms.W33S7.demand.targets.hauler === 2, '有 ctrl link 后 controller 段由 link 供给，hauler 目标回落为 2');
-// RCL6 link 房：两源都由己方 link 送能、storage 3 万（storage → spawn/ext 仍要 hauler）——底线 3 按 link 供能的源各减 1、不低于 linkFloorMin 2
-// （第 5 轮 A/B：底线 3 把 link 房 hauler 撑在 2.2–2.7 只，34–71% 采样空闲）
 ctrlLegRoom.controller.level = 6;
-// 两只 10 WORK 的升级者：RCL<7 的 link 链吞吐 = 升级者 WORK，20/tick 正好吃得完两源
 const tenWork = ['work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'carry', 'move'];
 world.creeps['link.up0'] = makeCreep(ctrlLegRoom, 'link.up0', tenWork, { home: 'W33S7', role: 'upgrader' });
 world.creeps['link.up1'] = makeCreep(ctrlLegRoom, 'link.up1', tenWork, { home: 'W33S7', role: 'upgrader' });
-// storage 1.5 万（未到 storageFeedAbove 2 万，不触发 storage → 控制器 link 的回流运量）：剩下一源 10/tick、14 格的需求只有 1 只，底线决定编制
 ctrlLegRoom.storage = makeStructure(ctrlLegRoom, C.STRUCTURE_STORAGE, 21, 20, { energy: SF_MID, capacity: 1000000 });
 ctrlLegPlan.links = { ctrl: { x: 32, y: 24 }, src0: { x: 29, y: 13 }, src: { x: 29, y: 13 }, src1: { x: 16, y: 7 } };
 makeStructure(ctrlLegRoom, C.STRUCTURE_LINK, 29, 13, { energy: 0, capacity: 800 });
@@ -4373,8 +4156,6 @@ world.time++;
 spawnMgr.run(ctrlLegRoom);
 assert(Memory.rooms.W33S7.demand.targets.hauler === 3, 'linkFloorDrop 为 0 时退回 RCL 底线 3（得 ' + Memory.rooms.W33S7.demand.targets.hauler + '）');
 config.hauling.linkFloorDrop = 1;
-// RCL<7 的 link 链只有 ctrl link 收货：吞吐 = 升级者 WORK。上面两只 10 WORK 的升级者吃得完两源 20/tick；换成一只 5 WORK（第 6 轮 A/B 的 W31S8：
-// 升级 4.6/tick）后 src0 只被搬走 5、剩 5 与 src1 的 10 仍堆在源容器里要 hauler 搬——两源都不算 link 供能，底线回到 3
 delete world.creeps['link.up0'];
 world.creeps['link.up1'].body = ['work', 'work', 'work', 'work', 'work', 'carry', 'move'].map((p) => ({ type: p }));
 world.time++;
@@ -4382,9 +4163,6 @@ spawnMgr.run(ctrlLegRoom);
 assert(Memory.rooms.W33S7.haulModel.linkFed === 0 && Memory.rooms.W33S7.haulModel.linkDrain === 5 && Memory.rooms.W33S7.haulModel.floor === 3 &&
     Memory.rooms.W33S7.haulModel.production === 15 && Memory.rooms.W33S7.demand.targets.hauler >= 3,
     'RCL6 升级者只有 5 WORK：link 只搬走 5/tick，其余 15/tick 仍计入运量、底线 3（得 ' + JSON.stringify(Memory.rooms.W33S7.haulModel) + '）');
-// RCL7 有 store link：源 link 的能量最终进 storage，与升级者多少无关（上面只剩一只 5 WORK 的升级者），两源都算 link 供能；
-// 底线仍是 linkFloorMinStore 2 而不是 1——第 7 轮 A/B：底线 1 时 W33S7 的零 hauler 窗口 3 → 12 次、2 次 emergencyHarvest，
-// 而 CP/收入只有 38% → 39%。storage 降到 5 千（低于 storageFeedBelow 1 万，富余滞回退出）不再有回流项 → 目标就是底线
 ctrlLegRoom.controller.level = 7;
 ctrlLegPlan.links.store = { x: 22, y: 19 };
 makeStructure(ctrlLegRoom, C.STRUCTURE_LINK, 22, 19, { energy: 0, capacity: 800 });
@@ -4500,8 +4278,6 @@ world.creeps.sch0 = makeCreep(scaleRoom, 'sch0', utils.makeBody('staticHarvester
 world.creeps.sch1 = makeCreep(scaleRoom, 'sch1', utils.makeBody('staticHarvester', 800), { home: 'W33S7', role: 'harvester', sourceIdx: 1, sourceId: 'sc1', staticMiner: true });
 world.creeps.sca0 = makeCreep(scaleRoom, 'sca0', utils.makeBody('hauler', 800), { home: 'W33S7', role: 'hauler' });
 world.creeps.sca1 = makeCreep(scaleRoom, 'sca1', utils.makeBody('hauler', 800), { home: 'W33S7', role: 'hauler' });
-// 第 3 只 hauler：这一段测升级者，hauler 编制要始终已满。两只 10C 正好是 20/tick × 40 往返 ÷ 0.8 的运量（旧代码没有收入样本时停靠份额按 0，
-// 目标恰好 2）；现在停靠份额按孵化花费（spawnSpend，按在岗 creep 的维持费播种）算，任何停靠项都把目标推到 3——那是 hauler 模型的事，另有专段
 world.creeps.sca2 = makeCreep(scaleRoom, 'sca2', utils.makeBody('hauler', 800), { home: 'W33S7', role: 'hauler' });
 world.creeps.scu0 = makeCreep(scaleRoom, 'scu0', utils.makeBody('upgrader', 800), { home: 'W33S7', role: 'upgrader' });
 spawnMgr.run(scaleRoom);
@@ -4542,20 +4318,16 @@ for (let i = 0; i < 700; i++) {
 }
 assert(Memory.rooms.W33S7.demand.targets.upgrader === 2, 'controller 容器持续枯竭后 upgrader 目标逐级回落到底线（不补员）');
 
-// link 供能房：控制器容器根本没人用（升级者直接从 link 取），拿它当供给信号恒为 0
-// —— 线上 W33S7 的 ema 因此卡在 0.41、RCL5 常年只有 1 只升级者。真正的供给信号是 link 本身。
 console.log('== 援建导出不能把母房压出 storage 富余带 ==');
 {
     const cfgAid = require('../src/config').aid;
     const cfgUpg = require('../src/config').upgrading;
     const levels = utils.aidExportLevels(cfgAid, cfgUpg);
-    // 富余是 storageFeedAbove 进、storageFeedBelow 退；导出线压在它下面，母房永远进不了富余
     assert(levels.above >= cfgUpg.storageFeedAbove,
         '导出线不低于 storage 富余的进入线（得 ' + levels.above + ' vs ' + cfgUpg.storageFeedAbove + '）');
     assert(levels.keep >= cfgUpg.storageFeedBelow,
         '导出后至少留住富余的退出线（得 ' + levels.keep + ' vs ' + cfgUpg.storageFeedBelow + '）');
     assert(levels.keep <= levels.above, '留存不超过导出线');
-    // 配置调高时仍以配置为准（这条规则只兜底，不覆盖人的意图）
     const louder = utils.aidExportLevels({ exportAbove: 90000, exportKeep: 80000 }, cfgUpg);
     assert(louder.above === 90000 && louder.keep === 80000, '配置比富余线还高时按配置来');
 }
@@ -4577,10 +4349,8 @@ console.log('== upgrader 规模（link 供能）：供给信号取 ctrl link，�
         const pos = lkPlan.containers[key];
         lkRoom._structs.push({ structureType: C.STRUCTURE_CONTAINER, pos: new RoomPosition(pos.x, pos.y, 'W33S7'), store: mkStore(200, 2000) });
     }
-    // 控制器容器建着但恒空（线上 40/40 次采样都是 0）；storage 也只有 1 万出头，远不到 storageFullAt 3 万
     const lkCtrlContainer = { structureType: C.STRUCTURE_CONTAINER, pos: new RoomPosition(33, 25, 'W33S7'), store: mkStore(0, 2000) };
     lkRoom._structs.push(lkCtrlContainer);
-    // storage 要离控制器远：否则 upgraderStorageStations 判成 storage 供能（storageFed），走的是另一条分支
     makeStructure(lkRoom, C.STRUCTURE_STORAGE, 12, 40, { id: 'lkStore', capacity: 1000000, energy: 11000 });
     const lkLink = makeStructure(lkRoom, C.STRUCTURE_LINK, 33, 24, { id: 'lkLink', capacity: 800, energy: 400 });
     world.creeps.lku0 = makeCreep(lkRoom, 'lku0', utils.makeBody('upgrader', 1800), { home: 'W33S7', role: 'upgrader' });
@@ -4591,7 +4361,6 @@ console.log('== upgrader 规模（link 供能）：供给信号取 ctrl link，�
         'link 有货 ⇒ 供给 EMA 越过 raiseAbove（旧代码看空容器与 1.1 万 storage，上限 0.37，得 ' + (supply && supply.ema.toFixed(2)) + '）');
     assert(Memory.rooms.W33S7.demand.targets.upgrader >= 2,
         'link 供能房能加出第 2 只升级者（得 ' + Memory.rooms.W33S7.demand.targets.upgrader + '）');
-    // 没有控制器容器的 link 供能房：旧写法在这里直接早退（要求容器存在），供给逻辑整个不跑
     {
         const noCont = lkRoom._structs.indexOf(lkCtrlContainer);
         lkRoom._structs.splice(noCont, 1);
@@ -4603,7 +4372,6 @@ console.log('== upgrader 规模（link 供能）：供给信号取 ctrl link，�
         lkRoom._structs.push(lkCtrlContainer);
     }
 
-    // link 干涸后自动回落：滞回兜底，喂不动就减员
     lkLink.store[C.RESOURCE_ENERGY] = 0;
     for (let i = 0; i < 900; i++) { world.time++; lkRoom.energyAvailable = 1800; spawnMgr.run(lkRoom); }
     assert(Memory.rooms.W33S7.upgradeSupply.ema < cfgUp.raiseAbove,
@@ -4634,8 +4402,6 @@ upgraderBeside.store[RESOURCE_ENERGY] = 100;
 ROLES.upgrader.run(upgraderBeside);
 assert(upgraderBeside.actions.includes('upgradeController') && upgraderBeside.moveCalls.length === 0,
     '第二个 upgrader 在容器相邻且 controller 3 格内时直接升级，不抢容器格');
-// 站位容器破损时顺手修一 tick：容器每 tick 衰减 10 血，修 100 血只要 1 能量，11 WORK 的升级者每 110 tick 花 1 tick 就够。
-// 线上 2026-09-07：W33S7 无工地所以没有 builder，控制器容器一路 145k → 140k；W35S7 只剩上限的 7%
 {
     const before = stanceContainer.hits;
     stanceContainer.hits = Math.floor(stanceContainer.hitsMax * 0.5);
@@ -4645,7 +4411,6 @@ assert(upgraderBeside.actions.includes('upgradeController') && upgraderBeside.mo
     ROLES.upgrader.run(upgraderBeside);
     assert(upgraderBeside.actions.includes('repair') && !upgraderBeside.actions.includes('upgradeController'),
         '站位容器破损：升级者这一 tick 修容器而不是升级（得 ' + JSON.stringify(upgraderBeside.actions) + '）');
-    // 修到阈值以上就不再占用升级的 tick
     stanceContainer.hits = stanceContainer.hitsMax;
     upgraderBeside.actions.length = 0;
     upgraderBeside.store[C.RESOURCE_ENERGY] = 100;
@@ -4653,7 +4418,6 @@ assert(upgraderBeside.actions.includes('upgradeController') && upgraderBeside.mo
     ROLES.upgrader.run(upgraderBeside);
     assert(upgraderBeside.actions.includes('upgradeController') && !upgraderBeside.actions.includes('repair'),
         '容器满血：照常升级（得 ' + JSON.stringify(upgraderBeside.actions) + '）');
-    // 开关：阈值设 0 时完全不修（storage 站位模式下 station.container 为 null，同样不修）
     const savedBelow = config.upgraderRepairStationBelow;
     config.upgraderRepairStationBelow = 0;
     stanceContainer.hits = Math.floor(stanceContainer.hitsMax * 0.5);
@@ -4698,7 +4462,7 @@ const static800 = utils.makeBody('staticHarvester', 800);
 assert(static800.filter((p) => p === 'work').length === 5 && static800.filter((p) => p === 'move').length === 3 &&
     utils.bodyCost(static800) === 650, 'staticHarvester@800 用 5W3M（道路满速）而非 5W5M');
 
-{ const haulingCfg = require('../src/config').hauling; const sizingCfg = haulingCfg.sizing || (haulingCfg.sizing = {}); sizingCfg.__savedShare = sizingCfg.fallbackShare; sizingCfg.fallbackShare = 1; }   // 这一段测换代门槛，不是 hauler 尺寸：sizing.fallbackShare 1 = 没有实测时每只满配（spawn.estimateHomeHaulerTarget；原来的 coreMinBodyShare 1）
+{ const haulingCfg = require('../src/config').hauling; const sizingCfg = haulingCfg.sizing || (haulingCfg.sizing = {}); sizingCfg.__savedShare = sizingCfg.fallbackShare; sizingCfg.fallbackShare = 1; }
 console.log('== body-upgrade 换代门槛：浪费的 TTL 价值不得超过新身体的增量成本 ==');
 resetWorld(3300);
 const churnRoom = makeRoom('W33S7', { rcl: 3, energy: 1050, cap: 1050, ctrl: { x: 34, y: 24 } });
@@ -4728,7 +4492,6 @@ const churnBefore = Object.keys(world.creeps).length;
 assert(!Object.values(world.creeps).some((c) => c.name.includes('.upgrade')),
     '10C6M hauler 剩 1400 TTL 时 +250 成本的新身体不触发提前换代（浪费 747 > 增量 250）');
 world.time++;
-// 上一轮全量推导没有任何请求 ⇒ 安静房，换代评估要等到本房的全量推导 tick（spawn.quietDemandInterval，最多晚几个 tick，TTL 提前量是百 tick 级）
 while (!utils.isRoomPhaseTick('W33S7', require('../src/config').spawnQueue.quietDemandInterval)) world.time++;
 churnRoom.energyAvailable = 1050;
 world.creeps.chHa0.ticksToLive = 400;
@@ -4771,23 +4534,19 @@ console.log('== spawn 安静房降频：spawn 空闲、上轮全量推导无任�
     spawnMgr.run(qRoom);
     assert(mem().demand.at === fullAt && mem().demand.quietSkipped >= 1, '安静期内的非刷新 tick：不重算编制并计数（得 at=' + mem().demand.at + '，跳过 ' + mem().demand.quietSkipped + '）');
     assert(mem().spawnQueue.quiet === true && mem().spawnQueue.at === Game.time, '跳过时 spawnQueue 仍每 tick 刷新 at 并标 quiet');
-    // 敌人进房：当 tick 全量推导（defense 需求要立刻出现）
     qRoom._hostiles = [{ id: 'quEnemy', owner: { username: 'Invader' }, body: [{ type: 'attack', hits: 100 }], pos: new RoomPosition(10, 10, 'W33S7') }];
     nextTick(false);
     spawnMgr.run(qRoom);
     assert(mem().demand.at === Game.time && !mem().spawnQueue.quiet, '房里有敌人：不跳过，当 tick 全量推导');
     qRoom._hostiles = [];
-    // 到刷新 tick：照常全量
     nextTick(true);
     spawnMgr.run(qRoom);
     assert(mem().demand.at === Game.time, '刷新 tick 全量推导');
-    // 阵亡：矿工全没 ⇒ 恢复期，非刷新 tick 也立刻全量并出请求
     delete world.creeps.quH0; delete world.creeps.quH1;
     nextTick(false);
     mem().state = { at: -1 };
     spawnMgr.run(qRoom);
     assert(mem().demand.at === Game.time && mem().spawnQuiet === null, '恢复期不降频、安静期被清除（得 ' + JSON.stringify(mem().spawnQuiet) + '）');
-    // 关闭开关：每 tick 全跑
     require('../src/config').spawnQueue.quietDemandInterval = 1;
     try {
         world.creeps.quH0 = makeCreep(qRoom, 'quH0', utils.makeBody('staticHarvester', 1050), { home: 'W33S7', role: 'harvester', sourceIdx: 0, sourceId: 'qu0', staticMiner: true });
@@ -4821,7 +4580,7 @@ assert(!tierTasks.some((task) => task.kind === 'deliver' && task.target === tier
 assert(!tierTasks.some((task) => task.kind === 'deliver' && task.target === tierSrcContainer), 'source 容器不是投递目标');
 const tierHauler = makeCreep(tierRoom, 'tier.hauler', utils.makeBody('hauler', 800), { home: 'W33S7', role: 'hauler' });
 world.creeps[tierHauler.name] = tierHauler;
-tierHauler.pos = new RoomPosition(32, 24, 'W33S7');   // 贴着 ctrl 容器：真投递（mock 的 transfer 不查射程，旧写法隔 9 格也算送到）
+tierHauler.pos = new RoomPosition(32, 24, 'W33S7');
 tierHauler.store[RESOURCE_ENERGY] = 500;
 ROLES.hauler.run(tierHauler);
 assert(tierCtrlContainer.store[RESOURCE_ENERGY] === 500 && tierTower.store[RESOURCE_ENERGY] === 990,
@@ -4831,11 +4590,11 @@ world.creeps[tierBuilder.name] = tierBuilder;
 tierBuilder.store[RESOURCE_ENERGY] = 50;
 assert(taskBroker.pickTask(tierBuilder, tierRoom, (task) => task.kind === 'deliver' && task.target === tierCtrlContainer, false) == null,
     'ctrl 容器投递任务只对 hauler 开放，builder 不会被吸去搬运');
-world.time += 3; // 任务池每 3 tick 重算，spawn 缺口要等到下一次重算才进入池子
+world.time += 3;
 tierSpawn.store[RESOURCE_ENERGY] = 100;
 tierRoom.energyAvailable = 600;
 tierHauler.store[RESOURCE_ENERGY] = 500;
-tierHauler.pos = new RoomPosition(24, 22, 'W33S7');   // 回到 spawn 旁
+tierHauler.pos = new RoomPosition(24, 22, 'W33S7');
 tierHauler.moveCalls.length = 0;
 tierHauler.actions.length = 0;
 ROLES.hauler.run(tierHauler);
@@ -5232,7 +4991,6 @@ assert(expDemands.length >= 1 && expDemands[0].role === 'claimer' && expDemands[
 assert(expDemands.filter((d) => d.role === 'pioneer').length === config.expansion.pioneers &&
     expDemands.filter((d) => d.role === 'pioneer').every((d) => d.memory.targetRoom === 'W34S7'),
     '随后要 config.expansion.pioneers 个 pioneer 开荒工');
-// 无人孵化不误判；派出后一个寿命窗口到不了，重复指令也不能清冷却。
 assert(Memory.rooms.W33S7.claimReachability.W34S7.startedAt == null, '尚未派出 claimer 不开始超时');
 world.creeps.exClaim = makeCreep(expHome, 'exClaim', ['claim', 'move'], { home: 'W33S7', role: 'claimer', targetRoom: 'W34S7' });
 expansionMod.getDemands(expHome);
@@ -5309,7 +5067,6 @@ world.time++;
 expClaimer.actions.length = 0;
 ROLES.claimer.run(expClaimer);
 assert(expClaimer.actions.includes('suicide') && expTarget.find(C.FIND_MY_CONSTRUCTION_SITES).length === 0, '占下后 claimer 直接退役，不按指令放工地');
-// 新房归我方后由轮子规划，spawn1 工地放在轮子给的第一个 spawn 位
 plannerState.cache.W34S7 = { layout: wheelFixture('W34S7') };
 expTarget.controller.level = 1;
 layout.run(expTarget);
@@ -5352,19 +5109,19 @@ console.log('== 大脑掉线一整天：占领不停摆——自治兜底从 Mem
     const ok = { at: Game.time, sources: 2, lairs: 0, owner: null, controllerId: 'c1', threat: false, armedHostiles: 0 };
     const seedMap = () => {
         Memory.map = {
-            W33S6: Object.assign({}, ok),                                   // 合格：距离 1，同距离里房名最小
-            W34S7: Object.assign({}, ok),                                   // 合格：距离 1，房名靠后
-            W31S7: Object.assign({}, ok),                                   // 合格：距离 2，更远
-            W32S7: Object.assign({}, ok),                                   // 本房正在采的外矿（距离 1、房名最小）⇒ 不碰
-            W32S6: Object.assign({}, ok, { owner: 'Somebody', level: 3 }),  // 有主 ⇒ 那是攻占的事
-            W33S8: Object.assign({}, ok, { sources: 1 }),                   // 单源
-            W32S8: Object.assign({}, ok, { lairs: 3 }),                     // SK 房
-            W34S8: Object.assign({}, ok, { threat: true, armedHostiles: 2 }),   // 有敌情
+            W33S6: Object.assign({}, ok),
+            W34S7: Object.assign({}, ok),
+            W31S7: Object.assign({}, ok),
+            W32S7: Object.assign({}, ok),
+            W32S6: Object.assign({}, ok, { owner: 'Somebody', level: 3 }),
+            W33S8: Object.assign({}, ok, { sources: 1 }),
+            W32S8: Object.assign({}, ok, { lairs: 3 }),
+            W34S8: Object.assign({}, ok, { threat: true, armedHostiles: 2 }),
             W34S6: Object.assign({}, ok, { reservation: { username: 'Somebody', ticksToEnd: 3000 } }),
-            W30S7: Object.assign({}, ok),                                   // 距离 3 > autoClaimRange
-            W31S6: Object.assign({}, ok, { at: Game.time - 999999 }),       // 情报太旧
+            W30S7: Object.assign({}, ok),
+            W31S6: Object.assign({}, ok, { at: Game.time - 999999 }),
             W31S8: Object.assign({}, ok, { unreachable: true }),
-            W35S7: Object.assign({}, ok, { controllerId: null }),           // 高速路 / 无控制器
+            W35S7: Object.assign({}, ok, { controllerId: null }),
         };
     };
     seedMap();
@@ -5373,28 +5130,23 @@ console.log('== 大脑掉线一整天：占领不停摆——自治兜底从 Mem
     const day = config.expansion.autoClaimAfterMs;
     assert(day >= brainMod.STALE_GRACE_MS, 'autoClaimAfterMs 不短于大脑宽限');
 
-    // 1) 有可用指令但这一轮没给 claim：那是大脑的决定，不自作主张，连扫描都不做
     Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: ttl, rooms: { W33S7: { remotes: [] } } };
     brainMod.run();
     assert(brainMod.available() && brainMod.offlineMs() === 0, '指令可用 ⇒ available、offlineMs 0');
     assert(exp.getDemands(home).length === 0 && !Memory.rooms.W33S7.autoClaim, '大脑在线、没下 claim ⇒ 不自治占领、不扫描');
-    // 宽限期内（ttl 过了、宽限没过）同样算在线
     Memory.brain = offlineBrain(60000);
     brainMod.run();
     assert(brainMod.available() && exp.getDemands(home).length === 0 && !Memory.rooms.W33S7.autoClaim, '宽限内的旧指令仍算在线 ⇒ 不兜底');
 
-    // 2) 从没出现过 Memory.brain（新号/私服场景）：不算掉线
     delete Memory.brain;
     brainMod.run();
     assert(brainMod.offlineMs() === null && exp.getDemands(home).length === 0 && !Memory.rooms.W33S7.autoClaim, '从没有大脑 ⇒ 不触发掉线兜底');
 
-    // 3) 过期超过宽限但不到一整天：仍不接管（本机睡一晚不该让游戏内替大脑做账号级决定）
     Memory.brain = offlineBrain(brainMod.STALE_GRACE_MS + 60000);
     brainMod.run();
     assert(!brainMod.available() && brainMod.offlineMs() < day, '超过宽限：指令不可用');
     assert(exp.getDemands(home).length === 0 && !Memory.rooms.W33S7.autoClaim, '掉线不足 autoClaimAfterMs ⇒ 不兜底');
 
-    // 4) 掉线一整天：退回自治，挑最近、同距离房名最小的合格房（跳过在采的外矿与各类不合格房）
     Memory.brain = offlineBrain(day + 60000);
     brainMod.run();
     const auto = exp.autoClaimTarget(home);
@@ -5405,22 +5157,18 @@ console.log('== 大脑掉线一整天：占领不停摆——自治兜底从 Mem
         '大脑掉线后仍然产出 claimer 需求（得 ' + JSON.stringify(demands.map((d) => d.role)) + '）');
     assert(Memory.rooms.W33S7.expansion.target === 'W33S6' && Memory.rooms.W33S7.expansion.autonomous === true, '开荒记录标 autonomous');
 
-    // 缓存期内不重扫：新冒出来的更好候选不改结论
     Memory.map.W32S6 = Object.assign({}, ok);
     assert(exp.autoClaimTarget(home).room === 'W33S6', '缓存期内沿用上次的结论');
-    // 缓存期内目标不再合格（被人预定）：当场重扫换下一个
     Memory.map.W33S6.reservation = { username: 'Somebody', ticksToEnd: 4000 };
     assert(exp.autoClaimTarget(home).room === 'W32S6', '缓存的目标被人预定 ⇒ 当场重扫（得 ' + JSON.stringify(Memory.rooms.W33S7.autoClaim) + '）');
     seedMap();
 
-    // 去过、没到（claimReachability 失败记录）：兜底不重试
     delete Memory.rooms.W33S7.autoClaim;
     delete Memory.rooms.W33S7.expansion;
     Memory.rooms.W33S7.claimReachability = { W33S6: { failures: 1, suspendedUntil: Game.time + 1500, reason: 'unreachable' } };
     assert(exp.autoClaimTarget(home).room === 'W34S7', '本房去失败过的房跳过，换下一个');
     delete Memory.rooms.W33S7.claimReachability;
 
-    // 不穿危险房走不到（findRoute 无路）：不占
     delete Memory.rooms.W33S7.autoClaim;
     const savedMap = Game.map;
     Game.map = Object.assign({}, savedMap, { findRoute: (from, to) => (to === 'W33S6' ? C.ERR_NO_PATH : [{ exit: 1, room: to }]) });
@@ -5429,19 +5177,16 @@ console.log('== 大脑掉线一整天：占领不停摆——自治兜底从 Mem
     Game.map = savedMap;
     movement.resetSafeRoutes();
 
-    // 账号里别的母房有开荒在途 / 有己方房还没 spawn：一次只开一个
     delete Memory.rooms.W33S7.autoClaim;
     Memory.rooms.W31S9 = { expansion: { target: 'W30S9', since: Game.time } };
     assert(exp.autoClaimTarget(home) === null && /^busy/.test(Memory.rooms.W33S7.autoClaim.why), '别的母房在开荒 ⇒ 兜底不并行');
     delete Memory.rooms.W31S9;
 
-    // GCL 没余量 / 开关关闭：一律不占
     delete Memory.rooms.W33S7.autoClaim;
     Game.gcl.level = 1;
     assert(exp.autoClaimTarget(home) === null && Memory.rooms.W33S7.autoClaim.why === 'gcl', 'GCL 无余量 ⇒ 不占');
     assert(exp.getDemands(home).length === 0, 'GCL 无余量 ⇒ 没有需求');
     Game.gcl.level = 3;
-    // 2026-10-13 复审：CPU 吃紧时不替掉线的大脑再加房（bucket 低 / 近期 tick 用量均值超过 limit × autoClaimMaxCpuShare）
     {
         const savedCpu = Game.cpu;
         const savedStats = Memory.stats;
@@ -5461,7 +5206,6 @@ console.log('== 大脑掉线一整天：占领不停摆——自治兜底从 Mem
             assert(Memory.rooms.W33S7.autoClaimCpuHeld && Memory.rooms.W33S7.autoClaimCpuHeld.n === 2 && Memory.rooms.W33S7.autoClaimCpuHeld.mean > line,
                 'CPU 闸挡下记 autoClaimCpuHeld（重扫覆盖 autoClaim 也留得住）（得 ' + JSON.stringify(Memory.rooms.W33S7.autoClaimCpuHeld) + '）');
             delete Memory.rooms.W33S7.autoClaimCpuHeld;
-            // 已在开荒的自治目标不受 CPU 闸：半路撤掉白扔能量
             delete Memory.rooms.W33S7.autoClaim;
             Memory.rooms.W33S7.expansion = { target: 'W33S6', since: Game.time, autonomous: true };
             assert(exp.autoClaimTarget(home) && exp.autoClaimTarget(home).room === 'W33S6', '在途的自治开荒照常开完（得 ' + JSON.stringify(Memory.rooms.W33S7.autoClaim) + '）');
@@ -5477,8 +5221,6 @@ console.log('== 大脑掉线一整天：占领不停摆——自治兜底从 Mem
             Memory.stats = savedStats;
         }
     }
-    // 2026-10-14：占下目标（controller 归我、还没 spawn）后缓存复核不过、重扫记 busy:<目标> 覆盖 autoClaim；
-    // 挑中的结论另记在 autoClaimPicked，后续 note 不覆盖（生效断言 expansion.autoClaimOffline 读它，私服 validation-mZRVaL 就是被覆盖误判）
     {
         delete Memory.rooms.W33S7.autoClaim;
         delete Memory.rooms.W33S7.autoClaimPicked;
@@ -5503,7 +5245,6 @@ console.log('== 大脑掉线一整天：占领不停摆——自治兜底从 Mem
     assert(exp.claimTarget(home) === null && !Memory.rooms.W33S7.autoClaim, 'autoClaim 关闭时不产出目标、不扫描');
     config.expansion.autoClaim = true;
 
-    // 5) 遗留的 claim.queue 锁（用户点名的清单）未到期：只从清单里挑，按清单顺序，单源也行；有主的等着
     delete Memory.rooms.W33S7.autoClaim;
     delete Memory.rooms.W33S7.expansion;
     Memory.brain = offlineBrain(day + 60000, { locks: { 'claim.queue': { value: ['W32S6', 'W33S8', 'W34S7'], until: Date.now() + 86400000 } } });
@@ -5511,18 +5252,15 @@ console.log('== 大脑掉线一整天：占领不停摆——自治兜底从 Mem
     brainMod.run();
     const queued = exp.autoClaimTarget(home);
     assert(queued && queued.room === 'W33S8' && Memory.rooms.W33S7.autoClaim.from === 'queue', '清单锁在 ⇒ 按清单顺序挑第一个合格的（有主的跳过、点名的单源房可占），不挑清单外更近的（得 ' + JSON.stringify(Memory.rooms.W33S7.autoClaim) + '）');
-    // 清单锁到期：回到情报扫描
     delete Memory.rooms.W33S7.autoClaim;
     Memory.brain.locks['claim.queue'].until = Date.now() - 1;
     assert(exp.autoClaimTarget(home).room === 'W33S6', '清单锁到期 ⇒ 回到 Memory.map 扫描');
-    // <母房>.claim 锁定为 null：这个母房不占
     delete Memory.rooms.W33S7.autoClaim;
     Memory.brain.locks['W33S7.claim'] = { value: null, until: Date.now() + 86400000 };
     assert(exp.autoClaimTarget(home) === null && Memory.rooms.W33S7.autoClaim.from === 'lock', '母房 claim 锁为 null ⇒ 不占');
     delete Memory.brain.locks['W33S7.claim'];
     seedMap();
 
-    // 6) 大脑回来了（没给 claim）：自治目标作废，在途 claimer 退役
     delete Memory.rooms.W33S7.autoClaim;
     delete Memory.rooms.W33S7.expansion;
     Memory.brain = offlineBrain(day + 60000);
@@ -5535,7 +5273,6 @@ console.log('== 大脑掉线一整天：占领不停摆——自治兜底从 Mem
     assert(exp.getDemands(home).length === 0 && !Memory.rooms.W33S7.expansion, '大脑回来、没接着要这个房 ⇒ 自治目标作废');
     assert(world.creeps.acClaim.memory.retired === true, '在途的自治 claimer 退役');
     delete world.creeps.acClaim;
-    // 大脑回来并给了别的房：照大脑的来
     Memory.brain.rooms.W33S7.claim = { room: 'W34S7', priority: 1 };
     Memory.brain.issuedAt = Date.now() + 1;
     brainMod.run();
@@ -5545,7 +5282,6 @@ console.log('== 大脑掉线一整天：占领不停摆——自治兜底从 Mem
     delete Memory.rooms.W33S7.expansion;
     delete Memory.rooms.W33S7.autoClaim;
 
-    // 7) 掉线时外矿的自治收房（相邻房全探明就收）不收正在开荒的目标：否则兜底会因"在采的外矿不碰"放弃它、在途 claimer 退役
     brainMod.run();
     seedMap();
     Memory.rooms.W33S7.remotes = {};
@@ -5622,7 +5358,7 @@ spawnMgr.run(hsHome);
 const hsSpawned2 = Object.values(world.creeps).filter((c) => !c.name.startsWith('hs'));
 assert(hsSpawned2.length === 1 && hsSpawned2[0].memory.role === 'hauler', '能量够了先补 hauler（得 ' + hsSpawned2.map((c) => c.memory.role).join(',') + '）');
 
-{ const haulingCfg = require('../src/config').hauling; const sizingCfg = haulingCfg.sizing || (haulingCfg.sizing = {}); sizingCfg.__savedShare = sizingCfg.fallbackShare; sizingCfg.fallbackShare = 1; }   // 这一段测队列等满配/缩身，不是 hauler 尺寸：sizing.fallbackShare 1 = 没有实测时每只满配（spawn.estimateHomeHaulerTarget；原来的 coreMinBodyShare 1）
+{ const haulingCfg = require('../src/config').hauling; const sizingCfg = haulingCfg.sizing || (haulingCfg.sizing = {}); sizingCfg.__savedShare = sizingCfg.fallbackShare; sizingCfg.fallbackShare = 1; }
 console.log('== spawn 队列：hauler 只缺 1 只时按"截止前能否攒够"决定等满配还是缩身 ==');
 function waitScene(seed, sinceAgo, energy) {
     resetWorld(seed);
@@ -5646,14 +5382,12 @@ function waitScene(seed, sinceAgo, energy) {
     world.creeps.wtHa = makeCreep(room, 'wtHa', utils.makeBody('hauler', 1000), { home: 'W33S7', role: 'hauler' });
     world.creeps.wtUp = makeCreep(room, 'wtUp', utils.makeBody('upgrader', 1600), { home: 'W33S7', role: 'upgrader' });
     world.creeps.wtBu = makeCreep(room, 'wtBu', utils.makeBody('builder', 1600), { home: 'W33S7', role: 'builder' });
-    // 外部大脑在位：scout 目标 0、无外矿，场景只看 hauler 替补
     Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { W33S7: { remotes: [], scouts: 0, claim: null } } };
     require('brain').run();
     return room;
 }
 const wtFullCost = utils.bodyCost(utils.makeBody('hauler', 1600));
 assert(wtFullCost === 1600, '前提：1600 容量的满配 hauler 成本恰好等于容量（得 ' + wtFullCost + '）');
-// 1) 首次出现：样本不足按每源 5/tick 估计，585 的缺口约 59 tick 内攒够、在 150 tick 的宽限内 → 等满配并保留能量
 let wtRoom = waitScene(3480, null);
 spawnMgr.run(wtRoom);
 const wtTarget = Memory.rooms.W33S7.demand && Memory.rooms.W33S7.demand.targets.hauler;
@@ -5665,7 +5399,6 @@ assert(wtWait && wtWait.cost === wtFullCost && wtWait.key === 'core:hauler:1' &&
     'spawnWaiting 记录队头成本 / 键 / 首次出现 tick / 预计可负担 tick（得 ' + JSON.stringify(wtWait) + '）');
 assert(Memory.rooms.W33S7.spawnQueue && Memory.rooms.W33S7.spawnQueue.waiting && Memory.rooms.W33S7.spawnQueue.waiting.waited === 0,
     '遥测 spawnQueue.waiting（得 ' + JSON.stringify(Memory.rooms.W33S7.spawnQueue) + '）');
-// 2) 同一请求已等 200 tick（超过宽限 150）：按现有能量缩身孵
 wtRoom = waitScene(3481, 200);
 spawnMgr.run(wtRoom);
 wtAdds = Object.values(world.creeps).filter((c) => !c.name.startsWith('wt'));
@@ -5673,7 +5406,6 @@ assert(wtAdds.length === 1 && wtAdds[0].memory.role === 'hauler', '宽限用完�
 assert(wtAdds.length === 1 && utils.bodyCost(wtAdds[0].body) <= 1015 && utils.bodyCost(wtAdds[0].body) >= 900,
     '缩身到现有能量（得 ' + (wtAdds[0] && utils.bodyCost(wtAdds[0].body)) + '）');
 assert(!Memory.rooms.W33S7.spawnWaiting, '孵出后不再等待（得 ' + JSON.stringify(Memory.rooms.W33S7.spawnWaiting) + '）');
-// 3) 宽限用完但能量不足容量一半（收入 > 0）：继续等，不孵 400 的 hauler
 wtRoom = waitScene(3482, 500, 400);
 spawnMgr.run(wtRoom);
 wtAdds = Object.values(world.creeps).filter((c) => !c.name.startsWith('wt'));
@@ -5683,9 +5415,6 @@ assert(Memory.rooms.W33S7.spawnWaiting && Memory.rooms.W33S7.spawnWaiting.since 
 
 console.log('== core hauler 按运量定尺寸：每只 = haulModel 的方案身体（按 CARRY 定编，见"按 CARRY 定编"一段），夹在 minBodyCarry 与满配之间（线上 RCL7 第 2 只 hauler 顶格 2400、永不缩身）==');
 {
-    // 断言改动（2026-09-12 按 CARRY 定编）：以前 coreHaulerCarry 按 load × 平均载量 ÷ 0.8 摊给 count 只、且不低于满配一半（0.5 车 → 满配一半 11、
-    // 1.4 车 → 18）。现在方案（只数 + 每只 CARRY，已过滞回）由 estimateHomeHaulerTarget 按 CARRY 算好写进 haulModel.perBody，这里只剩夹取到
-    // [minBodyCarry[RCL], 满配]；满配一半只是"还没有实测"时的兜底，在 estimateHomeHaulerTarget 里（见"按 CARRY 定编"一段）
     const hsFull = utils.bodyPartCount(utils.makeBody('hauler', 1600), 'carry');
     const hsRoom = { energyCapacityAvailable: 1600, controller: { level: 5 } };
     const hsMin = ((config.hauling.sizing || {}).minBodyCarry || {})[5] || 4;
@@ -5695,7 +5424,6 @@ console.log('== core hauler 按运量定尺寸：每只 = haulModel 的方案身
     assert(hsSize(2) === hsMin, '方案要 2 CARRY：夹到 minBodyCarry[5] ' + hsMin + '（得 ' + hsSize(2) + '）');
     assert(hsSize(18) === 18, '方案 18 CARRY：照给（得 ' + hsSize(18) + '）');
     assert(hsSize(99) === hsFull, '方案超过满配：满配封顶（得 ' + hsSize(99) + '）');
-    // 实景（waitScene：RCL5 1600 容量、两源容器 + 静态矿工、1 只 hauler、目标 2、能量 1015）：按运量孵，不再等 1600 的满配
     const hsScene = waitScene(3490, null);
     spawnMgr.run(hsScene);
     const hsAdded = Object.values(world.creeps).filter((c) => !c.name.startsWith('wt'));
@@ -5703,7 +5431,6 @@ console.log('== core hauler 按运量定尺寸：每只 = haulModel 的方案身
     assert(hsTrack && hsTrack.parts < hsTrack.full && hsAdded.length === 1 && hsAdded[0].memory.role === 'hauler' &&
         utils.bodyPartCount(hsAdded[0].body, 'carry') === hsTrack.parts && utils.bodyCost(hsAdded[0].body) < 1600,
         '第 2 只 hauler 按运量孵（' + JSON.stringify(hsTrack) + '），不等满配 1600（得 ' + hsAdded.map((c) => c.memory.role + ':' + utils.bodyCost(c.body)).join(',') + '）');
-    // 换代目标与孵化同一个尺寸：按需孵出的 hauler 剩 400 TTL 也不会被当成小身体换成满配
     world.time++;
     hsScene.energyAvailable = 1600;
     if (hsAdded[0]) { hsAdded[0].spawning = false; hsAdded[0].ticksToLive = 400; }
@@ -5711,8 +5438,6 @@ console.log('== core hauler 按运量定尺寸：每只 = haulModel 的方案身
     assert(!Object.values(world.creeps).some((c) => c.name.includes('.upgrade') && c.memory.role === 'hauler'), '按需尺寸的 hauler 不被换代成满配');
 }
 {
-    // 第 2 只 hauler 在发展档里排在 builder 之前（旧规则同档按首次出现排序：等了 400+ tick 的 core:builder:1 挡住 hauler，线上 W33S7）
-    // 能量 900：买得起按运量定的第 2 只 hauler（850），买不起 1350 的 builder；在岗 builder 去掉 → core:builder:0（发展档、非 vital）
     const hpScene = waitScene(3491, null, 900);
     delete world.creeps.wtBu;
     Memory.rooms.W33S7.spawnSince = { 'core:builder:0': Game.time - 100, 'core:hauler:1': Game.time - 5 };
@@ -5740,7 +5465,6 @@ sqRes = sq.schedule([scalable('a', 1, 100)], { now: 1000, energy: 300, capacity:
 assert(sqRes.actions.length === 0 && sqRes.waiting, '收入 > 0 时缩身下限是容量一半：300 不孵（得 ' + JSON.stringify(sqRes.actions) + '）');
 sqRes = sq.schedule([scalable('a', 1, 100, { vital: true })], { now: 1000, energy: 300, capacity: 1000, income: 0, spawnsFree: 1, since: {} });
 assert(sqRes.actions.length === 1 && sqRes.actions[0].cost === 300, '收入 0 是紧急态：vital 请求刚出现也立刻用 300 孵（得 ' + JSON.stringify(sqRes.actions.map((x) => x.cost)) + '）');
-// 非 vital（第 2 只 hauler、builder、升级者…）不享受紧急态：收入 0 时缩成最小身体只会占槽 1500 tick（线上 W33S7 的 2C2M hauler、1W1C1M builder）
 sqRes = sq.schedule([scalable('b', 4, 100)], { now: 1000, energy: 300, capacity: 1000, income: 0, spawnsFree: 1, since: { b: 500 } });
 assert(sqRes.actions.length === 0 && sqRes.waiting && sqRes.waiting.key === 'b', '收入 0 时非 vital 请求守正常下限（容量一半），300 不孵（得 ' + JSON.stringify(sqRes.actions.map((x) => x.cost)) + '）');
 sqRes = sq.schedule([scalable('core', 1, 100), fixedReq('claim', 3, 650, { strategic: true }), fixedReq('remote', 5, 400)],
@@ -5783,7 +5507,6 @@ for (let i = 0; i < 12; i++) {
     const before = taskBroker.startCreep(stuckHauler);
     const picked = taskBroker.pickTask(stuckHauler, stuckRoom, (task) => task.kind === 'collect', true);
     if (i === 0) firstLease = picked && picked.id;
-    // 模拟走不过去：位置、能量都不变
     taskBroker.finishCreep(stuckHauler, before);
 }
 assert(firstLease === 'stuck_pile', '一开始竞价选中的是大堆掉落物（得 ' + firstLease + '）');
@@ -5881,7 +5604,6 @@ Memory.brain = { version: 1, issuedAt: Date.now() + 2, ttlMs: 1800000, intel: wl
 require('brain').run();
 remoteMod.run(wlHome);
 assert(Memory.rooms.W33S7.remotes.W33S8.enabled && Memory.rooms.W33S7.remotes.W32S7.enabled === false, '白名单换回来时 W33S8 重新启用、W32S7 停用');
-// 早先被自治逻辑判为 tooFar 停用的房，进了白名单（且在 maxRange 内）也要重新启用
 Memory.rooms.W33S7.remotes.W32S7.suspendReason = 'tooFar';
 Memory.brain = { version: 1, issuedAt: Date.now() + 3, ttlMs: 1800000, intel: wlIntel, rooms: { W33S7: { remotes: ['W33S8', 'W32S7'], scouts: 0, claim: null } } };
 require('brain').run();
@@ -5893,7 +5615,6 @@ resetWorld(3520);
 const ownHome = makeRoom('W33S7', { rcl: 4, energy: 1300, cap: 1300, ctrl: { x: 22, y: 31 }, owner: 'me' });
 ownHome._sources = [makeSource(ownHome, 14, 6, 'oh0'), makeSource(ownHome, 31, 12, 'oh1')];
 makeSpawn(ownHome, 23, 21);
-// W33S8 刚被自己占下：controller.my，但大脑情报/白名单还是占领前的（owner 空、仍在 remotes 名单里）
 const ownedRemote = makeRoom('W33S8', { rcl: 1, energy: 300, cap: 300, ctrl: { x: 40, y: 25 }, owner: 'me' });
 ownedRemote._sources = [makeSource(ownedRemote, 4, 18, 'w8a'), makeSource(ownedRemote, 13, 32, 'w8b')];
 world.exits.W33S7 = { '1': 'W33S6', '3': 'W34S7', '5': 'W33S8', '7': 'W32S7' };
@@ -6039,7 +5760,6 @@ console.log('== RoomVisual 顺序：唯一/高价值结构先画，extension 其
     };
     try { require('visuals').render(anRoom); } finally { global.RoomVisual = OrigVisual; }
     assert(texts.some((s) => s.startsWith('规划 ') && s.includes('未建 ')), '始终画方案标签（版本 + 未建数量）：' + JSON.stringify(texts.slice(0, 2)));
-    // 方案全部建成的房（私服 industry 场景）仍有 visual：只剩标签
     {
         const fullTexts = [];
         const fullDrawn = [];
@@ -6083,8 +5803,6 @@ assert(Memory.rooms.W33S7.expansion && Memory.rooms.W33S7.expansion.target === '
 Memory.rooms.W34S7 = { expansion: { target: 'W34S7', since: 1 } };
 assert(require('expansion').activeTarget(adNew) === null && !Memory.rooms.W34S7.expansion,
     '无 spawn 的新母房不会把自己当成待接管的开荒目标');
-// 已有母房在开荒的房不再被别家接管（线上 2026-09-06：W33S8 按指令占 W31S8 后，W34S7/W35S7 各自"自愈"又各派 2 只 pioneer，共 7 只）；
-// 无人接管时只由最近的母房接管，远房不凑
 const adFar = makeRoom('W36S9', { rcl: 4, energy: 1300, cap: 1300, ctrl: { x: 22, y: 31 }, owner: 'me' });
 adFar._sources = [makeSource(adFar, 14, 6, 'af0'), makeSource(adFar, 31, 12, 'af1')];
 makeSpawn(adFar, 23, 21);
@@ -6208,7 +5926,6 @@ console.log('== 外矿防御由拥有记录的母房负责，不套"最近母房
     const rdHome = makeRoom('W33S7', { rcl: 6, energy: 2300, cap: 2300, ctrl: { x: 22, y: 31 }, owner: 'me' });
     rdHome._sources = [makeSource(rdHome, 14, 6, 'rd0h'), makeSource(rdHome, 31, 12, 'rd1h')];
     makeSpawn(rdHome, 23, 21);
-    // 外矿 W32S5 属于 W33S7（切比雪夫 2），但 W32S4 离它只有 1：旧门只让"最近的有 spawn 房"出兵，而 W32S4 根本没有这条记录
     const rdNear = makeRoom('W32S4', { rcl: 5, energy: 1800, cap: 1800, ctrl: { x: 20, y: 20 }, owner: 'me' });
     makeSpawn(rdNear, 25, 25);
     const rdRemote = makeRoom('W32S5', { my: false, rcl: 0, ctrl: { x: 26, y: 26 } });
@@ -6221,16 +5938,13 @@ console.log('== 外矿防御由拥有记录的母房负责，不套"最近母房
     const rdDemands = require('defense').getDemands(rdHome);
     assert(rdDemands.some((d) => d.role === 'defender' && d.memory.targetRoom === 'W32S5'),
         '外矿 W32S5 离 W32S4 更近，拥有它的 W33S7 照样出 defender（得 ' + JSON.stringify(rdDemands.map((d) => d.slot)) + '）');
-    // 路过的玩家 WORK/CLAIM creep：外矿里不算威胁（旧口径会出兵打邻居的矿工/reserver）
     rdRemote._hostiles.length = 0;
     makeHostile(rdRemote, 12, 12, ['work', 'work', 'carry', 'move'], { owner: 'Alepoldar' });
     makeHostile(rdRemote, 14, 14, ['claim', 'move'], { owner: 'Alepoldar' });
     world.time++;
     assert(!require('defense').getDemands(rdHome).some((d) => d.memory.targetRoom === 'W32S5'), '外矿里只有玩家的 WORK/CLAIM creep：不出兵');
-    // 己方房里同样的 WORK creep 仍然算（拆墙也是攻击）
     assert(require('defense').armedHostiles(Object.assign(rdRemote, { controller: Object.assign({}, rdRemote.controller, { my: true }) })).length === 2,
         '己方房里玩家的 WORK/CLAIM creep 仍算武装');
-    // 不在编的外矿：没人在采，不出兵
     rdRemote.controller.my = false;
     rdRemote._hostiles.length = 0;
     makeHostile(rdRemote, 12, 12, ['attack', 'move'], { owner: 'Invader', hits: 200 });
@@ -6258,8 +5972,6 @@ world.creeps[drMelee.name] = drMelee;
 drMelee.pos = new RoomPosition(21, 21, 'W34S7');
 ROLES.defender.run(drMelee);
 assert(drMelee.actions.includes('attack'), '近战 defender 相邻时攻击');
-// 引擎表 attack: ['build','repair','dismantle','attackController','rangedHeal','heal']：自疗那一 tick attack 会被整个丢掉。
-// 近战身体默认不带 HEAL（defense.meleeBody），但大脑可以下发带 HEAL 的自定义身体，那时必须先打不先奶。
 {
     const drMeleeHeal = makeCreep(drRoom, 'def.melee.heal', ['attack', 'attack', 'heal', 'move', 'move', 'move'],
         { home: 'W33S7', role: 'defender', targetRoom: 'W34S7', style: 'melee' });
@@ -6269,7 +5981,6 @@ assert(drMelee.actions.includes('attack'), '近战 defender 相邻时攻击');
     ROLES.defender.run(drMeleeHeal);
     assert(drMeleeHeal.actions.includes('attack') && !drMeleeHeal.actions.includes('heal'),
         '带 HEAL 的近战 defender：贴脸那一 tick 只打不奶（奶了 attack 会被引擎丢掉），得 ' + JSON.stringify(drMeleeHeal.actions));
-    // 够不到目标的 tick 才自疗
     drMeleeHeal.pos = new RoomPosition(10, 10, 'W34S7');
     drMeleeHeal.actions.length = 0;
     ROLES.defender.run(drMeleeHeal);
@@ -6457,7 +6168,7 @@ world.creeps[rcReserver.name] = rcReserver;
 rcReserver.pos = new RoomPosition(24, 22, 'W33S7');
 ROLES.reserver.run(rcReserver);
 assert(retiring(rcReserver) && !rcReserver.actions.includes('suicide'), '外矿已停用的 reserver 回家后走向 spawn 回收（得 ' + rcReserver.actions.join(',') + '）');
-world.time++;   // 同一 spawn 同一 tick 只回收一只，reserver 刚占了这个 tick
+world.time++;
 const rcMiner = makeCreep(rcHome, 'miner.old', ['work', 'work', 'carry', 'move'], { home: 'W33S7', role: 'remoteMiner', remoteRoom: 'W32S6', sourceId: 'x' });
 world.creeps[rcMiner.name] = rcMiner;
 rcMiner.pos = new RoomPosition(24, 22, 'W33S7');
@@ -6512,10 +6223,9 @@ rbRoom._sources = [makeSource(rbRoom, 14, 6, 'rb0'), makeSource(rbRoom, 31, 12, 
 makeSpawn(rbRoom, 23, 21);
 Memory.rooms.W33S7 = { sources: ['rb0', 'rb1'] };
 plannerState.cache.W33S7 = { layout: wheelFixture('W33S7') };
-const rbRoad = makeStructure(rbRoom, C.STRUCTURE_ROAD, 31, 26, {});   // 轮子的 storage 位上有一条旧路
+const rbRoad = makeStructure(rbRoom, C.STRUCTURE_ROAD, 31, 26, {});
 const rbSiteTypes = () => rbRoom.find(C.FIND_MY_CONSTRUCTION_SITES).map((s) => s.structureType);
-wheelLayout.generate(rbRoom, Memory.rooms.W33S7);   // 先采用方案（不放工地）
-// RCL4 的 20 个 extension 与 1 座塔已按方案建成，剩下的配额只有 storage，工地放置会轮到它
+wheelLayout.generate(rbRoom, Memory.rooms.W33S7);
 Memory.rooms.W33S7.plan.ext.slice(0, 20).forEach((p) => makeStructure(rbRoom, C.STRUCTURE_EXTENSION, p.x, p.y, { capacity: 50, energy: 0 }));
 makeStructure(rbRoom, C.STRUCTURE_TOWER, Memory.rooms.W33S7.plan.towers[0].x, Memory.rooms.W33S7.plan.towers[0].y, { capacity: 1000, energy: 0 });
 ['src0', 'src1', 'ctrl'].forEach((k) => { const c = Memory.rooms.W33S7.plan.containers[k]; makeStructure(rbRoom, C.STRUCTURE_CONTAINER, c.x, c.y, { capacity: 2000, energy: 0 }); });
@@ -6532,7 +6242,6 @@ makeSpawn(bhRoom, 23, 21);
 makeStructure(bhRoom, C.STRUCTURE_CONTAINER, 15, 6, { capacity: 2000, energy: 0 });
 makeStructure(bhRoom, C.STRUCTURE_CONTAINER, 32, 13, { capacity: 2000, energy: 0 });
 Memory.rooms.W33S7 = { sources: ['bh0', 'bh1'], plan: {} };
-// 源0：一只 5W 静态新身板 + 两只 RCL1 留下的 2W 移动矿工（源需求 5W 已满足）；源1：三只 2W 移动矿工（6W 但全是旧身板）
 world.creeps.a0 = makeCreep(bhRoom, 'a0', ['work', 'work', 'carry', 'move'], { home: 'W33S7', role: 'harvester', sourceIdx: 0, sourceId: 'bh0' });
 world.creeps.a1 = makeCreep(bhRoom, 'a1', ['work', 'work', 'carry', 'move'], { home: 'W33S7', role: 'harvester', sourceIdx: 0, sourceId: 'bh0' });
 world.creeps.a2 = makeCreep(bhRoom, 'a2', utils.makeBody('staticHarvester', 550), { home: 'W33S7', role: 'harvester', sourceIdx: 0, sourceId: 'bh0', staticMiner: true });
@@ -6590,7 +6299,6 @@ makeStructure(scRoom, C.STRUCTURE_CONTAINER, 15, 6, { capacity: 2000, energy: 50
 makeStructure(scRoom, C.STRUCTURE_CONTAINER, 32, 13, { capacity: 2000, energy: 0 });
 makeStructure(scRoom, C.STRUCTURE_CONTAINER, 22, 30, { capacity: 2000, energy: 0 });
 Memory.rooms.W33S7 = { sources: ['sc0', 'sc1'], plan: { containers: { src0: { x: 15, y: 6 }, src1: { x: 32, y: 13 }, ctrl: { x: 22, y: 30 } } } };
-// 两只 4W 矿工都在源 0（线上 W34S7 现场：源 1 的矿工先到期，补员按总数 2≥2 判定为"够了"）
 world.creeps.sch0 = makeCreep(scRoom, 'sch0', ['work', 'work', 'work', 'work', 'move'], { home: 'W33S7', role: 'harvester', sourceIdx: 0, sourceId: 'sc0', staticMiner: true });
 world.creeps.sch1 = makeCreep(scRoom, 'sch1', ['work', 'work', 'work', 'work', 'move'], { home: 'W33S7', role: 'harvester', sourceIdx: 0, sourceId: 'sc0', staticMiner: true });
 world.creeps.sca0 = makeCreep(scRoom, 'sca0', utils.makeBody('hauler', 550), { home: 'W33S7', role: 'hauler' });
@@ -6690,8 +6398,6 @@ rrHauler.pos = new RoomPosition(12, 12, 'W33S6');
 rrHauler.store[C.RESOURCE_ENERGY] = 100;
 world.creeps[rrHauler.name] = rrHauler;
 ROLES.remoteHauler.run(rrHauler);
-// 2026-09-12 起路工地边修边走（build 与 move 不同管线，射程按 tick 开始时的位置算）：原断言"建造且不移动"是 09563b0 的站桩修路——
-// 那时工地稀疏、走过去修不到几下；现在外矿一次放 6 个连续工地，走过去照样花满每趟 50 的预算，站着那 ≤10 tick 是白停
 assert(rrHauler.actions.includes('build') && rrHauler.moveCalls.length === 1, '回程遇到路工地：建造的同一 tick 照走（得 ' + JSON.stringify([rrHauler.actions, rrHauler.moveCalls.length]) + '）');
 rrHauler.actions.length = 0; rrHauler.moveCalls.length = 0;
 rrHauler.store[C.RESOURCE_ENERGY] = 0;
@@ -6714,47 +6420,35 @@ twTower.store[C.RESOURCE_ENERGY] = 800;
 twRoom.createConstructionSite(20, 20, C.STRUCTURE_EXTENSION);
 assert(spawnMgr.builderTarget(twRoom) >= 1, '有工地时照常孵 builder（得 ' + spawnMgr.builderTarget(twRoom) + '）');
 
-// 危急水位越过塔的守卫：容器掉进深坑（< criticalRepairShare）时即使塔满能量也要孵维修 builder。
-// 线上 2026-09-07：W35S7 两个源容器 14.3k/25 万 = 5.7%，塔净回填 2.9 血/tick、填满约 9.3 万 tick ≈ 4 天，
-// 而离归零只剩 1434 tick；容器归零就消失（重建 5000 能量 + 丢采矿位）。
-// 注意不能改用"塔的能量"当判据：塔停在储备线恰恰说明它在满负荷维修（W34S7 死区 76% 时容器 +20.8 血/tick）
 {
     const critShare = require('../src/config').criticalRepairShare;
     assert(critShare > 0 && critShare < 0.6, '前提：危急比例在 (0, towerRepairBelow) 之间（得 ' + critShare + '）');
     const twCont = twRoom.find(C.FIND_STRUCTURES).find((st) => st.structureType === C.STRUCTURE_CONTAINER);
-    twRoom.find(C.FIND_MY_CONSTRUCTION_SITES).forEach((site) => site.remove());   // 清掉上面那个工地，只留维修活
-    twCont.hits = Math.floor(250000 * critShare) + 1000;   // 危急线之上、towerRepairBelow 之下
+    twRoom.find(C.FIND_MY_CONSTRUCTION_SITES).forEach((site) => site.remove());
+    twCont.hits = Math.floor(250000 * critShare) + 1000;
     twTower.store[C.RESOURCE_ENERGY] = 800;
     assert(!utils.criticallyDamaged(twRoom, twCont), '前提：容器在危急线之上（' + twCont.hits + '）');
     assert(spawnMgr.builderTarget(twRoom) === 0, '容器只是日常掉血时，塔的守卫照旧压住 builder（得 ' + spawnMgr.builderTarget(twRoom) + '）');
-    twCont.hits = Math.floor(250000 * critShare) - 1000;   // 掉进深坑
+    twCont.hits = Math.floor(250000 * critShare) - 1000;
     assert(utils.criticallyDamaged(twRoom, twCont), '前提：容器掉进危急线（' + twCont.hits + '）');
     assert(spawnMgr.builderTarget(twRoom) >= 1, '容器掉进深坑时，塔满能量也放行维修 builder（得 ' + spawnMgr.builderTarget(twRoom) + '）');
     assert(Memory.rooms.W33S7.criticalRepair && Memory.rooms.W33S7.criticalRepair.n > 0 && Memory.rooms.W33S7.criticalRepair.noSites === true,
         '记下决策事件 criticalRepair，且 noSites 为真（有工地时新旧代码都算 builder work，只有无工地才严格区分）（得 ' +
         JSON.stringify(Memory.rooms.W33S7.criticalRepair) + '）');
-    // rampart 不算危急：归零只是失去防护、可重建，且它的低血量由塔/safe mode 那一套管
     twCont.hits = 250000;
     const twRam = makeStructure(twRoom, C.STRUCTURE_RAMPART, 23, 22, { hits: 10, hitsMax: 3000000 });
     assert(!utils.criticallyDamaged(twRoom, twRam), 'rampart 再低也不算危急水位（' + twRam.hits + '）');
-    // 维修目标排序：危急的"会消失"结构排在 rampart 之前，即使 rampart 的比值更低。
-    // 线上 2026-09-07 的自然对照实验：W35S7 rampart 3.40% < 容器 4.73% ⇒ 塔全修 rampart，
-    // 715 tick 里 rampart +8600 血、两个容器纯衰减 −10000（零维修）；
-    // 同 RCL 的 W34S7 容器 17.8% < rampart 18.0% ⇒ 塔修容器，src1 从 27.6k 回到 44.6k。
-    // W35S7 升 RCL5 时 rampart 目标从 3 万跳到 10 万，比值一夜掉到容器之下——升级重开了竞争窗口
-    twCont.hits = Math.floor(250000 * critShare) - 1000;   // 危急（4.9 万 / 25 万 = 19.6%）
-    twRam.hits = 10;                                        // rampart 比值远低于容器
+    twCont.hits = Math.floor(250000 * critShare) - 1000;
+    twRam.hits = 10;
     const twRamRatio = twRam.hits / Math.max(1, utils.repairTargetHits(twRoom, twRam));
     const twContRatio = twCont.hits / Math.max(1, utils.repairTargetHits(twRoom, twCont));
     assert(twRamRatio < twContRatio, '前提：rampart 的比值确实更低（' + twRamRatio.toFixed(4) + ' < ' + twContRatio.toFixed(4) + '）');
     assert(utils.compareRepairTargets(twRoom, twCont, twRam) < 0,
         '危急的容器排在比值更低的 rampart 之前（会消失 vs 只是失去防护）');
     assert(utils.compareRepairTargets(twRoom, twRam, twCont) > 0, '反向比较对称');
-    // 容器爬回危急线之上，rampart 立刻恢复正常竞争（规则有界，不是永久压制）
     twCont.hits = Math.floor(250000 * critShare) + 1000;
     assert(utils.compareRepairTargets(twRoom, twRam, twCont) < 0,
         '容器回到危急线之上后，比值更低的 rampart 重新排在前面');
-    // 两个都不危急时按比值排，与旧行为一致
     twCont.hits = 200000;
     twRam.hits = 2000000;
     assert(utils.compareRepairTargets(twRoom, twCont, twRam) < 0, '都不危急时按比值排（容器 80% < rampart 满血）');
@@ -6799,31 +6493,25 @@ Memory.rooms.W33S7 = { remotes: { W33S6: { room: 'W33S6', enabled: true, sourceC
 const rsHaulers = remoteMod.getDemands(rsHome).filter((d) => d.role === 'remoteHauler');
 const rsCarry = rsHaulers.map((d) => d.body.filter((p) => p === 'carry').length);
 const rsCost = rsHaulers.map((d) => utils.bodyCost(d.body));
-// 需求 ceil(10 × (27×2 + 周转 2 + 停靠 10) / (50 × 0.9)) = 15 CARRY（卸货房没有停靠实测，按回退值 10）；第一只带 WORK 装 11（容量 1300 封顶），
-// 第二只只补差额 4，而不是再来一只 13 CARRY/1300。2026-09-12 周转 +4 → turnTicks 2（remoteHauler 取满/投空那一 tick 就起步），原断言按 16 / 第二只 5
 const rsNeed = remoteMod.requiredCarryFor({ energyCapacity: 3000 }, 27, 'W33S7');
 assert(rsNeed === 15, '前提：需求 15 CARRY（得 ' + rsNeed + '）');
 assert(rsHaulers.length === 2 && rsCarry[0] === 11 && rsCarry[1] === 4 && rsCost[1] <= 500,
     '第二只 remoteHauler 按差额缩身（得 carry ' + JSON.stringify(rsCarry) + ' 成本 ' + JSON.stringify(rsCost) + '）');
 assert(rsCarry.reduce((a, b) => a + b, 0) >= rsNeed, '总运力仍覆盖需求');
-// 补差槽：槽位都有人但在途 CARRY 远低于需求（缩身 hauler 占着槽）、又买不起理想身体换代时，补一只按缺口封顶的 hauler
 {
-    Memory.rooms.W33S7.remotes.W33S6.sources[0].distance = 37;   // 需求 20：槽 0 理想 1W 装不下（1300 容量封顶 11），槽 1 补 9
+    Memory.rooms.W33S7.remotes.W33S6.sources[0].distance = 37;
     const rxSlots = remoteMod.getDemands(rsHome).filter((d) => d.role === 'remoteHauler' && d.memory.haulSlot !== 'x');
     const rxKeys = rxSlots.map((d) => d.slot);
-    // 两个槽都被缩身 hauler 占着：槽 0 只有 4 CARRY、槽 1 只有 4 CARRY → 在途 8、缺 12
     const rxH0 = makeCreep(rsHome, 'rxH0', ['work', 'carry', 'carry', 'carry', 'carry', 'move', 'move', 'move', 'move', 'move'], { home: 'W33S7', role: 'remoteHauler', remoteRoom: 'W33S6', sourceId: 'rss0', haulSlot: 0, slotKey: rxKeys[0] });
     const rxH1 = makeCreep(rsHome, 'rxH1', ['carry', 'carry', 'carry', 'carry', 'move', 'move', 'move', 'move'], { home: 'W33S7', role: 'remoteHauler', remoteRoom: 'W33S6', sourceId: 'rss0', haulSlot: 1, slotKey: rxKeys[1] });
     world.creeps.rxH0 = rxH0; world.creeps.rxH1 = rxH1;
-    rsHome.energyAvailable = 600;   // 买不起槽 0 的理想身体（1250）
+    rsHome.energyAvailable = 600;
     const rxDemands = remoteMod.getDemands(rsHome).filter((d) => d.role === 'remoteHauler');
     const rxResidual = rxDemands.find((d) => d.slot.endsWith(':x'));
     assert(rxResidual && rxResidual.body.filter((p) => p === 'carry').length === 12 && rxResidual.residual.gap === 12,
         '槽位都被缩身 hauler 占着、在途 8/20 CARRY：补一只 12 CARRY 的差额 hauler（得 ' + JSON.stringify(rxDemands.map((d) => [d.slot, d.residual])) + '）');
-    // 买得起理想身体：交给换代，不补差
     rsHome.energyAvailable = 1300;
     assert(!remoteMod.getDemands(rsHome).some((d) => d.slot.endsWith(':x')), '买得起理想身体时不出补差槽（换代会把缩身的换掉）');
-    // 槽 1 没人（在岗者寿命低于提前量）：由槽位请求补，不出补差槽
     rsHome.energyAvailable = 600;
     rxH1.ticksToLive = 10;
     assert(!remoteMod.getDemands(rsHome).some((d) => d.slot.endsWith(':x')), '有空槽时由槽位请求补，不出补差槽');
@@ -6832,7 +6520,6 @@ assert(rsCarry.reduce((a, b) => a + b, 0) >= rsNeed, '总运力仍覆盖需求')
 
 console.log('== wheel_layout.generate：轮子是唯一规划来源，冲突不再拒绝，失败记 planError ==');
 resetWorld(5400);
-// 固定件用的是真实常量名（'spawn'/'extension'…），smoke 的常量值不同（'structure_spawn'…），按当前常量重映射键名
 const wgFixtureFile = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'wheel_layout_sample.json'), 'utf8')).layout;
 const wgKeyMap = { spawn: C.STRUCTURE_SPAWN, extension: C.STRUCTURE_EXTENSION, road: C.STRUCTURE_ROAD, rampart: C.STRUCTURE_RAMPART, link: C.STRUCTURE_LINK,
     storage: C.STRUCTURE_STORAGE, tower: C.STRUCTURE_TOWER, observer: C.STRUCTURE_OBSERVER, powerSpawn: C.STRUCTURE_POWER_SPAWN, lab: C.STRUCTURE_LAB,
@@ -6840,11 +6527,10 @@ const wgKeyMap = { spawn: C.STRUCTURE_SPAWN, extension: C.STRUCTURE_EXTENSION, r
 const wgFixture = {};
 for (const key in wgFixtureFile) wgFixture[wgKeyMap[key] || key] = wgFixtureFile[key];
 const wgRoom = makeRoom('W33S7', { rcl: 4, energy: 1300, cap: 1300, owner: 'me', ctrl: { x: 14, y: 31 } });
-// 固定件来自私服 E11S11：源在 (38,7)/(32,18) 附近，controller 在 (14,31) 附近，矿在 (4,10) 附近
 wgRoom._sources = [makeSource(wgRoom, 38, 7, 'wgA'), makeSource(wgRoom, 33, 18, 'wgB')];
 wgRoom._mineral = { id: 'wgMin', pos: new RoomPosition(4, 9, 'W33S7'), mineralType: 'X' };
-const wgSpawn = makeSpawn(wgRoom, 23, 21);   // 旧规划的 spawn，不在轮子方案上
-makeStructure(wgRoom, C.STRUCTURE_EXTENSION, 24, 22, { capacity: 50, energy: 0 });   // 旧 extension，不在方案上
+const wgSpawn = makeSpawn(wgRoom, 23, 21);
+makeStructure(wgRoom, C.STRUCTURE_EXTENSION, 24, 22, { capacity: 50, energy: 0 });
 Memory.rooms.W33S7 = { sources: ['wgA', 'wgB'], plan: { version: 'd1-rcl8-v1', anchor: { x: 25, y: 24 }, sourceIds: ['wgA', 'wgB'], containers: {}, roads: {}, ext: [], towers: [], links: {} } };
 world.creeps.wgH = makeCreep(wgRoom, 'wgH', ['work', 'move'], { home: 'W33S7', role: 'harvester', sourceIdx: 0, sourceId: 'wgA' });
 plannerState.cache.W33S7 = { layout: clone(wgFixture) };
@@ -6861,7 +6547,6 @@ assert(wgPlan.workPositions.src0 && wgPlan.containers.src0.x === wgPlan.workPosi
 assert(Memory.roomPlanner && Memory.roomPlanner.W33S7 && Memory.roomPlanner.W33S7.layout, '轮子原始输出保存在 Memory.roomPlanner');
 assert(Memory.rooms.W33S7.wheelLayout.conflicts >= 2, '冲突只作为诊断计数记录（得 ' + Memory.rooms.W33S7.wheelLayout.conflicts + '）');
 assert(!Memory.rooms.W33S7.planError, '成功时没有 planError');
-// 失败路径：规划器返回 false
 delete plannerState.cache.W34S7;
 const wgFail = makeRoom('W34S7', { rcl: 2, energy: 550, cap: 550, owner: 'me' });
 wgFail._sources = [makeSource(wgFail, 10, 10, 'wgC')];
@@ -6876,7 +6561,7 @@ function demoRoom(time, rcl) {
     resetWorld(time);
     const r = makeRoom('W33S7', { rcl, energy: 1300, cap: 1300, owner: 'me', ctrl: { x: 34, y: 24 } });
     r._sources = [makeSource(r, 14, 6, 'dm0'), makeSource(r, 31, 12, 'dm1')];
-    r._mineral = { id: 'dmMin', pos: new RoomPosition(18, 41, 'W33S7'), mineralType: 'L' };   // 轮子固定件的矿工位在 (19,40)
+    r._mineral = { id: 'dmMin', pos: new RoomPosition(18, 41, 'W33S7'), mineralType: 'L' };
     Memory.rooms.W33S7 = { sources: ['dm0', 'dm1'], state: { at: Game.time, recovering: false, emergencyHarvest: false } };
     plannerState.cache.W33S7 = { layout: wheelFixture('W33S7') };
     wheelLayout.generate(r, Memory.rooms.W33S7);
@@ -6886,14 +6571,14 @@ const dmInterval = require('../src/config').demolition.interval;
 function dmTick(room) { while (!utils.isRoomPhaseTick(room.name, dmInterval)) world.time++; demolition.run(room); world.time++; }
 const dmRoom = demoRoom(5500, 4);
 const dmPlan = Memory.rooms.W33S7.plan;
-const dmSpawn = makeSpawn(dmRoom, 23, 21);                                   // 方案外的唯一 spawn
-const dmRoad = makeStructure(dmRoom, C.STRUCTURE_ROAD, dmPlan.storage.x, dmPlan.storage.y, {});   // 压在 storage 位上的旧路
-const dmFreeRoad = makeStructure(dmRoom, C.STRUCTURE_ROAD, 5, 5, {});         // 方案外但不挡任何规划位的路
-const dmRampart = makeStructure(dmRoom, C.STRUCTURE_RAMPART, 23, 19, { hits: 1000, hitsMax: 1000000 });   // 方案外的裸地 rampart
-const dmCoreRampart = makeStructure(dmRoom, C.STRUCTURE_RAMPART, 23, 21, { hits: 1000, hitsMax: 1000000 });   // 盖在 spawn 上的 rampart（方案外，但护着核心建筑）
+const dmSpawn = makeSpawn(dmRoom, 23, 21);
+const dmRoad = makeStructure(dmRoom, C.STRUCTURE_ROAD, dmPlan.storage.x, dmPlan.storage.y, {});
+const dmFreeRoad = makeStructure(dmRoom, C.STRUCTURE_ROAD, 5, 5, {});
+const dmRampart = makeStructure(dmRoom, C.STRUCTURE_RAMPART, 23, 19, { hits: 1000, hitsMax: 1000000 });
+const dmCoreRampart = makeStructure(dmRoom, C.STRUCTURE_RAMPART, 23, 21, { hits: 1000, hitsMax: 1000000 });
 const dmOffExts = [];
-for (let i = 0; i < 20; i++) dmOffExts.push(makeStructure(dmRoom, C.STRUCTURE_EXTENSION, 3 + i, 45, { capacity: 50, energy: 0 }));   // 20 个方案外 extension（占满 RCL4 配额）
-dmRoom.createConstructionSite(8, 44, C.STRUCTURE_EXTENSION);                   // 方案外工地
+for (let i = 0; i < 20; i++) dmOffExts.push(makeStructure(dmRoom, C.STRUCTURE_EXTENSION, 3 + i, 45, { capacity: 50, energy: 0 }));
+dmRoom.createConstructionSite(8, 44, C.STRUCTURE_EXTENSION);
 const dmOffSite = dmRoom.find(C.FIND_MY_CONSTRUCTION_SITES)[0];
 dmTick(dmRoom);
 assert(!dmRoom.find(C.FIND_MY_CONSTRUCTION_SITES).some((s) => s.pos.x === 8 && s.pos.y === 44), '方案外的工地第一轮就被移除');
@@ -6919,7 +6604,6 @@ assert(utils.needsRepair(dmRoom, dmOffCont) === false, '方案外的旧容器不
 const dmLog = Memory.rooms.W33S7.demolition;
 assert(Array.isArray(dmLog) && dmLog.length >= 2 && dmLog.every((e) => e.t && e.type && e.reason), '拆迁日志记录 tick/类型/原因: ' + JSON.stringify(dmLog.slice(0, 2)));
 
-// 敌情 / 恢复期 / 能量不足时不拆
 const dmHold = demoRoom(5600, 4);
 makeSpawn(dmHold, 23, 21);
 const dmHoldRoad = makeStructure(dmHold, C.STRUCTURE_ROAD, Memory.rooms.W33S7.plan.storage.x, Memory.rooms.W33S7.plan.storage.y, {});
@@ -6938,11 +6622,10 @@ dmHold.energyAvailable = 1300;
 dmTick(dmHold);
 assert(dmHoldRoad.actions.includes('destroy'), '条件恢复后照常拆');
 
-// spawn / tower 的替换时机
 const dmSp = demoRoom(5700, 7);
 const dmOldSpawn = makeSpawn(dmSp, 23, 21);
-makeSpawn(dmSp, Memory.rooms.W33S7.plan.spawns[0].x, Memory.rooms.W33S7.plan.spawns[0].y);   // 方案位的 spawn 已建成
-const dmOldTower = makeStructure(dmSp, C.STRUCTURE_TOWER, 20, 20, { capacity: 1000, energy: 500 });   // 方案外的塔
+makeSpawn(dmSp, Memory.rooms.W33S7.plan.spawns[0].x, Memory.rooms.W33S7.plan.spawns[0].y);
+const dmOldTower = makeStructure(dmSp, C.STRUCTURE_TOWER, 20, 20, { capacity: 1000, energy: 500 });
 dmTick(dmSp);
 assert(dmOldSpawn.actions.includes('destroy') || dmOldTower.actions.includes('destroy'), 'RCL7 且方案位 spawn 已建成：开始替换旧 spawn/塔');
 for (let i = 0; i < 3; i++) dmTick(dmSp);
@@ -6951,7 +6634,6 @@ assert(!dmOldTower.actions.includes('destroy'), '唯一的塔在方案位的塔�
 makeStructure(dmSp, C.STRUCTURE_TOWER, Memory.rooms.W33S7.plan.towers[0].x, Memory.rooms.W33S7.plan.towers[0].y, { capacity: 1000, energy: 500 });
 for (let i = 0; i < 2; i++) dmTick(dmSp);
 assert(dmOldTower.actions.includes('destroy'), '方案位的塔建成后旧塔被拆');
-// 矿容器 RCL6（extractor）前不放：放了也是 5000 能量白花
 const dmMineralRoom = demoRoom(5800, 4);
 layout.run(dmMineralRoom);
 const dmMin = Memory.rooms.W33S7.plan.containers.mineral;
@@ -6965,12 +6647,10 @@ console.log('== layoutBlocked 只记真冲突：已建成的方案位不算"被�
     const lbRoom = demoRoom(5700, 4);
     makeSpawn(lbRoom, 23, 21);
     const lbPlan = Memory.rooms.W33S7.plan;
-    // 在若干规划的 extension 位上直接放好 extension：这是"建完了"，不是"被挡住"
     for (let i = 0; i < 5; i++) {
         const spot = lbPlan.ext[i];
         makeStructure(lbRoom, C.STRUCTURE_EXTENSION, spot.x, spot.y, { capacity: 50, energy: 50 });
     }
-    // 另有一个规划位被别的类型（塔）占住：这才是真冲突
     const clash = lbPlan.ext[6];
     makeStructure(lbRoom, C.STRUCTURE_TOWER, clash.x, clash.y, { capacity: 1000, energy: 1000 });
     layout.run(lbRoom);
@@ -6987,10 +6667,8 @@ console.log('== 拆迁护栏：敌方 rampart 占规划位要拆，装着货的 
     const gPlan = Memory.rooms.W33S7.plan;
     makeSpawn(gRoom, 23, 21);
     const extSpot = gPlan.ext[0];
-    // 敌方留下的 rampart 盖在规划的 extension 位上：NEVER_TYPES 排在 my===false 之前，旧代码两道门都过不去
     const hostileRampart = makeStructure(gRoom, C.STRUCTURE_RAMPART, extSpot.x, extSpot.y,
         { hits: 1000, hitsMax: 1000000, my: false, owner: { username: 'enemy' } });
-    // 我们自己的 rampart 在同一类位置上：必须继续受保护
     const ownSpot = gPlan.ext[1];
     const ownRampart = makeStructure(gRoom, C.STRUCTURE_RAMPART, ownSpot.x, ownSpot.y,
         { hits: 1000, hitsMax: 1000000, my: true });
@@ -6998,7 +6676,6 @@ console.log('== 拆迁护栏：敌方 rampart 占规划位要拆，装着货的 
     assert(hostileRampart.actions.includes('destroy'), '敌方 rampart 占着规划位 → 拆（得 ' + JSON.stringify(hostileRampart.actions) + '）');
     assert(!ownRampart.actions.includes('destroy'), '我们自己的 rampart 不拆');
 
-    // 装着能量的方案外 storage 不拆，空的才拆
     const sRoom = demoRoom(5900, 4);
     makeSpawn(sRoom, 23, 21);
     const loaded = makeStructure(sRoom, C.STRUCTURE_STORAGE, 6, 44, { id: 'offStore', capacity: 1000000, energy: 5000 });
@@ -7013,36 +6690,29 @@ console.log('== 拆迁护栏：敌方 rampart 占规划位要拆，装着货的 
 
 console.log('== 拆迁：敌方遗留建筑占掉本房配额（引擎 checkControllerAvailability 不分主人计数）→ 恢复期/低能量也要拆 ==');
 {
-    // 线上 2026-10-01 W37S7：占下的房里留着 Lucas21 的 spawn，RCL4 spawn 配额 1 被它占满，
-    // 我们的 spawn 工地永远放不出来（layout.countType 与引擎都算它），房间只能靠外援 pioneer 维持、state 永远 recovering
     const qRoom = demoRoom(5950, 4);
     qRoom.energyAvailable = 0;
     Memory.rooms.W33S7.state = { at: Game.time, recovering: true, emergencyHarvest: false };
     const foreignSpawn = makeStructure(qRoom, C.STRUCTURE_SPAWN, 6, 44, { my: false, owner: { username: 'Lucas21' }, energy: 300, capacity: 300 });
-    // 敌方 extension 没占满配额（我们自己的 20 个之外没有超额）：不拆，它不挡任何东西
     const foreignExt = makeStructure(qRoom, C.STRUCTURE_EXTENSION, 8, 44, { my: false, owner: { username: 'Lucas21' }, capacity: 50 });
     for (let i = 0; i < 4 && !foreignSpawn.actions.includes('destroy'); i++) dmTick(qRoom);
     assert(foreignSpawn.actions.includes('destroy'), '敌方 spawn 占满本房 spawn 配额 → 恢复期、spawn 能量 0 时也拆（得 ' + JSON.stringify(foreignSpawn.actions) + '）');
     assert(!foreignExt.actions.includes('destroy'), '没占满配额的敌方 extension 不拆');
     assert((Memory.rooms.W33S7.demolition || []).some((e) => e.reason === 'hostile-quota' && e.type === C.STRUCTURE_SPAWN), '拆除记进 demolition 日志（reason=hostile-quota）');
-    // 拆掉后 layout 放出自己的 spawn 工地
     layout.run(qRoom);
     const qSpawnSite = qRoom.find(C.FIND_MY_CONSTRUCTION_SITES).find((s) => s.structureType === C.STRUCTURE_SPAWN);
     assert(qSpawnSite && Memory.rooms.W33S7.plan.spawns.some((p) => p.x === qSpawnSite.pos.x && p.y === qSpawnSite.pos.y),
         '敌方 spawn 拆掉后 layout 先放出自己的 spawn 工地（落在方案 spawn 位上），不被容器/道路/extension 抢光名额');
-    // 死房（长期没有 builder/pioneer）也放第一个 spawn 工地：它是这个房唯一的出路
     const dRoom = demoRoom(5955, 4);
     Memory.rooms.W33S7.builderSeenAt = Game.time - 100000;
     dRoom.createConstructionSite(5, 5, C.STRUCTURE_ROAD);
     layout.run(dRoom);
     assert(dRoom.find(C.FIND_MY_CONSTRUCTION_SITES).some((s) => s.structureType === C.STRUCTURE_SPAWN), '没有 spawn 的死房也放 spawn 工地');
-    // 已有自己的 spawn：不额外放（RCL4 配额 1）
     const oRoom = demoRoom(5957, 4);
     makeSpawn(oRoom, 23, 21);
     layout.run(oRoom);
     assert(!oRoom.find(C.FIND_MY_CONSTRUCTION_SITES).some((s) => s.structureType === C.STRUCTURE_SPAWN), '已有自己的 spawn 时不放额外 spawn 工地');
 
-    // 敌方 storage 装着货：配额满（RCL4 storage 1）也先不拆，搬空了再拆
     const sqRoom = demoRoom(5958, 4);
     makeSpawn(sqRoom, 23, 21);
     const fStore = makeStructure(sqRoom, C.STRUCTURE_STORAGE, 6, 44, { my: false, owner: { username: 'Lucas21' }, capacity: 1000000, energy: 40000 });
@@ -7051,7 +6721,6 @@ console.log('== 拆迁：敌方遗留建筑占掉本房配额（引擎 checkCont
     fStore.store[C.RESOURCE_ENERGY] = 0;
     for (let i = 0; i < 3 && !fStore.actions.includes('destroy'); i++) dmTick(sqRoom);
     assert(fStore.actions.includes('destroy'), '搬空的敌方 storage 占配额 → 拆');
-    // 多配额类型：敌方 20 个 extension 占满 RCL4，我们的替代工地占着的名额算我们的——已有 20 个我方工地时不再拆
     const eqRoom = demoRoom(5959, 4);
     makeSpawn(eqRoom, 23, 21);
     const fExts = [];
@@ -7063,7 +6732,6 @@ console.log('== 拆迁：敌方遗留建筑占掉本房配额（引擎 checkCont
     for (let i = 0; i < 3; i++) dmTick(eqRoom);
     assert(fExts.filter((e) => e.actions.includes('destroy')).length === 1, '我方 extension 工地已占满配额：不再拆敌方 extension（与引擎计数口径一致）');
 
-    // 有敌对 creep 时 destroy 返回 ERR_BUSY：仍旧不尝试
     const hRoom = demoRoom(5960, 4);
     Memory.rooms.W33S7.state = { at: Game.time, recovering: true, emergencyHarvest: false };
     const hSpawn = makeStructure(hRoom, C.STRUCTURE_SPAWN, 6, 44, { my: false, owner: { username: 'Lucas21' }, energy: 300, capacity: 300 });
@@ -7073,13 +6741,12 @@ console.log('== 拆迁：敌方遗留建筑占掉本房配额（引擎 checkCont
 }
 
 console.log('== 迁移期：拆 extension 前要有空余工地名额；高优先结构缺名额时让出零进度的路/rampart 工地 ==');
-const slRoom = demoRoom(5900, 6);   // RCL6：外环 rampart 已允许放置，零进度的外环工地才会留到"让出名额"逻辑处理
-Memory.rooms.W33S7.spawnIncome = { ema: require('../src/config').rampartRingMinIncome + 10, n: 500, last: 0, at: world.time };   // 外环还要过收入门槛（rampartRingMinIncome）
+const slRoom = demoRoom(5900, 6);
+Memory.rooms.W33S7.spawnIncome = { ema: require('../src/config').rampartRingMinIncome + 10, n: 500, last: 0, at: world.time };
 const slPlan = Memory.rooms.W33S7.plan;
 makeSpawn(slRoom, 23, 21);
 ['src0', 'src1', 'ctrl'].forEach((k) => { const c = slPlan.containers[k]; makeStructure(slRoom, C.STRUCTURE_CONTAINER, c.x, c.y, { capacity: 2000, energy: 0 }); });
-for (let i = 0; i < 20; i++) makeStructure(slRoom, C.STRUCTURE_EXTENSION, 3 + i, 45, { capacity: 50, energy: 0 });   // 20 个方案外 extension
-// 名额被 storage + 道路 + rampart 工地占满（maxSites 个）
+for (let i = 0; i < 20; i++) makeStructure(slRoom, C.STRUCTURE_EXTENSION, 3 + i, 45, { capacity: 50, energy: 0 });
 const slMax = require('../src/config').maxSites;
 slRoom.createConstructionSite(slPlan.storage.x, slPlan.storage.y, C.STRUCTURE_STORAGE);
 const slRoads = slPlan.roads.all.split(';').slice(0, 3).map((k) => k.split('.').map(Number));
@@ -7088,18 +6755,17 @@ for (const r of slPlan.ramparts) {
     if (slRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length >= slMax) break;
     slRoom.createConstructionSite(r.x, r.y, C.STRUCTURE_RAMPART);
 }
-slRoom.find(C.FIND_MY_CONSTRUCTION_SITES).forEach((x) => { x.progress = 1; });   // 都已开工：零进度的才可被让出
+slRoom.find(C.FIND_MY_CONSTRUCTION_SITES).forEach((x) => { x.progress = 1; });
 assert(slRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length === slMax, '前提：' + slMax + ' 个工地占满名额（得 ' + slRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length + '）');
 const slExts = slRoom.find(C.FIND_STRUCTURES).filter((x) => x.structureType === C.STRUCTURE_EXTENSION);
 dmTick(slRoom);
 assert(!slExts.some((e) => e.actions.includes('destroy')), '没有空余工地名额时不拆 extension（拆了也放不出替代工地）');
-// 现在拆掉一个（模拟已发生的拆迁）：layout 应让出零进度的路/rampart 工地给 extension
 slExts[0].destroy();
-slRoom.find(C.FIND_MY_CONSTRUCTION_SITES).forEach((x) => { if (x.structureType !== C.STRUCTURE_STORAGE) x.progress = 0; });   // 让路/rampart 回到零进度，可被让出
-layout.run(slRoom);   // 本轮只让出名额（remove 下一 tick 生效）
+slRoom.find(C.FIND_MY_CONSTRUCTION_SITES).forEach((x) => { if (x.structureType !== C.STRUCTURE_STORAGE) x.progress = 0; });
+layout.run(slRoom);
 assert(slRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length <= slMax, '让出名额的那一轮不再放新工地');
 world.time += 11;
-layout.run(slRoom);   // 下一轮用让出的名额放 extension
+layout.run(slRoom);
 const slSites = slRoom.find(C.FIND_MY_CONSTRUCTION_SITES);
 assert(slSites.some((x) => x.structureType === C.STRUCTURE_EXTENSION), '高优先结构缺名额时让出低优先工地，extension 工地放出（得 ' + slSites.map((x) => x.structureType).join(',') + '）');
 assert(slSites.some((x) => x.structureType === C.STRUCTURE_STORAGE), 'storage 工地保留');
@@ -7108,8 +6774,6 @@ assert(slSites.filter((x) => x.structureType === C.STRUCTURE_ROAD).length <= 1, 
 
 console.log('== 一次性 storage/terminal 先于道路与 extension（2026-10-13，移植 overmind-absorb 55183d1/924a8c8）：刚升到 RCL6 的那一轮 terminal 就放得出 ==');
 {
-    // terminal 在 RCL6 解锁的那一刻 extension 上限也从 30 跳到 40：两个饥饿窗口完全重合。
-    // 0→RCL8 基准 t=1.16M、六房 RCL7 时全账号 terminal 0 座——道路 + 新 extension 把名额吃光，terminal 排在塔之后永远轮不到。
     const ooConfig = require('../src/config');
     const ooSetup = (time, rcl, opts = {}) => {
         const room = demoRoom(time, rcl);
@@ -7117,12 +6781,9 @@ console.log('== 一次性 storage/terminal 先于道路与 extension（2026-10-1
         Memory.rooms.W33S7.builderSeenAt = world.time;
         makeSpawn(room, 23, 21);
         ['src0', 'src1', 'ctrl'].forEach((k) => { const c = plan.containers[k]; makeStructure(room, C.STRUCTURE_CONTAINER, c.x, c.y, { capacity: 2000, energy: 0 }); });
-        // RCL5 的 2 座 link 已建（ctrl + src0），RCL6 只差 src1
         for (const key of ['ctrl', 'src0']) { const l = layout.linkSpot(plan, key); if (l) makeStructure(room, C.STRUCTURE_LINK, l.x, l.y, { capacity: 800, energy: 0 }); }
         if (opts.storage !== false) makeStructure(room, C.STRUCTURE_STORAGE, plan.storage.x, plan.storage.y, { capacity: 1000000, energy: 0 });
-        // 上一级的 extension 已经建满（方案位上真有建筑）
         for (const spot of (plan.ext || []).slice(0, opts.extBuilt)) makeStructure(room, C.STRUCTURE_EXTENSION, spot.x, spot.y, { capacity: 50, energy: 50 });
-        // 账号其余名额被别的房/外矿占着：本房只剩每房保底（siteFloorPerRoom）
         if (opts.saturate) {
             const limit = 100 - ooConfig.globalSiteReserve;
             for (let i = 0; i < limit; i++) world.constructionSites['oo_other_' + i] = { id: 'oo_other_' + i, structureType: C.STRUCTURE_ROAD };
@@ -7133,7 +6794,6 @@ console.log('== 一次性 storage/terminal 先于道路与 extension（2026-10-1
     const ooCount = (types, t) => types.filter((x) => x === t).length;
     const ooClear = () => { for (const id of Object.keys(world.constructionSites)) if (id.startsWith('oo_other_')) delete world.constructionSites[id]; };
 
-    // 1) 刚到 RCL6、30 个 extension 已建、storage 0：terminal 与 extension 同一轮都放得出；lab 仍被奢侈门槛挡住
     let { room } = ooSetup(6200, 6, { extBuilt: 30 });
     layout.run(room);
     let types = ooTypes(room);
@@ -7143,7 +6803,6 @@ console.log('== 一次性 storage/terminal 先于道路与 extension（2026-10-1
     assert(Memory.rooms.W33S7.oneOffAhead && Memory.rooms.W33S7.oneOffAhead.type === 'terminal' && Memory.rooms.W33S7.oneOffAhead.extNeed > 0,
         '提前放出 terminal 记下 oneOffAhead 遥测，extNeed > 0（得 ' + JSON.stringify(Memory.rooms.W33S7.oneOffAhead) + '）');
 
-    // 2) 同样的房但账号名额吃紧（本房只剩保底 10 个）：旧顺序里 link + 道路就吃光，terminal 排不上；新顺序第 2 个名额就是 terminal
     ({ room } = ooSetup(6250, 6, { extBuilt: 30, saturate: true }));
     layout.run(room);
     types = ooTypes(room);
@@ -7151,7 +6810,6 @@ console.log('== 一次性 storage/terminal 先于道路与 extension（2026-10-1
     assert(types.length <= ooConfig.siteFloorPerRoom, '不超过每房保底（得 ' + types.length + '）');
     ooClear();
 
-    // 3) 关掉 oneOffBeforeRoads：退回旧顺序，同一形态下 terminal 放不出来（证明上面的断言确实在测顺序）
     const ooPrev = ooConfig.construction.oneOffBeforeRoads;
     ooConfig.construction.oneOffBeforeRoads = false;
     ({ room } = ooSetup(6300, 6, { extBuilt: 30, saturate: true }));
@@ -7161,14 +6819,12 @@ console.log('== 一次性 storage/terminal 先于道路与 extension（2026-10-1
     ooClear();
     ooConfig.construction.oneOffBeforeRoads = ooPrev;
 
-    // 4) RCL4 刚解锁 storage、名额吃紧：storage 先于道路放出
     ({ room } = ooSetup(6350, 4, { extBuilt: 10, storage: false, saturate: true }));
     layout.run(room);
     types = ooTypes(room);
     assert(types.includes(C.STRUCTURE_STORAGE), 'RCL4 名额吃紧：storage 工地先于道路放出（得 ' + JSON.stringify(types) + '）');
     ooClear();
 
-    // 5) 只剩 1 个名额且 extension 还缺：一次性建筑不占这最后 1 个（让位规则，与 link 同口径）
     ({ room } = ooSetup(6400, 6, { extBuilt: 30 }));
     const ooFill = ooConfig.maxSites - 1;
     const ooRoads = Memory.rooms.W33S7.plan.roads.all.split(';').map((k) => k.split('.').map(Number));
@@ -7183,11 +6839,9 @@ console.log('== 一次性 storage/terminal 先于道路与 extension（2026-10-1
     types = ooTypes(room);
     assert(!types.includes(C.STRUCTURE_TERMINAL), '只剩 1 个名额且 extension 还缺：terminal 不占它（得 ' + JSON.stringify(types.filter((t) => t !== C.STRUCTURE_ROAD)) + '）');
 
-    // 6) 2026-10-13 复审：同样只剩 1 个名额、extension 还缺，但 extension 方案位放不出（方案位全建满 / 被挡等拆迁）、塔也不缺：
-    //    提前那一轮给 extension 留的名额没人用，塔之后的兜底轮要把它给 terminal（旧 main 的顺序就会放；提前只该更早，不该更晚）
     ({ room } = ooSetup(6450, 6, { extBuilt: 30 }));
     const ooPlan6 = Memory.rooms.W33S7.plan;
-    ooPlan6.ext = ooPlan6.ext.slice(0, 30);   // 方案里只剩已建的 30 个 extension 位：need('extension') = 10 但一个都放不出
+    ooPlan6.ext = ooPlan6.ext.slice(0, 30);
     for (const spot of ooPlan6.towers.slice(0, 2)) makeStructure(room, C.STRUCTURE_TOWER, spot.x, spot.y, { store: mkStore(1000, 1000) });
     { const l = layout.linkSpot(ooPlan6, 'src1'); if (l) makeStructure(room, C.STRUCTURE_LINK, l.x, l.y, { capacity: 800, energy: 0 }); }
     const ooRoads6 = ooPlan6.roads.all.split(';').map((k) => k.split('.').map(Number));
@@ -7205,13 +6859,9 @@ console.log('== 一次性 storage/terminal 先于道路与 extension（2026-10-1
     assert(Memory.rooms.W33S7.oneOffLeftover && Memory.rooms.W33S7.oneOffLeftover.type === 'terminal' && Memory.rooms.W33S7.oneOffLeftover.extNeed > 0,
         '兜底轮放出记 oneOffLeftover 遥测（得 ' + JSON.stringify(Memory.rooms.W33S7.oneOffLeftover) + '）');
 
-    // 7) 2026-10-14 复审：引擎里 room.find / lookForAt / createConstructionSite 的运行时检查都只看 tick 开头的对象，
-    //    同一 tick 新放的工地要到下一 tick 才看得见（处理器才丢掉同格重复）。早轮放出 terminal 后，兜底轮按旧快照 need('terminal') 仍是 1、
-    //    同格再放也拿到 OK——白花一个名额（这一轮的 lab/spawn/rampart 少一个）还写一条假的 oneOffLeftover。
-    //    mock 的 createConstructionSite 默认当场可见，这里换成"下一 tick 才可见"的引擎语义
     ({ room } = ooSetup(6500, 6, { extBuilt: 30 }));
     const ooPlan7 = Memory.rooms.W33S7.plan;
-    ooPlan7.ext = ooPlan7.ext.slice(0, 30);   // extension 放不出、塔已满：早轮之后名额富余，兜底轮会跑到 terminal
+    ooPlan7.ext = ooPlan7.ext.slice(0, 30);
     for (const spot of ooPlan7.towers.slice(0, 2)) makeStructure(room, C.STRUCTURE_TOWER, spot.x, spot.y, { store: mkStore(1000, 1000) });
     { const l = layout.linkSpot(ooPlan7, 'src1'); if (l) makeStructure(room, C.STRUCTURE_LINK, l.x, l.y, { capacity: 800, energy: 0 }); }
     delete Memory.rooms.W33S7.oneOffAhead;
@@ -7219,7 +6869,6 @@ console.log('== 一次性 storage/terminal 先于道路与 extension（2026-10-1
     const ooRealCreate = room.createConstructionSite;
     const ooCalls = [];
     room.createConstructionSite = function (x, y, type) {
-        // 运行时检查只对 tick 开头的快照（find/lookForAt 里看不到本 tick 排队的工地）
         if (room.getTerrain().get(x, y) === 1) return C.ERR_INVALID_TARGET;
         if (room.lookForAt(C.LOOK_CONSTRUCTION_SITES, x, y).length) return C.ERR_INVALID_TARGET;
         if (room.lookForAt(C.LOOK_STRUCTURES, x, y).some((st) => st.structureType === type)) return C.ERR_INVALID_TARGET;
@@ -7237,7 +6886,7 @@ console.log('== 一次性 storage/terminal 先于道路与 extension（2026-10-1
     const ooDedup = Memory.rooms.W33S7.oneOffDeduped;
     assert(ooDedup && ooDedup.type === 'terminal' && ooDedup.at === Memory.rooms.W33S7.oneOffAhead.at && ooDedup.budget > 0,
         '兜底轮跳过早轮已放的 terminal 记 oneOffDeduped 遥测（得 ' + JSON.stringify(ooDedup) + '）');
-    for (const c of ooCalls) ooRealCreate.call(room, c.x, c.y, c.type);   // 下一 tick：处理器把排队的工地落地
+    for (const c of ooCalls) ooRealCreate.call(room, c.x, c.y, c.type);
 }
 
 console.log('== 工地全局预算：每玩家 100 个共用，母房只用到 100 − globalSiteReserve；rampart 有塔且塔能量充足才放 ==');
@@ -7248,7 +6897,7 @@ console.log('== 工地全局预算：每玩家 100 个共用，母房只用到 1
     const gbTower = makeStructure(gbRoom, C.STRUCTURE_TOWER, gbPlan.towers[0].x, gbPlan.towers[0].y, { store: mkStore(200, 1000) });
     const gbConfig = require('../src/config');
     const gbLimit = 100 - gbConfig.globalSiteReserve;
-    for (let i = 0; i < gbLimit - 3; i++) world.constructionSites['other_' + i] = { id: 'other_' + i, structureType: C.STRUCTURE_ROAD };   // 外矿/新房占着名额
+    for (let i = 0; i < gbLimit - 3; i++) world.constructionSites['other_' + i] = { id: 'other_' + i, structureType: C.STRUCTURE_ROAD };
     layout.run(gbRoom);
     assert(gbRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length >= 3 && gbRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length <= gbConfig.siteFloorPerRoom,
         '全局只剩 3 个名额（含预留）时母房仍可放到每房保底 siteFloorPerRoom（得 ' + gbRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length + '）');
@@ -7266,16 +6915,13 @@ console.log('== 工地全局预算：每玩家 100 个共用，母房只用到 1
     layout.run(gbRoom);
     const gbRamparts = gbRoom.find(C.FIND_MY_CONSTRUCTION_SITES).filter((s) => s.structureType === C.STRUCTURE_RAMPART).length;
     assert(gbRamparts >= 1 && gbRamparts <= gbConfig.sitePace.ramparts, '塔能量充足后每轮放 ≤ sitePace.ramparts 个 rampart 工地（得 ' + gbRamparts + '）');
-    // 外环推迟（向 Kalgen 学的：rampart 先盖建筑，裸地外环等 RCL）：RCL3 的 rampart 工地只盖在 spawn/塔上，不落到 plan.ramparts 的裸地外环
     const gbOnRing = (s) => gbPlan.ramparts.some((p) => p.x === s.pos.x && p.y === s.pos.y);
     const gbOnCore = (s) => (s.pos.x === gbPlan.spawns[0].x && s.pos.y === gbPlan.spawns[0].y) || (s.pos.x === gbPlan.towers[0].x && s.pos.y === gbPlan.towers[0].y);
     const gbRampSites = () => gbRoom.find(C.FIND_MY_CONSTRUCTION_SITES).filter((s) => s.structureType === C.STRUCTURE_RAMPART);
     assert(gbRampSites().length && gbRampSites().every(gbOnCore) && !gbRampSites().some(gbOnRing),
         'RCL3 < rampartRingMinRcl：rampart 工地只盖核心建筑，不放裸地外环（得 ' + gbRampSites().map((s) => s.pos.x + ',' + s.pos.y).join(' ') + '）');
-    // RCL 到 rampartRingMinRcl：外环开始分批落地（临时放宽 maxSites，否则 RCL6 新增的 extension 配额会先吃掉名额）
     gbRoom.find(C.FIND_MY_CONSTRUCTION_SITES).filter((s) => s.structureType === C.STRUCTURE_ROAD).forEach((s) => s.remove());
     gbRoom.controller.level = gbConfig.rampartRingMinRcl;
-    // 收入门槛（rampartRingMinIncome）：收入样本不足或低于门槛时，RCL 够了也不铺外环——铺完是永久维护支出
     world.time += 11;
     layout.run(gbRoom);
     assert(!gbRampSites().some(gbOnRing),
@@ -7288,13 +6934,11 @@ console.log('== 工地全局预算：每玩家 100 个共用，母房只用到 1
     gbConfig.maxSites = gbMaxSites;
     const gbRing = gbRampSites().filter(gbOnRing).length;
     assert(gbRing >= 1 && gbRing <= gbConfig.sitePace.ramparts, 'RCL ≥ rampartRingMinRcl 且收入达标后每轮放 ≤ sitePace.ramparts 个外环 rampart 工地（得 ' + gbRing + '）');
-    // 降回 RCL5（等价于新规则部署时线上已有的零进度外环工地）：零进度外环工地被清掉，核心建筑上的保留
     gbRoom.controller.level = gbConfig.rampartRingMinRcl - 1;
     world.time += 11;
     layout.run(gbRoom);
     assert(!gbRampSites().some(gbOnRing), 'RCL < rampartRingMinRcl 时零进度的外环 rampart 工地被 trimSites 清掉');
     assert(gbRampSites().some(gbOnCore), '核心建筑上的 rampart 工地保留');
-    // 收入掉回门槛以下（等价于线上 W33S7 的形态）：零进度的外环工地同样被清掉
     gbRoom.controller.level = gbConfig.rampartRingMinRcl;
     Memory.rooms.W33S7.spawnIncome.ema = Math.max(0, gbConfig.rampartRingMinIncome - 1);
     world.time += 11;
@@ -7342,7 +6986,7 @@ ROLES.defender.run(edDef);
 assert(edDef.moveCalls.length === 0 && edDef.memory.idleSince, '进了房内就原地等待并开始计闲置');
 
 console.log('== 道路优先：工地先放路网，builder 先修路；外矿的路在母房一侧也规划到核心 ==');
-const rpRoom = demoRoom(6200, Math.max(2, require('../src/config').roadsMinRcl));   // 路的优先级测试要在 roadsMinRcl 以上
+const rpRoom = demoRoom(6200, Math.max(2, require('../src/config').roadsMinRcl));
 const rpPlan = Memory.rooms.W33S7.plan;
 makeSpawn(rpRoom, rpPlan.spawns[0].x, rpPlan.spawns[0].y);
 ['src0', 'src1', 'ctrl'].forEach((k) => { const c = rpPlan.containers[k]; makeStructure(rpRoom, C.STRUCTURE_CONTAINER, c.x, c.y, { capacity: 2000, energy: 0 }); });
@@ -7362,7 +7006,6 @@ rpRoom.createConstructionSite(rpPlan.towers[0].x, rpPlan.towers[0].y, C.STRUCTUR
 const rpTowerTask = taskBroker.roomTasks(rpRoom).find((t) => t.kind === 'build' && t.target.structureType === C.STRUCTURE_TOWER);
 assert(rpTowerTask && rpTowerTask.weight > rpRoadTask.weight, '塔工地的建造权重最高（防御优先，拆旧塔后无塔窗口要短；得 ' + (rpTowerTask && rpTowerTask.weight) + '）');
 
-// 外矿：路径按"母房核心 → 外矿工位"一次算出，母房段写进母房 plan.roads['remote:房:源']
 world.exits.W33S7 = { '1': 'W33S6' };
 delete Memory.brain;
 Memory.map = {};
@@ -7415,12 +7058,11 @@ makeSpawn(mbRoom, 23, 21);
 const mbExts = [];
 for (let i = 0; i < 20; i++) mbExts.push(makeStructure(mbRoom, C.STRUCTURE_EXTENSION, 3 + i, 45, { capacity: 50, energy: 0 }));
 const mbOldTower = makeStructure(mbRoom, C.STRUCTURE_TOWER, 20, 20, { capacity: 1000, energy: 500 });
-const mbOldCont = makeStructure(mbRoom, C.STRUCTURE_CONTAINER, 7, 7, { capacity: 2000, energy: 0 });   // 方案外旧容器（不挡规划位；方案内容器已建成）
+const mbOldCont = makeStructure(mbRoom, C.STRUCTURE_CONTAINER, 7, 7, { capacity: 2000, energy: 0 });
 mbRoom.controller.safeModeAvailable = 1;
 const mbInterval = mbCfg.interval;
 function mbTick() { while (!utils.isRoomPhaseTick(mbRoom.name, mbInterval)) world.time++; demolition.run(mbRoom); world.time++; }
 assert(mbInterval <= 25, '拆迁评估间隔 ≤25 tick（得 ' + mbInterval + '）');
-// 连续几轮：每轮拆 1 个，替代工地在建数达到 batch 前不停
 let mbDestroyedExt = 0;
 for (let i = 0; i < 10; i++) {
     mbTick();
@@ -7432,7 +7074,6 @@ assert(mbDestroyedExt >= mbCfg.batch && mbExtSites >= mbCfg.batch && mbDestroyed
     '替代工地在建数达到 batch(' + mbCfg.batch + ') 前持续替换 extension（拆 ' + mbDestroyedExt + '，在建 ' + mbExtSites + '）');
 assert(mbOldTower.actions.includes('destroy'), 'safe mode 可用时唯一的方案外塔也直接替换');
 assert(mbOldCont.actions.includes('destroy'), '方案内容器都建成后，方案外旧容器拆除');
-// safe mode 不可用：唯一的塔不动
 const mbRoom2 = demoRoom(6500, 4);
 makeSpawn(mbRoom2, 23, 21);
 const mbTower2 = makeStructure(mbRoom2, C.STRUCTURE_TOWER, 20, 20, { capacity: 1000, energy: 500 });
@@ -7492,7 +7133,6 @@ const unrHome = makeRoom('W33S7', { rcl: 4, energy: 800, cap: 1300, owner: 'me' 
 unrHome._sources = [makeSource(unrHome, 14, 6, 'un0')];
 makeSpawn(unrHome, 23, 21);
 Memory.rooms.W33S7 = { sources: ['un0'], remotes: { W31S6: { room: 'W31S6', enabled: true, suspendedUntil: 0, sources: [{ id: 'unr0', spot: { x: 11, y: 10 } }] } }, state: { at: Game.time, recovering: false } };
-// 在自家母房里被堵（刚出生、hub 口袋、交通）不算"外矿不可达"：基准 61b4caf W33S7 升 RCL7 后新生 creep 困在 hub 口袋，10 万 tick 里 33 次误判
 const unrHomeStuck = makeCreep(unrHome, 'unr-home', ['carry', 'carry', 'move'], { home: 'W33S7', role: 'remoteHauler', remoteRoom: 'W31S6', sourceId: 'unr0', srcIdx: 0, state: 'collect' });
 unrHomeStuck.pos = new RoomPosition(22, 19, 'W33S7');
 world.creeps[unrHomeStuck.name] = unrHomeStuck;
@@ -7500,7 +7140,6 @@ for (let i = 0; i < config.remote.stuckTicks + 5; i++) { ROLES.remoteHauler.run(
 assert(Memory.rooms.W33S7.remotes.W31S6.enabled === true && !Memory.rooms.W33S7.remotes.W31S6.suspendReason,
     '在母房里原地不动超过阈值不判外矿不可达（得 ' + JSON.stringify(Memory.rooms.W33S7.remotes.W31S6) + '）');
 delete world.creeps[unrHomeStuck.name];
-// 过境房（非己方）里卡住才算
 const unrTransit = makeRoom('W32S7', { my: false, rcl: 0, ctrl: { x: 20, y: 20 } });
 const unrHauler = makeCreep(unrTransit, 'unr-h', ['carry', 'carry', 'move'], { home: 'W33S7', role: 'remoteHauler', remoteRoom: 'W31S6', sourceId: 'unr0', srcIdx: 0, state: 'collect' });
 unrHauler.pos = new RoomPosition(22, 19, 'W32S7');
@@ -7512,7 +7151,7 @@ assert(unrRecord.enabled === false && unrRecord.suspendReason === 'unreachable' 
 unrHauler.actions.length = 0;
 ROLES.remoteHauler.run(unrHauler);
 assert(retiring(unrHauler) && !unrHauler.actions.includes('suicide'), '外矿停用后空载的 remoteHauler 在家走向 spawn 回收（得 ' + unrHauler.actions.join(',') + '）');
-unrRecord.enabled = true;   // 大脑白名单会重新 enabled，但冷却未过
+unrRecord.enabled = true;
 unrHauler.actions.length = 0; unrHauler.moveCalls.length = 0; delete unrHauler.memory.retireSpawn;
 ROLES.remoteHauler.run(unrHauler);
 assert(retiring(unrHauler) && unrHauler.moveCalls.length === 1, 'unreachable 冷却期内即使被白名单重新启用，空载 creep 也退役而不是在家等（得 ' + unrHauler.actions.join(',') + ' moves=' + unrHauler.moveCalls.length + '）');
@@ -7528,7 +7167,6 @@ world.creeps[unrMoving.name] = unrMoving;
 unrRecord.enabled = true; unrRecord.suspendedUntil = 0; delete unrRecord.suspendReason;
 for (let i = 0; i < config.remote.stuckTicks + 1; i++) { unrMoving.pos = new RoomPosition(20 + (i % 2), 19, 'W32S7'); ROLES.remoteHauler.run(unrMoving); world.time++; }
 assert(unrRecord.enabled === true, '一直在移动的 creep 不触发 unreachable');
-// 指数退避：第 n 次不可达冷却 unreachableTicks × 2^(n−1)，封顶 unreachableMaxTicks（基准：四个不可达房每 3000 tick 整套重试一轮，合计白花 3.7/tick）
 const unrRemote = require('remote');
 assert(unrRecord.unreachableCount === 2 && unrRecord.unreachableAt > 0, '两次卡住：unreachableCount=2、记下最后一次标记的 tick（得 ' + JSON.stringify([unrRecord.unreachableCount, unrRecord.unreachableAt]) + '）');
 for (let n = 3; n <= 5; n++) {
@@ -7538,17 +7176,15 @@ for (let n = 3; n <= 5; n++) {
     const unrExpect = Math.min(config.remote.unreachableMaxTicks, config.remote.unreachableTicks * Math.pow(2, n - 1));
     assert(unrRecord.unreachableCount === n && unrRecord.suspendedUntil - unrRecord.unreachableAt === unrExpect, '第 ' + n + ' 次不可达冷却 ' + unrExpect + '（得 ' + (unrRecord.suspendedUntil - unrRecord.unreachableAt) + '）');
 }
-// 试探式恢复：冷却到期后先只出第一只矿工（不出第二只矿工/reserver），有 creep 看到该房（lastSeen 晚于标记）后才放开
 unrRecord.enabled = true; unrRecord.suspendedUntil = 0; unrRecord.suspendReason = null;
 unrRecord.sources = [{ id: 'unr0', pos: { x: 10, y: 10 }, spot: { x: 11, y: 10 }, distance: 60, energyCapacity: 1500 }, { id: 'unr1', pos: { x: 30, y: 30 }, spot: { x: 31, y: 30 }, distance: 70, energyCapacity: 1500 }];
 unrRecord.reservation = { username: null, ticksToEnd: 0, seenAt: 0 };
 const unrProbe = unrRemote.getDemands(unrHome).filter((d) => d.memory.remoteRoom === 'W31S6').map((d) => d.slot);
 assert(unrProbe.length === 1 && unrProbe[0] === 'remoteMiner:W31S6:unr0', '冷却到期、还没人看到该房：只出第一只矿工试探（得 ' + JSON.stringify(unrProbe) + '）');
 world.time += 1;
-unrRecord.lastSeen = Game.time;   // 有 creep 到了该房（晚于标记的 tick）
+unrRecord.lastSeen = Game.time;
 const unrFull = unrRemote.getDemands(unrHome).filter((d) => d.memory.remoteRoom === 'W31S6').map((d) => d.slot);
 assert(unrFull.includes('remoteMiner:W31S6:unr1') && unrFull.some((s) => s.startsWith('reserver:W31S6')), '看到该房后放开第二只矿工与 reserver（得 ' + JSON.stringify(unrFull) + '）');
-// 看到该房（refreshVisible）：退避计数清零
 world.time += 1;
 const unrRoom = makeRoom('W31S6', { rcl: 0, energy: 0, cap: 0 });
 unrRoom._sources = [makeSource(unrRoom, 10, 10, 'unr0'), makeSource(unrRoom, 30, 30, 'unr1')];
@@ -7578,7 +7214,6 @@ let scSpawned = Object.values(world.creeps).filter((c) => !c.name.startsWith('sc
 const scWait = Memory.rooms.W33S7.spawnWaiting;
 assert(scSpawned.length === 0 && scWait && scWait.key === 'core:harvester:1' && scWait.eta > 0 && scWait.eta <= 30,
     '差得不多（估计几 tick 就攒够）：先等满配（得 ' + scSpawned.map((c) => c.memory.role).join(',') + ' waiting=' + JSON.stringify(scWait) + '）');
-// 宽限（survival 30 tick）用完还没攒够：按 600 缩身立刻孵，不再干等
 Memory.rooms.W33S7.spawnSince['core:harvester:1'] = Game.time - config.spawnQueue.grace.survival - 1;
 spawnMgr.run(scHome);
 scSpawned = Object.values(world.creeps).filter((c) => !c.name.startsWith('sc'));
@@ -7666,11 +7301,11 @@ console.log('== builder 不等不会来的投递：房里的 hauler 全空着手
     const ewBuilder = makeCreep(ewRoom, 'ew-b', ['work', 'work', 'carry', 'carry', 'carry', 'move', 'move'], { home: 'W33S7', role: 'builder' });
     ewBuilder.pos = new RoomPosition(8, 40, 'W33S7');
     ewBuilder.store[C.RESOURCE_ENERGY] = 0;
-    ewBuilder.memory.feedAt = Game.time;   // 刚在工地上用完能量
+    ewBuilder.memory.feedAt = Game.time;
     world.creeps[ewBuilder.name] = ewBuilder;
     const ewHauler = makeCreep(ewRoom, 'ew-h', ['carry', 'carry', 'carry', 'carry', 'move', 'move'], { home: 'W33S7', role: 'hauler' });
     ewHauler.pos = new RoomPosition(20, 20, 'W33S7');
-    ewHauler.store[C.RESOURCE_ENERGY] = 0;   // 空手、也没有任务：不会来投递
+    ewHauler.store[C.RESOURCE_ENERGY] = 0;
     world.creeps[ewHauler.name] = ewHauler;
     ROLES.builder.run(ewBuilder);
     assert(ewBuilder.actions.includes('withdraw') || ewBuilder.actions.includes('moveTo'),
@@ -7678,25 +7313,22 @@ console.log('== builder 不等不会来的投递：房里的 hauler 全空着手
     assert(!ewBuilder.memory.waitSince, '没有投递前景时不登记 waitSince');
     assert(Memory.rooms.W33S7.builderFeed && Memory.rooms.W33S7.builderFeed.self > 0 && !Memory.rooms.W33S7.builderFeed.wait,
         '遥测记下"本来会等但没人会来"的 tick（得 ' + JSON.stringify(Memory.rooms.W33S7.builderFeed) + '）');
-    // 取能点遥测只在**变化**时记一笔：builder 走向取能点的路上每 tick 都会经过这里
     const ewLog = Memory.rooms.W33S7.builderSourceLog || [];
     ewBuilder.store[C.RESOURCE_ENERGY] = 0;
     ewBuilder.actions.length = 0;
-    ewBuilder.memory.feedAt = 0;   // 别触发等投递
+    ewBuilder.memory.feedAt = 0;
     for (let tick = 0; tick < 4; tick++) { world.time++; ROLES.builder.run(ewBuilder); }
     assert((Memory.rooms.W33S7.builderSourceLog || []).length === ewLog.length,
         '取能点没变时不重复记 builderSourceLog（得 ' + JSON.stringify(Memory.rooms.W33S7.builderSourceLog) + '）');
-    // 有装着能量的 hauler（手上没别的活）：照旧原地等投递
     ewHauler.store[C.RESOURCE_ENERGY] = 200;
     ewBuilder.actions.length = 0;
-    ewBuilder.store[C.RESOURCE_ENERGY] = 0;   // 模拟的 withdraw 会立刻到账，手动清空
+    ewBuilder.store[C.RESOURCE_ENERGY] = 0;
     ewBuilder.memory.feedAt = Game.time;
     delete ewBuilder.memory.waitSince;
     world.time += 2;
     ROLES.builder.run(ewBuilder);
     assert(!ewBuilder.actions.includes('withdraw') && !ewBuilder.actions.includes('moveTo') && ewBuilder.memory.waitSince,
         '有装着能量的 hauler：仍然原地等投递（得 ' + ewBuilder.actions.join(',') + '）');
-    // 已经有 hauler 认领了"送我这单"：即使它此刻是空的也等（它在取货路上）
     delete ewBuilder.memory.waitSince;
     ewHauler.store[C.RESOURCE_ENERGY] = 0;
     ewHauler.memory.brokerTask = { kind: 'deliver', id: ewBuilder.id, until: Game.time + 5 };
@@ -7715,15 +7347,13 @@ console.log('== builder 挑危急结构时"伸手够得着的先修"：只看全
     const cdRoom = makeRoom('W33S7', { rcl: 6, energy: 2300, cap: 2300, owner: 'me', ctrl: { x: 34, y: 24 } });
     cdRoom._sources = [makeSource(cdRoom, 14, 6, 'cd0'), makeSource(cdRoom, 31, 12, 'cd1')];
     makeSpawn(cdRoom, 23, 21);
-    // 方案里必须列上这两格：方案外的旧路不修（utils.plannedStructure）
     Memory.rooms.W33S7 = { sources: ['cd0', 'cd1'], plan: { wheel: true, roads: { all: '25.20;13.20' }, containers: {} }, state: { at: Game.time, recovering: false } };
-    const cdNear = makeStructure(cdRoom, C.STRUCTURE_ROAD, 25, 20, { hits: 980, hitsMax: 5000 });   // 19.6%，2 格远
-    const cdFar = makeStructure(cdRoom, C.STRUCTURE_ROAD, 13, 20, { hits: 950, hitsMax: 5000 });     // 19.0%，12 格远（比例更差）
+    const cdNear = makeStructure(cdRoom, C.STRUCTURE_ROAD, 25, 20, { hits: 980, hitsMax: 5000 });
+    const cdFar = makeStructure(cdRoom, C.STRUCTURE_ROAD, 13, 20, { hits: 950, hitsMax: 5000 });
     const cdBuilder = makeCreep(cdRoom, 'cd-b', ['work', 'work', 'carry', 'carry', 'move', 'move'], { home: 'W33S7', role: 'builder' });
     cdBuilder.pos = new RoomPosition(23, 20, 'W33S7');
     cdBuilder.store[C.RESOURCE_ENERGY] = 100;
     cdBuilder.repairCalls = [];
-    // 只在 3 格内才 OK：够不着的目标会退化成"朝它走"，这样 moveCalls 也能反映选择
     cdBuilder.repair = (target) => {
         cdBuilder.repairCalls.push(target);
         return cdBuilder.pos.inRangeTo(target.pos, 3) ? C.OK : C.ERR_NOT_IN_RANGE;
@@ -7733,7 +7363,6 @@ console.log('== builder 挑危急结构时"伸手够得着的先修"：只看全
     assert(cdBuilder.repairCalls.length === 1 && cdBuilder.repairCalls[0] === cdNear,
         '2 格内的 19.6% 先修，而不是走 12 格去修比例更差的 19.0%（得 ' +
         (cdBuilder.repairCalls[0] && (cdBuilder.repairCalls[0].pos.x + ',' + cdBuilder.repairCalls[0].pos.y)) + '）');
-    // 两个都够不着时仍然按全局比例：修更危急的远处那条（新的一车：上一车的维修滞回目标 repairId 在能量用完时清掉）
     delete cdBuilder.memory.repairId;
     cdBuilder.pos = new RoomPosition(40, 40, 'W33S7');
     cdBuilder.repairCalls.length = 0;
@@ -7743,9 +7372,8 @@ console.log('== builder 挑危急结构时"伸手够得着的先修"：只看全
     assert(cdBuilder.repairCalls[0] === cdFar && cdBuilder.moveCalls.some((m) => m.target && m.target.x === 13 && m.target.y === 20),
         '两个都够不着时按比例走最危急的（19.0% 那条）（得 ' +
         (cdBuilder.repairCalls[0] && (cdBuilder.repairCalls[0].pos.x + ',' + cdBuilder.repairCalls[0].pos.y)) + '）');
-    // 修到危急线以上后就不再是危急结构（自我收敛），让更危急的目标重新被看见（新的一车）
     delete cdBuilder.memory.repairId;
-    cdNear.hits = 1200;   // 24% > 20%
+    cdNear.hits = 1200;
     cdBuilder.pos = new RoomPosition(25, 20, 'W33S7');
     cdBuilder.repairCalls.length = 0;
     cdBuilder.moveCalls.length = 0;
@@ -7771,7 +7399,6 @@ console.log('== 升级者能量吃紧时按份额降频：控制器只吃本地�
     ubUp.pos = new RoomPosition(ubPlan.links.ctrl.x - 1, ubPlan.links.ctrl.y + 1, 'W33S7');
     ubUp.store[C.RESOURCE_ENERGY] = 100;
     world.creeps[ubUp.name] = ubUp;
-    // 限流要有竞争需求：房里有想建的工地（spawn.writeDemand 写 state.builderBacklog）
     ubMem.state = Object.assign(ubMem.state || {}, { builderBacklog: 5 });
     world.time++;
     assert(utils.sourceSupply(ubRoom) === 20, '本地供给按每口源 3000/300 = 10/tick 计：2 源 = 20/tick（得 ' + utils.sourceSupply(ubRoom) + '）');
@@ -7779,7 +7406,7 @@ console.log('== 升级者能量吃紧时按份额降频：控制器只吃本地�
     let ubUpgrades = 0;
     for (let tick = 0; tick < 10; tick++) {
         ubUp.actions.length = 0;
-        ubUp.store[C.RESOURCE_ENERGY] = 100;   // 供能充足，只看限流
+        ubUp.store[C.RESOURCE_ENERGY] = 100;
         ROLES.upgrader.run(ubUp);
         if (ubUp.actions.includes('upgradeController')) ubUpgrades++;
         world.time++;
@@ -7788,21 +7415,17 @@ console.log('== 升级者能量吃紧时按份额降频：控制器只吃本地�
     const ubTrack = Memory.rooms.W33S7.upgradeBudget;
     assert(ubTrack && ubTrack.cap === 12 && ubTrack.work === 21 && ubTrack.duty === 0.571 && ubTrack.low === true,
         '遥测记录预算与限流比例（得 ' + JSON.stringify(ubTrack) + '）');
-    // 限流期间不加员：ctrl link 满、spawn 满、供给 EMA 高，旧规则会把升级者加到 maxUpgraders（每只都是 W12，duty 摊到 0.5）
     ubMem.upgradeSupply = Object.assign(ubMem.upgradeSupply || {}, { ema: 1, extra: 1, at: -1, changedAt: -1 });
     world.time++;
-    // storage 站位低档：每只只孵 lowBudget 的 W4，上限 W12 要 3 只才吃满——封顶是 ceil(12 / 4) = 3，不是 maxUpgraders
     const ubPer = spawnMgr.upgraderBody(ubRoom, ubMem, 2300).filter((part) => part === 'work').length;
     const ubTarget = spawnMgr.upgraderTarget(ubRoom, ubMem);
     assert(ubPer > 0 && ubTarget <= Math.max(1, Math.ceil(12 / ubPer)), '限流期间升级者数量不超过 上限 ÷ 每只 WORK（W' + ubPer + ' → ' + Math.ceil(12 / ubPer) + '，得 ' + ubTarget + '）');
-    // storage 回到 lowExitAbove 以上：不再限流（6000 在滞回带内仍然限流）
     ubRoom.storage.store[C.RESOURCE_ENERGY] = 6000;
     world.time++;
     assert(utils.upgraderWorkCap(ubRoom, ubMem) === 12, 'storage 6000 在滞回带（≥ lowBelow、< lowExitAbove）：仍然限流 W12（得 ' + utils.upgraderWorkCap(ubRoom, ubMem) + '）');
     ubRoom.storage.store[C.RESOURCE_ENERGY] = 12000;
     world.time++;
     assert(utils.upgraderWorkCap(ubRoom, ubMem) === Infinity, 'storage ≥ lowExitAbove：退出吃紧档，不再限流（得 ' + utils.upgraderWorkCap(ubRoom, ubMem) + '）');
-    // 吃紧但没有竞争需求（线上 W34S7/W35S7：backlog 0、维修债 0、spawn 空闲能量满）：限流让出的能量没人要，放开
     ubRoom.storage.store[C.RESOURCE_ENERGY] = 13;
     ubMem.state.builderBacklog = 0;
     const holdTicks = require('../src/config').upgrading.competeHoldTicks;
@@ -7812,17 +7435,14 @@ console.log('== 升级者能量吃紧时按份额降频：控制器只吃本地�
     const ubFreeBefore = Number(ubMem.upgradeSupply.capFree && ubMem.upgradeSupply.capFree.n) || 0;
     assert(utils.upgraderWorkCap(ubRoom, ubMem) === Infinity && ubMem.upgradeSupply.capFree.n === ubFreeBefore + 1,
         '吃紧（storage 13）但没有工地/维修债/spawn 等待、spawn/ext 满：不限流，记 capFree（得 ' + utils.upgraderWorkCap(ubRoom, ubMem) + ' ' + JSON.stringify(ubMem.upgradeSupply.capFree) + '）');
-    // spawn 在攒能量：立刻限流
     Memory.rooms.W33S7.spawnWaiting = { at: world.time, cost: 2400 };
     ubRoom.energyAvailable = 2000;
     assert(utils.upgraderWorkCap(ubRoom, ubMem) === 12 && /spawn/.test(ubMem.upgradeSupply.competeWhy), 'spawn 在攒能量：限流（得 ' + utils.upgraderWorkCap(ubRoom, ubMem) + ' ' + ubMem.upgradeSupply.competeWhy + '）');
-    // spawn/ext 没补满：刚开始不算，连续 competeUnfullTicks 才算
     delete Memory.rooms.W33S7.spawnWaiting;
     ubRoom.energyAvailable = 2300;
     world.time += holdTicks;
     assert(utils.upgraderWorkCap(ubRoom, ubMem) === Infinity, '补满、保持期过后：放开（得 ' + utils.upgraderWorkCap(ubRoom, ubMem) + '）');
     const unfullTicks = require('../src/config').upgrading.competeUnfullTicks;
-    // 差几十能量不算没补满（线上 W34S7 1756/1800、spawn 空闲无请求，被 unfull 限流了 185 tick）：2250/2300 过了计时也不限流
     ubRoom.energyAvailable = 2250;
     world.time++;
     utils.upgraderWorkCap(ubRoom, ubMem);
@@ -7853,7 +7473,6 @@ console.log('== storage 站位的升级者：贴 ctrl link 的站位格被占、
     const lsLinkSpot = lsSpots.find((spot) => near(spot, lsPlan.links.ctrl));
     const lsOtherSpot = lsSpots.find((spot) => !near(spot, lsPlan.links.ctrl));
     assert(lsLinkSpot && lsOtherSpot, '前提：storage 站位里有一格贴 ctrl link、一格不贴（得 ' + JSON.stringify(lsSpots) + '）');
-    // builder 占着贴 link 的站位格；房里有一只 hauler（旧代码因此"原地等投递"——storage 0，永远等不到）
     const lsBuilder = makeCreep(lsRoom, 'ls.builder', ['work', 'carry', 'move'], { home: 'W33S7', role: 'builder' });
     lsBuilder.pos = new RoomPosition(lsLinkSpot.x, lsLinkSpot.y, 'W33S7');
     world.creeps[lsBuilder.name] = lsBuilder;
@@ -7866,7 +7485,6 @@ console.log('== storage 站位的升级者：贴 ctrl link 的站位格被占、
     const lsTarget = lsUp.moveCalls.length ? lsUp.moveCalls[lsUp.moveCalls.length - 1].target : null;
     assert(lsTarget && near(lsTarget, lsLink.pos) && !(lsTarget.x === lsLinkSpot.x && lsTarget.y === lsLinkSpot.y),
         '空载升级者走向 ctrl link 旁的空格（得 ' + JSON.stringify(lsTarget) + ' actions ' + JSON.stringify(lsUp.actions) + '）');
-    // 到了 link 旁、装满：那里就是岗位（控制器 3 格内），不走回 storage 站位
     lsUp.pos = new RoomPosition(lsTarget.x, lsTarget.y, 'W33S7');
     lsUp.store[C.RESOURCE_ENERGY] = 100;
     lsUp.moveCalls.length = 0;
@@ -7962,8 +7580,6 @@ assert(stScaled.length === 1 && stScaled[0].memory.role === 'harvester' && utils
     '宽限用完能量还没涨：按 300 缩身孵 harvester（得 ' + stScaled.map((c) => c.memory.role + ':' + utils.bodyCost(c.body)).join(',') + '）');
 delete Memory.brain;
 
-
-
 console.log('== 援建：母房为邻近弱房孵 5 WORK 矿工 / 大 hauler / 大 builder，home 指向弱房，排在外矿之前 ==');
 resetWorld(7300);
 const aidHome = makeRoom('W33S7', { rcl: 4, energy: 1100, cap: 1100, owner: 'me', ctrl: { x: 34, y: 24 } });
@@ -8003,7 +7619,6 @@ aidSpawned[0].room = aidWeak;
 aidSpawned[0].pos = new RoomPosition(11, 10, 'W34S7');
 const aidDemands2 = aidMod.getDemands(aidHome);
 assert(!aidDemands2.some((d) => d.slot === 'aid:harvester:W34S7:0'), '源 0 已有 5 WORK 后不再要援建矿工');
-// courier：母房 storage 越过导出线就该出（导出线现在是 max(aid.exportAbove, upgrading.storageFeedAbove)）
 {
     const cfgAid = require('../src/config').aid;
     const lv = utils.aidExportLevels(cfgAid, require('../src/config').upgrading);
@@ -8011,7 +7626,6 @@ assert(!aidDemands2.some((d) => d.slot === 'aid:harvester:W34S7:0'), '源 0 已�
     const withCourier = aidMod.getDemands(aidHome);
     assert(withCourier.some((d) => d.role === 'courier'),
         'storage 8 万（远高于导出线 ' + lv.above + '）⇒ 出 courier（得 ' + withCourier.map((d) => d.role).join(',') + '）');
-    // 富余带之内（导出线以下）不导出：母房自己先站在富余带里
     aidStore.store[C.RESOURCE_ENERGY] = lv.above - 1;
     assert(!aidMod.getDemands(aidHome).some((d) => d.role === 'courier'),
         '低于导出线时不派 courier（storage ' + (lv.above - 1) + '）');
@@ -8025,21 +7639,16 @@ aidWeak.storage = { my: true, store: mkStore(12000, 1000000), structureType: C.S
 assert(aidMod.getDemands(aidHome).length === 0, '弱房 storage 已有 ≥ storageBelow 的能量时不援建');
 delete aidWeak.storage;
 assert(aidMod.linearDistance('W33S7', 'W34S7') === 1 && aidMod.linearDistance('W33S7', 'W36S9') === 3, '房间距离按坐标算');
-// 援建安全路线（2026-10-13 移植 wip/deploy-20260920 c7cc6f2；线上 2026-09-15 W35S7 → W37S5 只能穿 SK 房）：
-// 母房到弱房没有不穿危险房的路 ⇒ 不援、记 aidNoRoute；已派出、回不了弱房的援建 creep ⇒ 标记退役（retireReplaced 接手回收）、记 aidStranded；
-// 路线恢复后照常援建
 {
     const movementMod = require('movement');
     const savedMap = Game.map;
-    // 地图 mock：W33S7 → W34S7 的唯一路线穿 W34S8，routeCallback 对它给 Infinity 就无路（Game.map.findRoute 同语义）；
-    // retire.roomHops 不带 opts 调 findRoute，照常给路
     Game.map = Object.assign({}, savedMap, { findRoute: (from, to, opts) => {
         const via = opts && typeof opts.routeCallback === 'function' ? opts.routeCallback('W34S8', from) : 1;
         return via === Infinity ? -2 : [{ exit: 5, room: 'W34S8' }, { exit: 1, room: to }];
     } });
     Memory.map.W34S8 = { class: 'sk', lairs: 3, at: Game.time };
     movementMod.resetSafeRoutes();
-    world.time += 1;   // dangerRooms 按 tick 缓存
+    world.time += 1;
     const blocked = aidMod.getDemands(aidHome);
     assert(blocked.length === 0 && Memory.rooms.W33S7.aidNoRoute && Memory.rooms.W33S7.aidNoRoute.room === 'W34S7',
         '母房到弱房只能穿 SK 房 ⇒ 不援、记 aidNoRoute（得 ' + blocked.map((d) => d.slot).join(',') + ' / ' + JSON.stringify(Memory.rooms.W33S7.aidNoRoute) + '）');
@@ -8052,7 +7661,6 @@ assert(aidMod.linearDistance('W33S7', 'W34S7') === 1 && aidMod.linearDistance('W
     assert(aidMod.markStranded(local) === false && !local.memory.bodyUpgradeRetiring, '不是援建 creep 不碰');
     const arrived = makeCreep(aidWeak, 'aiArrived', utils.makeBody('hauler', 800), { home: aidWeak.name, role: 'hauler', aid: aidHome.name });
     assert(aidMod.markStranded(arrived) === false && !utils.isRetiring(arrived.memory), '已到弱房的援建 creep 不因母房路线阻断而退役');
-    // findRoute 抛错：needsAid / markStranded 放行（不带崩 spawn.run、不退役在途 creep），错误进 Memory.errors
     {
         const throwing = Game.map;
         Game.map = Object.assign({}, savedMap, { findRoute: () => { throw new Error('map down'); } });
@@ -8065,7 +7673,6 @@ assert(aidMod.linearDistance('W33S7', 'W34S7') === 1 && aidMod.linearDistance('W
         Game.map = throwing;
         movementMod.resetSafeRoutes();
     }
-    // 真实主循环：搁浅的援建矿工在 markStranded 之后由 retireReplaced 接手，贴着的 spawn 发回收意图，当 tick 不再采集，援建槽位立刻释放
     const strandedMiner = makeCreep(aidHome, 'aiStrandedMiner', utils.makeBody('staticHarvester', 800), {
         home: aidWeak.name, role: 'harvester', aid: aidHome.name, staticMiner: true,
         sourceId: 'aw1', sourceIdx: 1, slotKey: 'aid:harvester:W34S7:1',
@@ -8087,7 +7694,6 @@ assert(aidMod.linearDistance('W33S7', 'W34S7') === 1 && aidMod.linearDistance('W
         spawnMgr.countReadyRole(aidWeak, 'harvester') === readyBeforeRetirement - 1,
         '回收尚未结算时已释放援建槽位与 spawn 就绪矿工计数');
     assert((Memory.errors || []).length === 0, '援建退役主循环无异常: ' + JSON.stringify(Memory.errors || []));
-    // 另一个走得到的母房不被退役中的矿工 WORK 占位，可以接手该源
     const reachableDonor = makeRoom('W35S7', { rcl: 4, energy: 1100, cap: 1100, owner: 'me', ctrl: { x: 20, y: 30 } });
     makeSpawn(reachableDonor, 23, 21);
     const blockedMap = Game.map;
@@ -8100,14 +7706,12 @@ assert(aidMod.linearDistance('W33S7', 'W34S7') === 1 && aidMod.linearDistance('W
     delete world.creeps[strandedMiner.name];
     delete Memory.creeps[strandedMiner.name];
     Game.map = blockedMap;
-    // 危险房清掉：签名变了，缓存立即失效（不等 routeCacheTicks），在途的不退役、照常援建
     delete Memory.map.W34S8;
     world.time += 1;
     const walker = makeCreep(aidHome, 'aiWalker', utils.makeBody('hauler', 800), { home: 'W34S7', role: 'hauler', aid: 'W33S7' });
     assert(aidMod.markStranded(walker) === false && !walker.memory.bodyUpgradeRetiring, '危险房清掉后在途援建 creep 不退役（缓存随危险房集合失效）');
     const reopened = aidMod.getDemands(aidHome);
     assert(reopened.length > 0, '危险房清掉、路线恢复后照常援建（得 ' + reopened.length + '）');
-    // 缓存：危险房集合不变时 routeCacheTicks 内不重算 findRoute，过期才重算
     let routeCalls = 0;
     Game.map = Object.assign({}, savedMap, { findRoute: () => { routeCalls++; return []; } });
     movementMod.resetSafeRoutes();
@@ -8167,7 +7771,7 @@ makeStructure(xrWeak, C.STRUCTURE_CONTAINER, 19, 20, { capacity: 2000, energy: 0
 Memory.rooms.W33S7 = { sources: ['xr0'], state: { at: Game.time } };
 Memory.rooms.W34S7 = { sources: ['xw0'], plan: { containers: { src0: { x: 19, y: 20 } } }, state: { at: Game.time, recovering: false } };
 const xrMiner = makeCreep(xrHome, 'xr-m', utils.makeBody('staticHarvester', 1100), { home: 'W34S7', role: 'harvester', sourceIdx: 0, sourceId: 'xw0', staticMiner: true, aid: 'W33S7' });
-xrMiner.pos = new RoomPosition(19, 20, 'W33S7');   // 母房里恰好是弱房容器的同名坐标
+xrMiner.pos = new RoomPosition(19, 20, 'W33S7');
 world.creeps[xrMiner.name] = xrMiner;
 ROLES.harvester.run(xrMiner);
 const xrMove = xrMiner.moveCalls[xrMiner.moveCalls.length - 1];
@@ -8179,7 +7783,6 @@ xrMiner.pos = new RoomPosition(19, 20, 'W34S7');
 xrMiner.actions.length = 0;
 ROLES.harvester.run(xrMiner);
 assert(xrMiner.actions.includes('harvest') && !xrMiner.actions.includes('moveTo'), '到了弱房工位就开采');
-// 容器位被弱房自己的小矿工占着：大矿工挨着源就先采，小矿工退役让位
 const xrSmall = makeCreep(xrWeak, 'xr-s', ['work', 'work', 'move'], { home: 'W34S7', role: 'harvester', sourceIdx: 0, sourceId: 'xw0', staticMiner: true });
 xrSmall.pos = new RoomPosition(19, 20, 'W34S7');
 world.creeps[xrSmall.name] = xrSmall;
@@ -8198,7 +7801,6 @@ assert(!xrSmallAlone.actions.includes('suicide'), '大矿工还没进房时小�
 
 console.log('== creep 取名：每个 role 都登记了东方人物名，同 role 的多只靠前缀/后缀区分且永不撞名 ==');
 {
-    // 这条守的是"新增 role 忘了登记"：没登记会静默落到「妖精」，在游戏里看名字就分不出角色了
     Memory.creeps = {};
     for (const name of Object.keys(world.creeps)) delete world.creeps[name];
     global.Game.creeps = world.creeps;
@@ -8208,7 +7810,6 @@ console.log('== creep 取名：每个 role 都登记了东方人物名，同 rol
     assert(unnamed.length === 0, 'main.js 的 ROLES 全部登记了人物名（未登记的会落到妖精：' + (unnamed.join(',') || '无') + '）');
     assert(new Set(Object.values(bases)).size === Object.keys(bases).length, Object.keys(bases).length + ' 个角色的本名两两不同');
 
-    // 同 role 连发：模拟引擎的同 tick 可见性，撞名会被上面新加的 ERR_NAME_EXISTS 语义抓住
     const issued = [];
     const collided = [];
     for (const role of Object.keys(ROLES)) {
@@ -8226,7 +7827,6 @@ console.log('== creep 取名：每个 role 都登记了东方人物名，同 rol
     assert(issued.filter((c) => c.name.endsWith('.upgrade')).length === Object.keys(ROLES).length,
         'tag 仍作后缀保留（换代/弹性/应急孵化路径靠它区分）');
 
-    // 死亡回池：名字复用是刻意行为，配套要求按 name 做 key 的 global 缓存都有死亡清理
     const victim = issued[0].name;
     delete Memory.creeps[victim];
     assert(utils.creepName(issued[0].role) === victim, '死掉的 ' + victim + ' 被下一只顶回同一个名字');
@@ -8271,7 +7871,7 @@ swRh.pos = new RoomPosition(24, 22, 'W33S7');
 swRh.store[C.RESOURCE_ENERGY] = 100;
 world.creeps[swRh.name] = swRh;
 const swSpawnObj = swHome.find(C.FIND_MY_SPAWNS)[0];
-swSpawnObj.store[C.RESOURCE_ENERGY] = 100;   // spawn 本体还有空位
+swSpawnObj.store[C.RESOURCE_ENERGY] = 100;
 ROLES.remoteHauler.run(swRh);
 assert(swRh.actions.includes('transfer') && swCtrlCont.store[C.RESOURCE_ENERGY] === 90 && swSpawnObj.store[C.RESOURCE_ENERGY] > 100,
     'remoteHauler 回家交能量也先给 spawn 而不是控制器容器（得 ' + swRh.actions.join(',') + ' ctrl=' + swCtrlCont.store[C.RESOURCE_ENERGY] + '）');
@@ -8309,7 +7909,6 @@ spawnMgr.run(biHome);
 const biTarget1 = Memory.rooms.W33S7.demand.targets.builder;
 assert(biTarget1 >= 3, '三个外矿源有矿工在岗（+24 能量/tick）：builder 目标 ≥ 3（得 ' + biTarget1 + '）');
 delete Memory.brain;
-
 
 console.log('== reserver 兼任 claimer：外矿变成占领目标时就地 claim，expansion 不再另孵 claimer ==');
 resetWorld(8100);
@@ -8349,19 +7948,16 @@ rvcReserver.actions.length = 0;
 ROLES.reserver.run(rvcReserver);
 assert(rvcReserver.actions.includes('suicide') && !rvcReserver.actions.includes('reserveController'), '占下后 reserver 退役，不再对己方 controller 发 reserve');
 rvcTarget.controller.my = false; rvcTarget.controller.level = 0; rvcTarget.controller.owner = null;
-// 还在母房的 reserver 也会出发去目标房，而不是因外矿停用而自杀
 const rvcResvHome = makeCreep(rvcHome, 'rc-resv-home', ['claim', 'move'], { home: 'W33S7', role: 'reserver', remoteRoom: 'W33S8', slotKey: 'reserver:W33S8' }, { ticksToLive: 500 });
 world.creeps[rvcResvHome.name] = rvcResvHome;
 ROLES.reserver.run(rvcResvHome);
 assert(!rvcResvHome.actions.includes('suicide') && rvcResvHome.moveCalls.length && rvcResvHome.moveCalls[0].target.roomName === 'W33S8',
     '母房里的 reserver 出发去占领目标房（得 ' + rvcResvHome.actions.join(',') + '）');
-// GCL 无余量：不 claim，走原来的停用退役流程
 Game.gcl.level = 1;
 rvcReserver.actions.length = 0;
 ROLES.reserver.run(rvcReserver);
 assert(!rvcReserver.actions.includes('claimController'), 'GCL 无余量时 reserver 不 claim');
 Game.gcl.level = 3;
-// reserver 寿命不够走到目标房 → 仍要 claimer；没有 reserver → 仍要 claimer
 delete world.creeps[rvcResvHome.name];
 rvcReserver.ticksToLive = 60;
 assert(rvcExpansion.getDemands(rvcHome).some((d) => d.role === 'claimer'), 'reserver 寿命不足 100 时仍要 claimer');
@@ -8370,14 +7966,11 @@ assert(rvcExpansion.getDemands(rvcHome).some((d) => d.role === 'claimer'), '没�
 delete Memory.brain;
 
 console.log('== reserver 双 CLAIM 只在容量留有余量时启用：1300 容量仍用 650 的单 CLAIM ==');
-// 线上 W33S7 容量刚到 1300 时 reserver 变成 [CLAIM×2,MOVE×2]=1300，等于满仓才买得起；而 1300 的 hauler/builder 替补总先花掉能量
 assert(JSON.stringify(remoteMod.reserverBody(1300)) === JSON.stringify(['claim', 'claim', 'move', 'move']), '容量 1300 ⇒ 双 CLAIM（得 ' + JSON.stringify(remoteMod.reserverBody(1300)) + '）');
 assert(typeof config.remote.reserverDoubleClaimCapacity === 'number' && config.remote.reserverDoubleClaimCapacity === 1300,
     'config.remote.reserverDoubleClaimCapacity 就是双 CLAIM 身体的成本 1300（得 ' + config.remote.reserverDoubleClaimCapacity + '）');
 assert(JSON.stringify(remoteMod.reserverBody((config.remote.reserverDoubleClaimCapacity || 1650) - 1)) === JSON.stringify(['claim', 'move']), '阈值以下仍是单 CLAIM');
 assert(JSON.stringify(remoteMod.reserverBody(config.remote.reserverDoubleClaimCapacity || 1650)) === JSON.stringify(['claim', 'claim', 'move', 'move']), '容量 ≥ 阈值 ⇒ 双 CLAIM（1 CLAIM 只能把预定保持在 1，不能累积）');
-// reserver 缩身规则：换代坚持双 CLAIM，补空窗有多少要多少。1 CLAIM 在岗够把源顶在 3000（线上 W31S9：1 CLAIM、预定 1、源容量 3000），
-// 但没有缓冲——一死预定即归 0、源掉回 1500 直到替补走完几十格（线上 W33S5 无人在岗时正是 1500）；2 CLAIM 每 tick 净 +1，缓冲盖住空窗
 {
     resetWorld(7290);
     const rbHome = makeRoom('W33S7', { rcl: 5, energy: 900, cap: 1300, owner: 'me', ctrl: { x: 34, y: 24 } });
@@ -8386,11 +7979,9 @@ assert(JSON.stringify(remoteMod.reserverBody(config.remote.reserverDoubleClaimCa
     const rbRemote = { room: 'W33S6', enabled: true, lastSeen: Game.time, controllerDistance: 25,
         sources: [{ id: 'rs0', pos: { x: 25, y: 25 }, spot: { x: 25, y: 26 }, distance: 25, containerId: 'rc0', road: '', roadComplete: true }] };
     Memory.rooms.W33S7 = { sources: ['rb0', 'rb1'], plan: {}, remotes: { W33S6: rbRemote } };
-    // 没人在岗：宁可要一只小的先把源顶回 3000，也不要整段空窗半速
     const rbGap = remoteMod.getDemands(rbHome).find((d) => d.role === 'reserver');
     assert(rbGap && JSON.stringify(rbGap.bodyFor(900)) === JSON.stringify(['claim', 'move']),
         '没人在岗时接受缩身（得 ' + JSON.stringify(rbGap && rbGap.bodyFor(900)) + '）');
-    // 有人在岗的换代请求：坚持双 CLAIM，预算不够就等——在岗那只顶着，等得起
     world.creeps.rbResv = makeCreep(rbHome, 'rbResv', ['claim', 'move'], { home: 'W33S7', role: 'reserver', remoteRoom: 'W33S6' });
     const rbDemand = remoteMod.getDemands(rbHome).find((d) => d.role === 'reserver');
     assert(rbDemand && JSON.stringify(rbDemand.body) === JSON.stringify(['claim', 'claim', 'move', 'move']),
@@ -8400,7 +7991,6 @@ assert(JSON.stringify(remoteMod.reserverBody(config.remote.reserverDoubleClaimCa
     assert(JSON.stringify(rbDemand.bodyFor(1300)) === JSON.stringify(['claim', 'claim', 'move', 'move']),
         '预算够了照常给双 CLAIM（得 ' + JSON.stringify(rbDemand.bodyFor(1300)) + '）');
     delete world.creeps.rbResv;
-    // 容量本来就买不起双 CLAIM 的房（850）：换代时也照常缩身，不然新房永远没有 reserver
     const rbSmall = makeRoom('W31S8', { rcl: 4, energy: 850, cap: 850, owner: 'me', ctrl: { x: 34, y: 24 } });
     rbSmall._sources = [makeSource(rbSmall, 14, 6, 'rb2')];
     makeSpawn(rbSmall, 23, 21);
@@ -8436,10 +8026,8 @@ makeStructure(skHome, C.STRUCTURE_CONTAINER, 32, 13, { capacity: 2000, energy: 3
 makeStructure(skHome, C.STRUCTURE_CONTAINER, 22, 30, { capacity: 2000, energy: 300 });
 Memory.rooms.W33S7 = { sources: ['sk0', 'sk1'], plan: { containers: { src0: { x: 15, y: 6 }, src1: { x: 32, y: 13 }, ctrl: { x: 22, y: 30 } } },
     state: { at: Game.time, recovering: false, emergencyHarvest: false }, remotes: {
-        // 头一条：W33S6 只剩 reserver 需求，容量 1800 ⇒ 双 CLAIM 1300，能量 800 买不起
         W33S6: { room: 'W33S6', enabled: true, sourceCount: 1, controllerDistance: 59, suspendedUntil: 0,
             reservation: { username: null, ticksToEnd: 0, seenAt: Game.time }, sources: [] },
-        // 后一条：W32S7 预定充足、无容器 ⇒ 只有 700 的 miner 需求
         W32S7: { room: 'W32S7', enabled: true, sourceCount: 1, controllerDistance: 50, suspendedUntil: 0,
             reservation: { username: 'me', ticksToEnd: 3000, seenAt: Game.time },
             sources: [{ id: 'sks0', pos: { x: 16, y: 13 }, spot: { x: 15, y: 12 }, distance: 48, energyCapacity: 3000, road: '', roadComplete: true, containerId: null }] },
@@ -8460,7 +8048,6 @@ const skNew = Object.values(world.creeps).filter((c) => !c.name.startsWith('sk')
 assert(skNew.length === 1 && skNew[0].memory.role === 'remoteMiner' && skNew[0].memory.remoteRoom === 'W32S7',
     '头一条 reserver 买不起 ⇒ 跳过去孵 W32S7 的 miner（得 ' + skNew.map((c) => c.memory.role + ':' + c.memory.remoteRoom).join(',') + '）');
 assert(Memory.rooms.W33S7.spawnWaiting && Memory.rooms.W33S7.spawnWaiting.cost === 1300, '被跳过的 1300 仍记入 spawnWaiting，让 hauler 优先喂 spawn（得 ' + JSON.stringify(Memory.rooms.W33S7.spawnWaiting) + '）');
-// 战略需求在队头：pioneer 买不起时不跳，等能量
 world.time++;
 skHome.energyAvailable = 700;
 Game.gcl = { level: 5, progress: 0, progressTotal: 1 };
@@ -8495,7 +8082,6 @@ console.log('== upgrader 站位：storage 建成后站到 storage 相邻格直�
     assert(!ssSpots.some((s) => (s.x === ssPlan.terminal.x && s.y === ssPlan.terminal.y) || (s.x === ssPlan.links.store.x && s.y === ssPlan.links.store.y)),
         'terminal 位与 store link 位不是站位');
     assert(layout.controllerFedByStorage(ssRoom, ssPlan) === true, '有 storage 站位 ⇒ 升级者由 storage 供能');
-    // 带能量的 upgrader 先走向首选站位
     const ssUp1 = makeCreep(ssRoom, 'up.ss1', utils.makeBody('upgrader', 1800), { home: 'W33S7', role: 'upgrader' });
     world.creeps[ssUp1.name] = ssUp1;
     ssUp1.pos = new RoomPosition(23, 22, 'W33S7');
@@ -8503,7 +8089,6 @@ console.log('== upgrader 站位：storage 建成后站到 storage 相邻格直�
     ROLES.upgrader.run(ssUp1);
     assert(ssUp1.moveCalls.some((m) => m.target && m.target.x === 32 && m.target.y === 26) && !ssUp1.actions.includes('upgradeController'),
         '带能量的 upgrader 先走向 storage 站位 (32,26)（得 ' + JSON.stringify(ssUp1.moveCalls.map((m) => m.target && [m.target.x, m.target.y])) + '）');
-    // 站位上：同 tick 从 storage 取能并升级，不再移动
     ssUp1.pos = new RoomPosition(32, 26, 'W33S7');
     ssUp1.store[RESOURCE_ENERGY] = 10;
     ssUp1.moveCalls.length = 0;
@@ -8512,13 +8097,11 @@ console.log('== upgrader 站位：storage 建成后站到 storage 相邻格直�
     ROLES.upgrader.run(ssUp1);
     assert(ssUp1.actions.includes('upgradeController') && ssUp1.actions.includes('withdraw') && ssStorage.store[C.RESOURCE_ENERGY] < 5000 && ssUp1.moveCalls.length === 0,
         'storage 站位上的 upgrader 同 tick 从 storage 取能并升级，不移动（storage=' + ssStorage.store[C.RESOURCE_ENERGY] + ' 动作 ' + ssUp1.actions.join(',') + '）');
-    // 空仓 upgrader 从相邻 storage 取能
     ssUp1.store[RESOURCE_ENERGY] = 0;
     ssUp1.actions.length = 0;
     world.time++;
     ROLES.upgrader.run(ssUp1);
     assert(ssUp1.actions.includes('withdraw') && ssUp1.moveCalls.length === 0, '空仓 upgrader 就地从 storage 取能');
-    // 第二个 upgrader 走向下一个空闲站位
     const ssUp2 = makeCreep(ssRoom, 'up.ss2', utils.makeBody('upgrader', 1800), { home: 'W33S7', role: 'upgrader' });
     world.creeps[ssUp2.name] = ssUp2;
     ssUp2.pos = new RoomPosition(23, 22, 'W33S7');
@@ -8528,7 +8111,6 @@ console.log('== upgrader 站位：storage 建成后站到 storage 相邻格直�
     const ssMove2 = ssUp2.moveCalls.find((m) => m.target && m.target.x != null);
     assert(ssMove2 && !(ssMove2.target.x === 32 && ssMove2.target.y === 26) && ssSpots.some((s) => s.x === ssMove2.target.x && s.y === ssMove2.target.y),
         '第二个 upgrader 走向下一个空闲的 storage 站位（得 ' + JSON.stringify(ssMove2 && [ssMove2.target.x, ssMove2.target.y]) + '）');
-    // broker：控制器容器不再登记投递任务；storage 低于地板线按第三层补，见底且 spawn 能量过半时提到第一层
     ssStorage.store[C.RESOURCE_ENERGY] = 1000;
     world.time += 3;
     let ssTasks = taskBroker.roomTasks(ssRoom);
@@ -8540,7 +8122,7 @@ console.log('== upgrader 站位：storage 建成后站到 storage 相邻格直�
     world.time += 3;
     ssFeed = taskBroker.roomTasks(ssRoom).find((t) => t.kind === 'deliver' && t.id === ssStorage.id + ':ctrlFeed');
     assert(ssFeed && ssFeed.tier === 1 && ssFeed.weight === 20, 'storage 见底且 spawn 能量过半：先送 storage（公平规则）（得 ' + JSON.stringify(ssFeed && { tier: ssFeed.tier, w: ssFeed.weight }) + '）');
-    Memory.rooms.W33S7.spawnWaiting = { cost: 1800, at: Game.time };   // 买不起（能量 1300 < 1800）且 5 tick 内
+    Memory.rooms.W33S7.spawnWaiting = { cost: 1800, at: Game.time };
     world.time += 3;
     ssFeed = taskBroker.roomTasks(ssRoom).find((t) => t.kind === 'deliver' && t.id === ssStorage.id + ':ctrlFeed');
     assert(ssFeed && ssFeed.tier === 3, 'spawn 等能量时 storage 不提到第一层（得 ' + JSON.stringify(ssFeed && { tier: ssFeed.tier }) + '）');
@@ -8548,7 +8130,6 @@ console.log('== upgrader 站位：storage 建成后站到 storage 相邻格直�
     ssStorage.store[C.RESOURCE_ENERGY] = 30000;
     world.time += 3;
     assert(!taskBroker.roomTasks(ssRoom).some((t) => t.id === ssStorage.id + ':ctrlFeed'), 'storage 高于地板线时没有补 storage 的控制器供能任务');
-    // remoteHauler 回家：storage 见底时先送 storage，而不是控制器容器
     ssStorage.store[C.RESOURCE_ENERGY] = 100;
     ssRoom.find(C.FIND_MY_STRUCTURES).forEach((st) => { if (st.store && (st.structureType === C.STRUCTURE_SPAWN || st.structureType === C.STRUCTURE_EXTENSION)) st.store[C.RESOURCE_ENERGY] = st.store.getCapacity(C.RESOURCE_ENERGY); });
     const ssRh = makeCreep(ssRoom, 'rh.ss', ['carry', 'carry', 'move'], { home: 'W33S7', role: 'remoteHauler', remoteRoom: 'W32S7' });
@@ -8559,7 +8140,6 @@ console.log('== upgrader 站位：storage 建成后站到 storage 相邻格直�
     ROLES.remoteHauler.run(ssRh);
     assert(ssRh.actions.includes('transfer') && ssStorage.store[C.RESOURCE_ENERGY] === 200 && ssCtrlCont.store[C.RESOURCE_ENERGY] === 0,
         'remoteHauler 回家把能量交给见底的 storage，不进控制器容器（storage=' + ssStorage.store[C.RESOURCE_ENERGY] + ' ctrl=' + ssCtrlCont.store[C.RESOURCE_ENERGY] + '）');
-    // spawn：升级者数量看 storage 能量；hauler 往返不再算控制器段
     delete world.creeps[ssUp1.name];
     delete world.creeps[ssUp2.name];
     delete world.creeps[ssRh.name];
@@ -8576,13 +8156,11 @@ console.log('== upgrader 站位：storage 建成后站到 storage 相邻格直�
     for (let i = 0; i < 120; i++) { world.time++; spawnMgr.run(ssRoom); }
     require('../src/config').upgrading.changeInterval = ssInterval;
     assert(Memory.rooms.W33S7.demand.targets.upgrader === 1, 'storage 掉到 500 后 EMA 回落，upgrader 目标回到底线 1（得 ' + Memory.rooms.W33S7.demand.targets.upgrader + ' ema=' + JSON.stringify(Memory.rooms.W33S7.upgradeSupply) + '）');
-    // hauler 往返：storage 供能时不算控制器段。用 800 容量（小 hauler）让这一段的差别体现在数量上
     ssRoom.energyCapacityAvailable = 800;
     ssRoom.energyAvailable = 800;
     world.time++;
     spawnMgr.run(ssRoom);
     const ssHaulerFedSmall = Memory.rooms.W33S7.demand.targets.hauler;
-    // 同样的房把 storage 挪到离控制器 5 格外（W34S7 的情形）：没有站位，容器照旧靠 hauler 送，往返算控制器段
     delete ssRoom.storage;
     ssRoom._structs.splice(ssRoom._structs.indexOf(ssStorage), 1);
     const ssFarStorage = makeStructure(ssRoom, C.STRUCTURE_STORAGE, 21, 20, { energy: 30000, capacity: 1000000 });
@@ -8597,10 +8175,6 @@ console.log('== upgrader 站位：storage 建成后站到 storage 相邻格直�
 
 console.log('== storage 供能房的补给地板必须高出升级者取用底线：两者相等时可取量恒为 0，升级速率归零 ==');
 {
-    // 线上 2026-09-07：controllerFeedStorageFloor 与 upgrading.reserve 都是 2000——hauler 把 storage 补到 2000 就停手，
-    // 升级者只取 2000 以上（roles/upgrader.withdrawable），可取量恒为 0，又因"hauler 在岗就原地等"无限期空等。
-    // 结果 storage 供能的 W31S6 storage 1188–1994 徘徊、升级 12–16 → 0.00 prog/tick，W31S8 storage 2190–2657、6.58 → 1.62；
-    // 同 RCL、storage 更低（7143）的容器供能房 W33S8 靠第三层控制器容器投递稳在 13–21 prog/tick
     const cfg = require('../src/config');
     const reserve = cfg.upgrading.reserve;
     const band = cfg.controllerFeedStorageBand;
@@ -8611,7 +8185,6 @@ console.log('== storage 供能房的补给地板必须高出升级者取用底�
     const bandStorage = makeStructure(bandRoom, C.STRUCTURE_STORAGE, bandPlan.storage.x, bandPlan.storage.y, { energy: 0, capacity: 1000000 });
     world.time++;
     assert(layout.controllerFedByStorage(bandRoom, bandPlan) === true, '前提：这是 storage 供能的房');
-    // 关键：storage 停在 reserve 上时补给不能停手——旧地板 = reserve 正好停在这里，于是收敛点的可取量恒为 0
     bandStorage.store[C.RESOURCE_ENERGY] = reserve;
     world.time += 3;
     const bandFeed = taskBroker.roomTasks(bandRoom).find((t) => t.id === bandStorage.id + ':ctrlFeed');
@@ -8625,12 +8198,10 @@ console.log('== storage 供能房的补给地板必须高出升级者取用底�
     world.time += 3;
     taskBroker.roomTasks(bandRoom);
     assert(!Memory.rooms.W33S7.ctrlFeedBand, 'storage 在取用底线以下时不记 ctrlFeedBand：旧代码也会补这一段，不能用来区分新旧');
-    // 补到新地板（reserve + band）之上才停手
     bandStorage.store[C.RESOURCE_ENERGY] = reserve + band;
     world.time += 3;
     assert(!taskBroker.roomTasks(bandRoom).some((t) => t.id === bandStorage.id + ':ctrlFeed'),
         'storage 达到 reserve + band = ' + (reserve + band) + ' 后不再按控制器供能补');
-    // 收敛点（storage = 新地板）上，升级者能取到整整一个工作带，而不是 0
     bandStorage.store[C.RESOURCE_ENERGY] = reserve + band;
     const bandUp = makeCreep(bandRoom, 'up.band', utils.makeBody('upgrader', 1800), { home: 'W33S7', role: 'upgrader' });
     world.creeps[bandUp.name] = bandUp;
@@ -8640,7 +8211,6 @@ console.log('== storage 供能房的补给地板必须高出升级者取用底�
     ROLES.upgrader.run(bandUp);
     assert(bandUp.store[RESOURCE_ENERGY] > 0 && bandStorage.store[C.RESOURCE_ENERGY] < reserve + band,
         '补给收敛点上升级者取得到能量（取了 ' + bandUp.store[RESOURCE_ENERGY] + '，storage 剩 ' + bandStorage.store[C.RESOURCE_ENERGY] + '）');
-    // 旧行为的反例：storage 停在 reserve 上，升级者一点也取不到，只能原地等
     bandStorage.store[C.RESOURCE_ENERGY] = reserve;
     bandUp.store[RESOURCE_ENERGY] = 0;
     bandUp.actions.length = 0;
@@ -8686,18 +8256,15 @@ console.log('== upgrader 按 storage 分档（向 Kalgen 学）：低档小身�
     stRoom.controller.level = 8;
     assert(workParts(spawnMgr.upgraderBody(stRoom, stMem, 2300)) === 15, 'RCL8 封顶 15 WORK');
     stRoom.controller.level = 6;
-    // 没有 storage 站位的房（storage 离控制器远）不分档
     delete stRoom.storage;
     stRoom._structs.splice(stRoom._structs.indexOf(stStorage), 1);
     const stFar = makeStructure(stRoom, C.STRUCTURE_STORAGE, 21, 20, { energy: 0, capacity: 1000000 });
-    stMem.state = Object.assign(stMem.state || {}, { builderBacklog: 5 });   // 限流要有竞争需求（utils.upgradeCompeting）
+    stMem.state = Object.assign(stMem.state || {}, { builderBacklog: 5 });
     world.time++;
-    // 2026-10-08 起身体按可持续供给封顶（2 源 20/tick + storage 0 → W20），"能量吃紧"的 60% 降额由 roles/upgrader 按 duty 降频，不再缩身体
     assert(!spawnMgr.upgraderLowMode(stRoom, stMem) && workParts(spawnMgr.upgraderBody(stRoom, stMem, 2300)) === 20 && utils.upgraderWorkCap(stRoom, stMem) === 12,
         '没有 storage 站位的房编制不分档（upgraderLowMode=false），身体按供给 W20（容量能出 W21），瞬时限流仍是 W12（得 W' + workParts(spawnMgr.upgraderBody(stRoom, stMem, 2300)) + ' cap ' + utils.upgraderWorkCap(stRoom, stMem) + '）');
     delete stRoom.storage;
     stRoom._structs.splice(stRoom._structs.indexOf(stFar), 1);
-    // 取能给 storage 留底 reserve 2000
     const stStorage2 = makeStructure(stRoom, C.STRUCTURE_STORAGE, stPlan.storage.x, stPlan.storage.y, { energy: 1500, capacity: 1000000 });
     world.time++;
     const stUp = makeCreep(stRoom, 'up.st', st2300, { home: 'W33S7', role: 'upgrader' });
@@ -8721,7 +8288,6 @@ console.log('== upgrader 按 storage 分档（向 Kalgen 学）：低档小身�
     ROLES.upgrader.run(stUp);
     assert(stUp.actions.includes('upgradeController') && stUp.actions.includes('withdraw') && stStorage2.store[C.RESOURCE_ENERGY] === 2510,
         '站位上同 tick 补能：只补到仓满（90），storage 留 2510（得 ' + stStorage2.store[C.RESOURCE_ENERGY] + '）');
-    // 低档不加员：EMA 之前加过的额外升级者退回底线
     delete world.creeps[stUp.name];
     stRoom._sources.forEach((src, i) => { world.creeps['sth' + i] = makeCreep(stRoom, 'sth' + i, utils.makeBody('staticHarvester', 2300), { home: 'W33S7', role: 'harvester', sourceIdx: i, sourceId: src.id, staticMiner: true }); });
     stMem.upgradeSupply = { ema: 1, extra: 1, at: -1, changedAt: -1, low: false };
@@ -8731,10 +8297,8 @@ console.log('== upgrader 按 storage 分档（向 Kalgen 学）：低档小身�
     assert(stMem.demand.targets.upgrader === 1 && stMem.upgradeSupply.low === true, 'storage 低档：升级者目标回到底线 1（得 ' + stMem.demand.targets.upgrader + '）');
 }
 
-
 console.log('== storage 低档的升级者至少吃得完 link 链：ctrl link 建成后按每个送能源 link 10 WORK 定低档下限 ==');
 {
-    // 线上 2026-09-05 W33S7：storage 3100 < lowBelow 5000 → 低档 550 → W4，吃不完 ctrl link 的 10/tick，src0 link 与 ctrl link 都 800/800 堵住，升级 16 → 4/tick
     const lkRoom = demoRoom(6400, 5);
     makeSpawn(lkRoom, 23, 21);
     lkRoom.energyCapacityAvailable = 1800;
@@ -8755,21 +8319,17 @@ console.log('== storage 低档的升级者至少吃得完 link 链：ctrl link �
     assert(spawnMgr.upgraderLowMode(lkRoom, lkMem) && workParts(lkBody) === 10 && utils.bodyCost(lkBody) === 1150,
         'ctrl link + src0 link：低档身体至少 W10C2M1=1150 吃完 10/tick（得 ' + lkBody.join(',') + ' 成本 ' + utils.bodyCost(lkBody) + '）');
     assert(workParts(spawnMgr.upgraderBody(lkRoom, lkMem, 800)) === 6, '队列缩身预算 800 更小时仍按预算（得 W' + workParts(spawnMgr.upgraderBody(lkRoom, lkMem, 800)) + '）');
-    // RCL6 起 src1 link 也送能：两条链 20 WORK（容量 2300 够）
     lkRoom.controller.level = 6;
     lkRoom.energyCapacityAvailable = 2300;
     makeStructure(lkRoom, C.STRUCTURE_LINK, lkPlan.links.src1.x, lkPlan.links.src1.y, { energy: 800, capacity: 800 });
-    lkMem.state = Object.assign(lkMem.state || {}, { builderBacklog: 5 });   // 限流要有竞争需求（utils.upgradeCompeting）
+    lkMem.state = Object.assign(lkMem.state || {}, { builderBacklog: 5 });
     world.time++;
     lkBody = spawnMgr.upgraderBody(lkRoom, lkMem, 2300);
-    // 2026-10-08 起身体不再跟着瞬时限流缩到 W12（限流一放开就要换代，线上 W12/W20/W47 来回换）：按可持续供给 20 WORK 封顶，限流期间由 duty 降频
     assert(workParts(lkBody) === 20, 'RCL6 两条源 link、storage 3100 吃紧且有竞争需求：身体按链供给 W20，不被瞬时限流压到 W12（得 ' + lkBody.join(',') + '）');
     lkRoom.controller.level = 5;
     lkRoom.energyCapacityAvailable = 1800;
     world.time++;
     assert(workParts(spawnMgr.upgraderBody(lkRoom, lkMem, 1800)) === 10, 'RCL5 只算 src0（links.run 同口径）：W10');
-    // 换代扫描与孵化请求必须用同一份低档状态：storage 6000 在滞回带内（≥ lowBelow、< lowExitAbove）仍是低档，
-    // 已在岗的 W10 升级者不该被"满身体"换代（线上 2026-09-05 W33S7：扫描路径没带 mem，storage 一过 5000 就孵了 1750 的 W16）
     makeStructure(lkRoom, C.STRUCTURE_STORAGE, lkPlan.storage.x, lkPlan.storage.y, { energy: 6000, capacity: 1000000 });
     world.creeps.lkH0 = makeCreep(lkRoom, 'lkH0', utils.makeBody('staticHarvester', 1800), { home: 'W33S7', role: 'harvester', sourceIdx: 0, sourceId: 'dm0', staticMiner: true });
     world.creeps.lkH1 = makeCreep(lkRoom, 'lkH1', utils.makeBody('staticHarvester', 1800), { home: 'W33S7', role: 'harvester', sourceIdx: 1, sourceId: 'dm1', staticMiner: true });
@@ -8778,20 +8338,19 @@ console.log('== storage 低档的升级者至少吃得完 link 链：ctrl link �
     world.creeps.lkUp = makeCreep(lkRoom, 'lkUp', spawnMgr.upgraderBody(lkRoom, lkMem, 1800), { home: 'W33S7', role: 'upgrader' }, { ticksToLive: 600 });
     world.time++;
     assert(spawnMgr.upgraderLowMode(lkRoom, lkMem) && workParts(world.creeps.lkUp.body) === 10, '前提：storage 6000 仍在低档，在岗升级者 W10');
-    for (let tick = 0; tick < 9; tick++) {   // 矿工换代（优先级更高）先占几 tick，之后才轮到升级者
+    for (let tick = 0; tick < 9; tick++) {
         lkRoom.energyAvailable = 1800;
         spawnMgr.run(lkRoom);
         world.time++;
     }
     const lkChurn = Object.values(world.creeps).find((c) => c.name.includes('.upgrade') && c.memory.role === 'upgrader');
     assert(!lkChurn, '低档滞回带内不给 W10 升级者换满身体（得 ' + (lkChurn ? lkChurn.name + ' W' + workParts(lkChurn.body) : '无') + '）');
-    // ctrl link 拆掉 → 链断了，回到 W4
     lkCtrl.destroy();
     world.time++;
     assert(workParts(spawnMgr.upgraderBody(lkRoom, lkMem, 1800)) === 4, 'ctrl link 没了：低档回到 W4');
 }
 
-{ const haulingCfg = require('../src/config').hauling; const sizingCfg = haulingCfg.sizing || (haulingCfg.sizing = {}); sizingCfg.__savedShare = sizingCfg.fallbackShare; sizingCfg.fallbackShare = 1; }   // 这一段要第 2 只 hauler 买不起，不是测 hauler 尺寸：sizing.fallbackShare 1 = 没有实测时每只满配（spawn.estimateHomeHaulerTarget；原来的 coreMinBodyShare 1）
+{ const haulingCfg = require('../src/config').hauling; const sizingCfg = haulingCfg.sizing || (haulingCfg.sizing = {}); sizingCfg.__savedShare = sizingCfg.fallbackShare; sizingCfg.fallbackShare = 1; }
 console.log('== spawn 队列：矿工换代与弹性矿工是 strategic+opportunistic 请求，核心 hauler 等能量时照样补 WORK ==');
 resetWorld(9100);
 const qhRoom = makeRoom('W33S7', { rcl: 4, energy: 700, cap: 1100, owner: 'me', ctrl: { x: 34, y: 24 } });
@@ -8900,7 +8459,6 @@ for (const key of ['src0', 'src1', 'ctrl']) {
 }
 world.creeps.rvH0 = makeCreep(rvRoom, 'rvH0', utils.makeBody('staticHarvester', 1300), { home: 'W34S7', role: 'harvester', sourceIdx: 0, sourceId: 'rv0', staticMiner: true });
 world.creeps.rvH1 = makeCreep(rvRoom, 'rvH1', utils.makeBody('staticHarvester', 1300), { home: 'W34S7', role: 'harvester', sourceIdx: 1, sourceId: 'rv1', staticMiner: true });
-// 换代退役中的旧矿工（正走向 spawn 回收）：寿命再短也不该为它出替补预留、不算编制
 world.creeps.rvH2 = makeCreep(rvRoom, 'rvH2', ['work', 'move'], { home: 'W34S7', role: 'harvester', sourceIdx: 1, sourceId: 'rv1', staticMiner: true, bodyUpgradeRetiring: true }, { ticksToLive: 30 });
 world.creeps.rvHa = makeCreep(rvRoom, 'rvHa', utils.makeBody('hauler', 1300), { home: 'W34S7', role: 'hauler' });
 world.creeps.rvHb = makeCreep(rvRoom, 'rvHb', utils.makeBody('hauler', 1300), { home: 'W34S7', role: 'hauler' });
@@ -8909,27 +8467,23 @@ world.creeps.rvBu = makeCreep(rvRoom, 'rvBu', utils.makeBody('builder', 1300), {
 Memory.map = {};
 Memory.brain = { version: 1, issuedAt: Date.now() + 5, ttlMs: 1800000, intel: {}, rooms: { W34S7: { remotes: ['W32S8', 'W34S8'], scouts: 0, claim: null } } };
 require('brain').run();
-// 外矿需求：白名单 W32S8 排前，但 W34S8 有容器 → 先补 W34S8
 const rvDemands = remoteMod.getDemands(rvRoom);
 assert(rvDemands.length > 0 && rvDemands[0].memory.remoteRoom === 'W34S8', '容器已建成的外矿排在还没开矿的前面（得 ' + rvDemands.slice(0, 3).map((d) => d.slot).join(',') + '）');
 const rvReserver = rvDemands.find((d) => d.role === 'reserver');
 assert(rvReserver && utils.bodyCost(rvReserver.body) === 1300 && rvReserver.grace === config.remote.reserverGrace && utils.bodyCost(rvReserver.bodyFor(650)) === 650,
     '容量 1300 的 reserver 需求：双 CLAIM、宽限 ' + config.remote.reserverGrace + '；没人在岗时 bodyFor(650) 退回 1 CLAIM 补空窗（得 ' + JSON.stringify(rvReserver && [utils.bodyCost(rvReserver.body), rvReserver.grace]) + '）');
-// 矿工 rvH1 距离到期提前量只剩 20 tick，650 的替补按每源 5/tick 要 35 tick 才攒够 → 预留请求出现并当队头等待
 world.creeps.rvH1.ticksToLive = spawnMgr.roleLead(world.creeps.rvH1, 'harvester') + 20;
 spawnMgr.run(rvRoom);
 const rvQueue = Memory.rooms.W34S7.spawnQueue;
 assert(rvQueue && rvQueue.waiting && rvQueue.waiting.key === 'reserve:harvester:rvH1' && rvQueue.waiting.cost === utils.bodyCost(utils.makeBody('staticHarvester', 1300)),
     '替补预留请求成为队头等待（得 ' + JSON.stringify(rvQueue && rvQueue.waiting) + '）');
 assert(Object.values(world.creeps).filter((c) => !c.name.startsWith('rv')).length === 0 && rvQueue.blocked >= 1, '预留买不起时外矿需求被挡、不孵（得 spawned=' + JSON.stringify(rvQueue.spawned) + ' blocked=' + rvQueue.blocked + '）');
-// 能量够了：预留从预算扣掉，外矿的 650 reserver（缩身后）仍然买不起 → 不孵
 rvRoom.energyAvailable = 900;
 spawnMgr.run(rvRoom);
 const rvQueue2 = Memory.rooms.W34S7.spawnQueue;
 assert(rvQueue2.reserved.join() === 'reserve:harvester:rvH1' && Object.values(world.creeps).filter((c) => !c.name.startsWith('rv')).length === 0,
     '预留买得起：从预算扣掉后外矿 creep 买不起（得 reserved=' + JSON.stringify(rvQueue2.reserved) + ' spawned=' + JSON.stringify(rvQueue2.spawned) + '）');
 assert(!JSON.stringify(rvQueue2).includes('rvH2'), '退役中的旧矿工不出替补预留（得 ' + JSON.stringify(rvQueue2) + '）');
-// 到了提前量：预留消失，替补由计数产生并直接孵出
 world.creeps.rvH1.ticksToLive = spawnMgr.roleLead(world.creeps.rvH1, 'harvester');
 spawnMgr.run(rvRoom);
 const rvNew = Object.values(world.creeps).filter((c) => !c.name.startsWith('rv'));
@@ -8957,7 +8511,6 @@ for (const site of rmHome.find(C.FIND_MY_CONSTRUCTION_SITES)) site.progressTotal
 ['rm0', 'rm1'].forEach((id, index) => { world.creeps['rmH' + index] = makeCreep(rmHome, 'rmH' + index, utils.makeBody('staticHarvester', 1600), { home: 'W33S7', role: 'harvester', sourceIdx: index, sourceId: id, staticMiner: true }); });
 for (let i = 0; i < 2; i++) world.creeps['rmHa' + i] = makeCreep(rmHome, 'rmHa' + i, utils.makeBody('hauler', 1600), { home: 'W33S7', role: 'hauler' });
 world.creeps.rmUp = makeCreep(rmHome, 'rmUp', utils.makeBody('upgrader', 1600), { home: 'W33S7', role: 'upgrader' });
-// 弱房 W33S8（我方、无 storage、容量 300）触发援建需求；builder 目标 ≥ 1 而在岗 0 → 发展档 builder 请求
 const rmWeak = makeRoom('W33S8', { rcl: 2, energy: 300, cap: 300, owner: 'me', ctrl: { x: 40, y: 25 } });
 rmWeak._sources = [makeSource(rmWeak, 4, 18, 'rmw0'), makeSource(rmWeak, 12, 31, 'rmw1')];
 makeSpawn(rmWeak, 36, 17);
@@ -9077,7 +8630,6 @@ const ugDemands = remoteMod.getDemands(ugHome);
 const ugHaulDemand = ugDemands.find((d) => d.role === 'remoteHauler');
 const ugMinerDemand = ugDemands.find((d) => d.role === 'remoteMiner');
 const ugReserveDemand = ugDemands.find((d) => d.role === 'reserver');
-// 换代吞吐与编制走同一个往返（remote.roundTripTicks：2 × 27 + 周转 2 + 停靠回退 10 = 66）；原来是 2d + 4 = 58，没算停靠，编制与换代判断两套口径
 const ugTrip = 27 * 2 + config.remote.turnTicks + config.remote.deliveryStopTicks;
 assert(ugHaulDemand && typeof ugHaulDemand.throughput === 'function' && ugHaulDemand.throughput(ugHaulDemand.body) === 10 &&
     Math.abs(ugHaulDemand.throughput([{ type: 'work' }, { type: 'carry' }, { type: 'move' }]) - 50 / ugTrip) < 1e-9,
@@ -9093,26 +8645,21 @@ assert(ugSpawned.length === 1 && ugNew && ugNew.name.includes('.upgrade') && uti
     '1 CARRY 的 hauler 占着 19 CARRY 的槽位、能量满：孵理想身体替换（得 ' + ugSpawned.map((c) => c.name + ':' + c.memory.role + '@' + utils.bodyCost(c.body)).join(',') + '）');
 assert(world.creeps.ugHa.memory.bodyUpgradePending === (ugNew && ugNew.name) && world.creeps.ugHa.memory.bodyUpgradeAt === Game.time, '旧 hauler 记下替换租约');
 assert(Memory.rooms.W33S7.spawnQueue.spawned.join() === 'upgrade:remoteHauler:W33S6:ug6:0', '遥测记录换代请求（得 ' + JSON.stringify(Memory.rooms.W33S7.spawnQueue.spawned) + '）');
-// 交接：替换者还在母房 → 旧的继续干活；进了外矿房 → 退役
 ugNew.spawning = false;
 world.time++;
 assert(spawnMgr.retireReplaced(world.creeps.ugHa) === false && !world.creeps.ugHa.actions.includes('suicide'), '替换者还在母房：旧 hauler 不退役、继续运');
 ugNew.room = { name: 'W33S6' };
 assert(spawnMgr.retireReplaced(world.creeps.ugHa) === true && retiring(world.creeps.ugHa) && !world.creeps.ugHa.actions.includes('suicide'), '替换者进了外矿房：旧 hauler 走向 spawn 回收（得 ' + world.creeps.ugHa.actions.join(',') + '）');
-// 同一 tick 再跑：换代中的槽位不再出第二条换代请求
 ugHome.energyAvailable = 1600;
 spawnMgr.run(ugHome);
 assert(Object.values(world.creeps).filter((c) => c.name.includes('.upgrade')).length === 1, '交接中的槽位不再出第二条换代请求');
-// 交接超时：替换者 200 tick 还没到外矿房也退役
 const ugLate = makeCreep(ugHome, 'ugLate', ['carry', 'move'], { home: 'W33S7', role: 'remoteHauler', remoteRoom: 'W33S6', sourceId: 'ug6', haulSlot: 0, bodyUpgradePending: 'ugHa1', bodyUpgradeAt: Game.time - 250 });
 world.creeps.ugLate = ugLate;
 world.creeps.ugHa1 = makeCreep(ugHome, 'ugHa1', utils.makeBody('hauler', 1600), { home: 'W33S7', role: 'remoteHauler', remoteRoom: 'W33S6', sourceId: 'ug6', haulSlot: 0 });
 assert(spawnMgr.retireReplaced(ugLate) === true && retiring(ugLate), '交接超过 upgradeHandover tick：旧 hauler 照样退役');
-// 近理想的 hauler（12 CARRY 已能运满源产出）不换
 const ugHome2 = makeUpgradeWorld(9610, ['work'].concat(Array.from({ length: 12 }, () => 'carry'), Array.from({ length: 7 }, () => 'move')), 1200);
 spawnMgr.run(ugHome2);
 assert(!Object.values(world.creeps).some((c) => c.name.includes('.upgrade')), '12 CARRY 的 hauler 已运满 10/tick：不换代（得 ' + Object.values(world.creeps).filter((c) => !c.name.startsWith('ug')).map((c) => c.name).join(',') + '）');
-// 快到期的缩身 hauler 不换：常规替补接手
 const ugHome3 = makeUpgradeWorld(9620, ['work', 'carry', 'move'], 100);
 spawnMgr.run(ugHome3);
 assert(!Object.values(world.creeps).some((c) => c.name.includes('.upgrade')), 'ttl 100 的缩身 hauler 不走换代（得 ' + Object.values(world.creeps).filter((c) => !c.name.startsWith('ug')).map((c) => c.name + ':' + c.memory.role).join(',') + '）');
@@ -9123,19 +8670,17 @@ console.log('== 外矿矿工太弱（2 WORK 采不动预定多出的一半）：
     const wkMiner = makeCreep(wkHome, 'ugM', ['work', 'work', 'carry', 'move', 'move'], { home: 'W33S7', role: 'remoteMiner', remoteRoom: 'W33S6', sourceId: 'ug6', slotKey: 'remoteMiner:W33S6:ug6' });
     wkMiner.pos = new RoomPosition(29, 44, 'W33S6');
     world.creeps.ugM = wkMiner;
-    delete world.creeps.ugR;   // 在岗 reserver 已到期：预定 900 ≤ 提前量 + 缓冲 + reservationKeep，该续派了
+    delete world.creeps.ugR;
     const wkDemands = remoteMod.getDemands(wkHome);
     const wkRec = Memory.rooms.W33S7.remotes.W33S6;
     assert(!wkDemands.some((d) => d.role === 'reserver') && wkRec.reserverWeakMiner && wkRec.reserverWeakMiner.gain === 0,
         '唯一的源由 2 WORK 矿工在采（4/tick < 未预定的 5）：不派 reserver，记 reserverWeakMiner（得 ' + JSON.stringify([wkDemands.map((d) => d.slot), wkRec.reserverWeakMiner]) + '）');
-    // 能量 600 买不起 800 的 5W 矿工：换代请求是外矿维护档、非机会档——成为队头等待（机会档买不起直接跳过，永远轮不到）
     wkHome.energyAvailable = 600;
     spawnMgr.run(wkHome);
     const wkQueue = Memory.rooms.W33S7.spawnQueue;
     assert(Memory.rooms.W33S7.minerUpgradeUrgent && Memory.rooms.W33S7.minerUpgradeUrgent.slot === 'remoteMiner:W33S6:ug6' &&
         wkQueue && wkQueue.waiting && wkQueue.waiting.key === 'upgrade:remoteMiner:W33S6:ug6',
         '2 WORK 矿工（吞吐 4 < 理想 10 的一半）的换代等能量，不是被机会档跳过（得 ' + JSON.stringify([Memory.rooms.W33S7.minerUpgradeUrgent, wkQueue && wkQueue.waiting]) + '）');
-    // 同一个母房的第二条外矿也提档时，单条记录会被覆盖：日志按槽位各留一条（私服 audit 场景的证据就这么丢过）
     Memory.rooms.W33S7.minerUpgradeUrgent = { at: Game.time, slot: 'remoteMiner:W32S7:other', rate: 4, ideal: 10 };
     Memory.rooms.W33S7.minerUpgradeLog = [{ at: Game.time, slot: 'remoteMiner:W32S7:other', rate: 4, ideal: 10 }];
     world.time++;
@@ -9148,7 +8693,6 @@ console.log('== 外矿矿工太弱（2 WORK 采不动预定多出的一半）：
     spawnMgr.run(wkHome);
     const wkNew = Object.values(world.creeps).find((c) => c.memory.role === 'remoteMiner' && c.name.includes('.upgrade'));
     assert(wkNew && utils.bodyPartCount(wkNew.body, 'work') === 5 && wkNew.memory.replaces === 'ugM', '能量够了孵 5 WORK 的换代矿工（得 ' + (wkNew && wkNew.body.map((p) => p.type || p).join(',')) + '）');
-    // 换代矿工在路上：源有 5 WORK 在岗（含孵化中），预定有人采了——reserver 需求回来
     wkNew.spawning = false;
     const wkAfter = remoteMod.getDemands(wkHome);
     assert(wkAfter.some((d) => d.role === 'reserver'), '5 WORK 矿工在岗后照常派 reserver（得 ' + wkAfter.map((d) => d.slot).join(',') + '）');
@@ -9177,7 +8721,6 @@ console.log('== 外矿容器丢了：槽 0 的维护 hauler 照出（带 WORK，
     const lcHauls = remoteMod.getDemands(lcHome).filter((d) => d.role === 'remoteHauler');
     assert(lcHauls.length === 1 && /:0$/.test(lcHauls[0].slot) && lcHauls[0].body.includes('work') && Memory.rooms.W33S7.remotes.W33S6.containerLostHaul,
         '容器丢失：只出槽 0 的维护 hauler（带 WORK），旧代码没有容器就一只都不出（得 ' + JSON.stringify(lcHauls.map((d) => [d.slot, d.body.length])) + '）');
-    // 矿工站在容器工地上、脚下堆着倒出来的能量：build 与 pickup 同 tick
     lcRemote.createConstructionSite(12, 10, C.STRUCTURE_CONTAINER);
     makeDropped(lcRemote, 12, 10, 800);
     lcMiner.store[C.RESOURCE_ENERGY] = 40;
@@ -9212,7 +8755,6 @@ assert(sqvRes.actions.length === 0 && sqvRes.waiting.key === 'reserve:hauler:h' 
 sqvRes = sqv.schedule([sqvFixed('defense', 0, 300, { strategic: true, blocking: false }), sqvFixed('core:hauler:0', 1, 1300, { vital: true, grace: 0, minShare: 0.5 })],
     { now: 1000, energy: 400, capacity: 1300, income: 5, spawnsFree: 1, since: { 'core:hauler:0': 900 }, minShare: 0.5 });
 assert(sqvRes.actions.length === 1 && sqvRes.actions[0].request.key === 'defense', '排在 vital 前面的防御不受影响');
-// 生存档 builder（1.75）排在刚出现的生存档 hauler（1）之后：hauler 先缩身孵，builder 的等待挡住援建
 const sqvScaled = (budget) => (budget >= 650 ? Array.from({ length: Math.min(26, Math.floor(budget / 50)) }, () => 'move') : []);
 sqvRes = sqv.schedule([{ key: 'core:builder:0', role: 'builder', priority: 1.75, grace: 30, vital: true, minShare: 0.5, body: sqvScaled }, { key: 'core:hauler:0', role: 'hauler', priority: 1, grace: 30, vital: true, minShare: 0.5, body: sqvScaled }, sqvFixed('aid', 5, 300, { strategic: true })],
     { now: 1000, energy: 700, capacity: 1300, income: 5, spawnsFree: 2, since: { 'core:builder:0': 100, 'core:hauler:0': 900 }, minShare: 0.5 });
@@ -9233,13 +8775,10 @@ console.log('== 核心替补预留按实际会接受的身体计价、窗口封�
     world.creeps.rsHa = makeCreep(rsRoom, 'rsHa', utils.makeBody('hauler', 1150), { home: 'W34S7', role: 'hauler' });
     world.creeps.rsHb = makeCreep(rsRoom, 'rsHb', utils.makeBody('hauler', 1150), { home: 'W34S7', role: 'hauler' });
     world.creeps.rsUp = makeCreep(rsRoom, 'rsUp', utils.makeBody('upgrader', 1300), { home: 'W34S7', role: 'upgrader' });
-    // 收入 3.5、能量 1400：按 2300 算要 257 tick 才攒够，旧规则在 hauler 到期前 277 tick 就预留 2300 并挡住整条队列；
-    // 实际替补按容量一半 1150 孵，1400 已经够了——不该有预留
     world.creeps.rsHa.ticksToLive = spawnMgr.roleLead(world.creeps.rsHa, 'hauler') + 250;
     spawnMgr.run(rsRoom);
     const rsQ = Memory.rooms.W34S7.spawnQueue || {};
     assert(!JSON.stringify(rsQ).includes('reserve:hauler'), '能量已够替补实际身体（1150）：不预留满容量 2300（得 ' + JSON.stringify(rsQ) + '）');
-    // 能量 500：还差 650，按 3.5/tick 要 186 tick——窗口封顶 150 + 20，剩 250 tick 时不预留，剩 160 tick 时才预留 1150
     rsRoom.energyAvailable = 500;
     world.time++;
     Memory.rooms.W34S7.spawnIncome = { ema: 3.5, n: 1000, last: 500, at: Game.time - 1 };
@@ -9257,16 +8796,13 @@ console.log('== 核心替补预留按实际会接受的身体计价、窗口封�
 
 console.log('== 生存档等待挡住援建：家里 hauler 死光、能量 450/1300 时不再给弱房孵援建 creep；攒到 650 先缩身孵自己的 hauler ==');
 resetWorld(9700);
-const vhHome = makeRoom('W34S7', { rcl: 4, energy: 450, cap: 1300, owner: 'me', ctrl: { x: 34, y: 24 } });   // 450：援建矿工缩身买得起、自己的 hauler（下限 650）买不起
+const vhHome = makeRoom('W34S7', { rcl: 4, energy: 450, cap: 1300, owner: 'me', ctrl: { x: 34, y: 24 } });
 vhHome._sources = [makeSource(vhHome, 14, 6, 'vh0'), makeSource(vhHome, 31, 12, 'vh1')];
 makeSpawn(vhHome, 23, 21);
 const vhPlan = { version: 'wheel-layout-2.1.0', wheel: true, anchor: { x: 31, y: 26 }, containers: { src0: { x: 15, y: 7 }, src1: { x: 32, y: 13 }, ctrl: { x: 33, y: 25 } }, sourceIds: ['vh0', 'vh1'] };
 Memory.rooms.W34S7 = { sources: ['vh0', 'vh1'], plan: vhPlan, state: { at: Game.time, recovering: false, emergencyHarvest: false }, spawnIncome: { ema: 5, n: 500, last: 450, at: Game.time - 1 }, remotes: {},
-    // 援建请求早就过了 300 tick 的宽限（线上等了 500+ tick）：会按预算缩身——修复前它就这样绕过等待把能量花掉
     spawnSince: { 'aid:aid:harvester:W35S7:0': Game.time - 600, 'aid:aid:harvester:W35S7:1': Game.time - 600, 'aid:aid:hauler:W35S7': Game.time - 600 } };
 for (const key of ['src0', 'src1', 'ctrl']) { const pos = vhPlan.containers[key]; vhHome._structs.push({ structureType: C.STRUCTURE_CONTAINER, pos: new RoomPosition(pos.x, pos.y, 'W34S7'), store: mkStore(1500, 2000) }); }
-// 线上 W34S7 的矿工是 5W1C：带 CARRY，但源有容器，它们只往容器交货、不送 spawn——家里 0 hauler 时没有任何能量会进 spawn，
-// 收入估计为 0（紧急态）：生存档 hauler 立刻按现有能量孵，不再按"容量一半"干等满 survivalShrinkAfter（旧预期把矿工当搬运者）
 ['vh0', 'vh1'].forEach((id, index) => { world.creeps['vhH' + index] = makeCreep(vhHome, 'vhH' + index, ['work', 'work', 'work', 'work', 'work', 'carry', 'move', 'move', 'move'], { home: 'W34S7', role: 'harvester', sourceIdx: index, sourceId: id, staticMiner: true }); });
 world.creeps.vhUp = makeCreep(vhHome, 'vhUp', utils.makeBody('upgrader', 1300), { home: 'W34S7', role: 'upgrader' });
 world.creeps.vhBu = makeCreep(vhHome, 'vhBu', utils.makeBody('builder', 1300), { home: 'W34S7', role: 'builder' });
@@ -9310,7 +8846,6 @@ function makeGapWorld(time, withContainers, energy) {
     return home;
 }
 let gpHome = makeGapWorld(9800, false, 700);
-// 邻近弱房有援建需求且早过了宽限：容器缺失的房不该再援建
 const gpWeak = makeRoom('W33S8', { rcl: 2, energy: 300, cap: 300, owner: 'me', ctrl: { x: 20, y: 30 } });
 gpWeak._sources = [makeSource(gpWeak, 10, 10, 'gw0'), makeSource(gpWeak, 40, 40, 'gw1')];
 makeSpawn(gpWeak, 27, 36);
@@ -9344,7 +8879,7 @@ plannerState.cache.W33S7 = { layout: wheelFixture('W33S7') };
 layout.run(lcRoom);
 const lcPlan = Memory.rooms.W33S7.plan;
 assert(lcPlan && lcPlan.containers && lcPlan.containers.src0 && lcPlan.containers.src1, '前提：轮子方案有两个源容器位');
-lcPlan.containers.ctrl = { x: 22, y: 30 };   // 轮子方案的控制器站位不是容器：手动补一个 ctrl 容器位来占在建配额
+lcPlan.containers.ctrl = { x: 22, y: 30 };
 lcRoom._sites.length = 0;
 lcRoom.createConstructionSite(lcPlan.containers.src1.x, lcPlan.containers.src1.y, C.STRUCTURE_CONTAINER);
 lcRoom.createConstructionSite(lcPlan.containers.ctrl.x, lcPlan.containers.ctrl.y, C.STRUCTURE_CONTAINER);
@@ -9364,20 +8899,18 @@ const esCtrlCont = makeStructure(esRoom, C.STRUCTURE_CONTAINER, 43, 14, { capaci
 Memory.rooms.W35S7 = { sources: ['es0', 'es1'], plan: { containers: { src0: { x: 36, y: 19 }, src1: { x: 18, y: 30 }, ctrl: { x: 43, y: 14 } } }, state: { at: Game.time, recovering: false, emergencyHarvest: false } };
 esRoom.createConstructionSite(21, 6, C.STRUCTURE_ROAD);
 for (const [x, y] of [[35, 17], [37, 16], [36, 16], [42, 19], [41, 17]]) esRoom.createConstructionSite(x, y, C.STRUCTURE_EXTENSION);
-const esBuilder = makeCreep(esRoom, 'es-b', ['work', 'carry', 'carry', 'carry', 'move', 'move'], { home: 'W35S7', role: 'builder' });   // 150 容量
+const esBuilder = makeCreep(esRoom, 'es-b', ['work', 'carry', 'carry', 'carry', 'move', 'move'], { home: 'W35S7', role: 'builder' });
 esBuilder.id = 'es-b-id';
 world.creeps[esBuilder.name] = esBuilder;
 const esHauler = makeCreep(esRoom, 'es-h', ['carry', 'carry', 'carry', 'carry', 'move', 'move'], { home: 'W35S7', role: 'hauler' });
 esHauler.id = 'es-h-id';
 world.creeps[esHauler.name] = esHauler;
-// 1) 能量 100 的 builder：容量 300 时先建 extension，不去远角修路
 esBuilder.store[C.RESOURCE_ENERGY] = 100;
 esBuilder.pos = new RoomPosition(36, 17, 'W35S7');
 ROLES.builder.run(esBuilder);
 const esExtProgress = esRoom.find(C.FIND_MY_CONSTRUCTION_SITES).filter((x) => x.structureType === C.STRUCTURE_EXTENSION).reduce((sum, x) => sum + x.progress, 0);
 const esRoad = esRoom.find(C.FIND_MY_CONSTRUCTION_SITES).find((x) => x.structureType === C.STRUCTURE_ROAD);
 assert(esExtProgress > 0 && esRoad.progress === 0, '容量 300：先建 extension 而不是远角的路（ext=' + esExtProgress + ' road=' + esRoad.progress + '）');
-// 2) 空载、feedAt 新鲜、房里有 hauler，但源容器 2000/2000：不原地等，自己去取
 esBuilder.store[C.RESOURCE_ENERGY] = 0;
 esBuilder.actions.length = 0;
 esBuilder.moveCalls.length = 0;
@@ -9385,20 +8918,18 @@ world.time += 3;
 ROLES.builder.run(esBuilder);
 assert(esBuilder.actions.includes('withdraw') || esBuilder.actions.includes('pickup') || esBuilder.moveCalls.length > 0,
     '源容器 2000/2000（闲置）：空载 builder 不等投递，自己去取（得 ' + esBuilder.actions.join(',') + ' moves=' + esBuilder.moveCalls.length + '）');
-// 3) 容器只有 1500（不闲置）时恢复原规则：spawn 未满且有 hauler → 在工地等投递
 esSrcCont.store[C.RESOURCE_ENERGY] = 1500;
 esCtrlCont.store[C.RESOURCE_ENERGY] = 1000;
 esSpawn.store[C.RESOURCE_ENERGY] = 200;
 esRoom.energyAvailable = 200;
 esBuilder.pos = new RoomPosition(36, 17, 'W35S7');
-esBuilder.store[C.RESOURCE_ENERGY] = 0;   // mock 的 withdraw 不看距离，上一步已经把能量拿到手
+esBuilder.store[C.RESOURCE_ENERGY] = 0;
 esBuilder.memory.feedAt = Game.time;
 delete esBuilder.memory.waitSince;
 esBuilder.actions.length = 0;
 esBuilder.moveCalls.length = 0;
 ROLES.builder.run(esBuilder);
 assert(!esBuilder.actions.includes('withdraw') && esBuilder.moveCalls.length === 0, '容器 1500、spawn 未满：builder 仍在工地等投递（得 ' + esBuilder.actions.join(',') + ' moves=' + esBuilder.moveCalls.length + '）');
-// 4) 地上成堆（≥1000）也算闲置：builder 去捡
 makeDropped(esRoom, 35, 19, 1200);
 esBuilder.store[C.RESOURCE_ENERGY] = 0;
 esBuilder.memory.feedAt = Game.time;
@@ -9408,12 +8939,11 @@ world.time += 3;
 ROLES.builder.run(esBuilder);
 assert(esBuilder.actions.includes('pickup') || esBuilder.moveCalls.length > 0, '地上 1200 能量：builder 去捡而不是等（得 ' + esBuilder.actions.join(',') + '）');
 esRoom._drops.length = 0;
-// 5) 满载 hauler、spawn/控制器都满：把能量补给工地上能量过半的 builder（第 4 层），而不是停在 spawn 旁
 esSpawn.store[C.RESOURCE_ENERGY] = 300;
 esRoom.energyAvailable = 300;
 esCtrlCont.store[C.RESOURCE_ENERGY] = 1700;
 esBuilder.pos = new RoomPosition(36, 17, 'W35S7');
-esBuilder.store[C.RESOURCE_ENERGY] = 80;   // 80/150：过半，旧规则不出投递任务；空位 70 ≥ 50 才值得一趟
+esBuilder.store[C.RESOURCE_ENERGY] = 80;
 esBuilder.memory.feedAt = Game.time;
 world.time += 3;
 taskBroker.beginTick();
@@ -9424,16 +8954,13 @@ esHauler.pos = new RoomPosition(36, 18, 'W35S7');
 esHauler.store[C.RESOURCE_ENERGY] = 200;
 ROLES.hauler.run(esHauler);
 assert(esHauler.actions.includes('transfer') && esBuilder.store[C.RESOURCE_ENERGY] >= 150, '满载 hauler 没别的目标时把能量送到工地 builder 手上（mock 的 transfer 不封顶容量）（builder=' + esBuilder.store[C.RESOURCE_ENERGY] + '）');
-// 6) builder 上限：闲置时 +1
 esSrcCont.store[C.RESOURCE_ENERGY] = 2000;
 assert(spawnMgr.builderTarget(esRoom) === 3, '源容器满（闲置）：RCL2 builder 上限 2 → 3（得 ' + spawnMgr.builderTarget(esRoom) + '）');
 esSrcCont.store[C.RESOURCE_ENERGY] = 1500;
 assert(spawnMgr.builderTarget(esRoom) === 2, '不闲置：上限仍是 2（得 ' + spawnMgr.builderTarget(esRoom) + '）');
-// 7) 300 档升级者 2 WORK
 assert(utils.makeBody('upgrader', 300).join() === 'work,work,carry,move' && utils.makeBody('upgrader', 250).join() === 'work,carry,carry,move' &&
     utils.makeBody('upgrader', 350).filter((p) => p === 'work').length === 2,
     '300 容量的升级者是 2W1C1M，250 仍是 1W2C1M（得 ' + utils.makeBody('upgrader', 300).join() + ' / ' + utils.makeBody('upgrader', 250).join() + '）');
-
 
 console.log('== 静态矿工没有容器：自建容器工地 / 原地落地采集 / 自修容器，不再 1 MOVE 往返送 spawn ==');
 resetWorld(11000);
@@ -9458,14 +8985,12 @@ sbMiner.actions.length = 0; sbMiner.moveCalls.length = 0;
 ROLES.harvester.run(sbMiner);
 assert(sbMiner.actions.includes('build') && !sbMiner.actions.includes('moveTo') && !sbMiner.actions.includes('harvest'),
     '满载且脚下有容器工地：用自己采的能量建容器（build 与 harvest 同管线，本 tick 只建）（得 ' + sbMiner.actions.join(',') + '）');
-// 工地没了、容器也没有：原地采集、满了就落地，等 hauler 捡
 sbSite.remove();
 sbMiner.store[C.RESOURCE_ENERGY] = 50;
 sbMiner.actions.length = 0; sbMiner.moveCalls.length = 0;
 ROLES.harvester.run(sbMiner);
 assert(sbMiner.actions.includes('harvest') && sbMiner.actions.includes('drop') && !sbMiner.actions.includes('moveTo'),
     '无容器无工地的静态矿工：满载就落地继续采（得 ' + sbMiner.actions.join(',') + '）');
-// 机动身体（2W1C1M）没有 hauler 时保留往返送 spawn 的 bootstrap 行为
 const sbMobile = makeCreep(sbRoom, 'sb-mob', ['work', 'work', 'carry', 'move'], { home: 'W33S7', role: 'harvester', sourceIdx: 0, sourceId: 'sb0' });
 sbMobile.pos = new RoomPosition(15, 7, 'W33S7');
 sbMobile.store[C.RESOURCE_ENERGY] = 50;
@@ -9473,7 +8998,6 @@ sbSpawn.store[C.RESOURCE_ENERGY] = 0;
 world.creeps[sbMobile.name] = sbMobile;
 ROLES.harvester.run(sbMobile);
 assert(sbMobile.actions.includes('moveTo') || sbMobile.actions.includes('transfer'), '2W1C1M 且房里没有 hauler：仍往返送 spawn（得 ' + sbMobile.actions.join(',') + '）');
-// 容器在但破损：矿工自己修（每 50 tick 一次 repair，2% 采集时间换容器不腐烂）
 const sbCont = makeStructure(sbRoom, C.STRUCTURE_CONTAINER, 32, 13, { capacity: 2000, energy: 0, hits: 249000, hitsMax: 250000 });
 sbMiner.store[C.RESOURCE_ENERGY] = 50;
 sbMiner.actions.length = 0;
@@ -9483,7 +9007,6 @@ sbCont.hits = 249800;
 sbMiner.actions.length = 0;
 ROLES.harvester.run(sbMiner);
 assert(sbMiner.actions.includes('harvest') && sbMiner.actions.includes('transfer') && !sbMiner.actions.includes('repair'), '缺血不足一次 repair：照常采集并入容器（得 ' + sbMiner.actions.join(',') + '）');
-// spawn：落地采集的源也是 hauler 的搬运来源（以前没容器就把 hauler 目标算成 0，静态矿工采的能量没人搬）
 sbCont.destroy();
 sbMiner.store[C.RESOURCE_ENERGY] = 0;
 const sbMiner0 = makeCreep(sbRoom, 'sb-m0', ['work', 'work', 'work', 'work', 'work', 'carry', 'move'], { home: 'W33S7', role: 'harvester', sourceIdx: 0, sourceId: 'sb0' });
@@ -9491,7 +9014,6 @@ world.creeps[sbMiner0.name] = sbMiner0;
 delete world.creeps[sbMobile.name];
 spawnMgr.run(sbRoom);
 assert(Memory.rooms.W33S7.demand.targets.hauler >= 2, '两个源都由静态矿工落地采集、没有容器：hauler 目标 ≥ RCL5 底线 2（得 ' + Memory.rooms.W33S7.demand.targets.hauler + '）');
-
 
 console.log('== 出兵评估：按敌情画像算打不打得过，出兵成组；打不过就把外矿停到入侵者到期；死过一次要重新看到敌情才再出 ==');
 resetWorld(11100);
@@ -9516,7 +9038,6 @@ const mkInv = (body, x, y, ttl, boosts) => {
     if (boosts) h.body.forEach((part) => { if (boosts[part.type]) part.boost = boosts[part.type]; });
     return h;
 };
-// 1) 两只近战型：一只够大的近战 defender 就赢，敌情画像正确
 mkInv(SMALL_MELEE, 27, 43, 1400); mkInv(SMALL_MELEE, 27, 41, 1400);
 const fmProfile = defenseMod2.hostileProfile(fmRemote.find(C.FIND_HOSTILE_CREEPS));
 assert(fmProfile.count === 2 && fmProfile.hits === 2000 && fmProfile.dps === 80 && fmProfile.heal === 0 && fmProfile.kiters === false && fmProfile.until === Game.time + 1400,
@@ -9526,7 +9047,6 @@ assert(fmDemands.length === 1 && fmDemands[0].memory.style === 'melee' && fmDema
     defenseMod2.canBeat([fmDemands[0].body], fmProfile) && utils.bodyCost(fmDemands[0].body) <= 1800,
     '两只近战型 → 一只近战 defender（外矿防御归 remoteMaintain 档）（得 ' + JSON.stringify(fmDemands.map((d) => [d.memory.style, d.memory.squad, d.cls, d.body.join('')])) + '）');
 assert(!defenseMod2.canBeat([['attack', 'attack', 'move', 'move']], fmProfile), '2A2M 打不过两只近战型');
-// 2) 有远程风筝型（无 ATTACK 的远程 Invader 会拉开距离）：只派远程组，单只打不过时整组出动
 fmRemote._hostiles.length = 0; world.time++;
 mkInv(SMALL_MELEE, 27, 43, 1400, { tough: 'GO', ranged_attack: 'KO', attack: 'UH', work: 'ZH' });
 mkInv(SMALL_RANGED, 27, 41, 1400, { tough: 'GO', ranged_attack: 'KO' });
@@ -9538,7 +9058,6 @@ assert(fmDemands.length >= 2 && fmDemands.every((d) => d.memory.style === 'range
     defenseMod2.canBeat(fmDemands.map((d) => d.body), fmBoosted) && !defenseMod2.canBeat([fmDemands[0].body], fmBoosted),
     '风筝型在场 → 远程组，一只打不过就出一组（得 ' + JSON.stringify(fmDemands.map((d) => [d.slot, d.body.join('')])) + '）');
 assert(new Set(fmDemands.map((d) => d.slot)).size === fmDemands.length, '组内槽位各不相同');
-// 2b) 值不值要按"到场时"算：攒够 3200 能量 + 孵化 + 走路的时间从入侵者剩余寿命里扣掉。收入 3/tick 时攒 1000+ tick，到场没多少可采的了 → 不出兵
 Memory.rooms.W33S7.spawnIncome = { ema: 3, n: 500, last: 0, at: Game.time };
 world.time++;
 fmDemands = defenseMod2.getDemands(fmHome);
@@ -9549,7 +9068,6 @@ Memory.rooms.W33S7.remotes.W33S6.suspendedUntil = 0;
 world.time++;
 fmDemands = defenseMod2.getDemands(fmHome);
 assert(fmDemands.length >= 2, '收入 13/tick：到场时仍值得，照常出组（得 ' + fmDemands.length + '）');
-// 3) 打不过（容量 550 vs 两只远程 + 治疗）：不出兵，外矿停到入侵者到期，记 skipped
 fmRemote._hostiles.length = 0; world.time++;
 mkInv(SMALL_RANGED, 27, 43, 1200); mkInv(SMALL_RANGED, 27, 41, 1200); mkInv(SMALL_HEALER, 28, 42, 1200);
 fmHome.energyCapacityAvailable = 550;
@@ -9560,7 +9078,6 @@ assert(fmRec.suspendedUntil === Game.time + 1200 && fmRec.suspendReason === 'hos
     '打不过：外矿停到入侵者到期（+1200），敌情画像记入 remotes 记录（得 ' + JSON.stringify([fmRec.suspendedUntil - Game.time, fmRec.suspendReason, fmRec.threat && fmRec.threat.count]) + '）');
 assert(Memory.rooms.W33S7.defenseLog && Memory.rooms.W33S7.defenseLog.skipped && Memory.rooms.W33S7.defenseLog.skipped.room === 'W33S6',
     '不出兵记入 defenseLog.skipped（得 ' + JSON.stringify(Memory.rooms.W33S7.defenseLog) + '）');
-// 4) 房间不可见：用记录的画像评估；死过一次后要重新看到敌情才再出兵
 fmHome.energyCapacityAvailable = 1800;
 delete world.rooms.W33S6; world.time++;
 fmDemands = defenseMod2.getDemands(fmHome);
@@ -9576,12 +9093,10 @@ fmDemands = defenseMod2.getDemands(fmHome);
 assert(fmDemands.length >= 2, '重新看到敌情（画像比阵亡时间新）才再出兵（得 ' + fmDemands.length + '）');
 defenseMod2.noteLoss('retired-def', { role: 'defender', home: 'W33S7', targetRoom: 'W33S6', retired: true });
 assert(Memory.rooms.W33S7.defenseLog.losses === 1, '主动退役（retired）不算阵亡');
-// 5) main 的死亡清理会调用 noteLoss
 Memory.creeps['dead-def-2'] = { role: 'defender', home: 'W33S7', targetRoom: 'W33S6' };
 fmRemote._hostiles.length = 0;
 try { main.loop(); } catch (e) { fails++; console.log('  ✗ loop throw: ' + e.stack.split('\n').slice(0, 3).join(' | ')); }
 assert(Memory.rooms.W33S7.defenseLog.losses === 2 && !Memory.creeps['dead-def-2'], 'main 清理死亡 creep 内存时记阵亡（得 losses=' + Memory.rooms.W33S7.defenseLog.losses + '）');
-// 6) 己方房（无塔）：出兵档仍是 defense，打得过就出
 resetWorld(11120);
 const fmOwn = makeRoom('W33S7', { rcl: 4, energy: 1300, cap: 1300, ctrl: { x: 22, y: 31 }, owner: 'me' });
 fmOwn._sources = [makeSource(fmOwn, 14, 6, 'fo0')];
@@ -9620,7 +9135,6 @@ sqB.pos = new RoomPosition(24, 24, 'W33S7');
 sqA.moveCalls.length = 0;
 ROLES.defender.run(sqA);
 assert(sqA.moveCalls.some((m) => m.target && m.target.roomName === 'W33S6'), '组齐了：出发去目标房（得 ' + JSON.stringify(sqA.moveCalls.map((m) => m.target && m.target.roomName)) + '）');
-// 进了目标房，队友还没到：守在入口不推进；队友到了再打
 sqA.room = sqRemote; sqA.pos = new RoomPosition(25, 48, 'W33S6');
 sqA.moveCalls.length = 0; sqA.actions.length = 0;
 ROLES.defender.run(sqA);
@@ -9629,7 +9143,6 @@ sqB.room = sqRemote; sqB.pos = new RoomPosition(26, 48, 'W33S6');
 sqA.moveCalls.length = 0; sqA.actions.length = 0;
 ROLES.defender.run(sqA);
 assert(sqA.moveCalls.some((m) => m.target && m.target.roomName === 'W33S6'), '队友到齐：向敌人推进');
-// 在家等的时候威胁消失：退役并标记 retired
 const sqC = makeCreep(sqHome, 'sq-c', sqBody, { home: 'W33S7', role: 'defender', targetRoom: 'W33S6', style: 'ranged', squad: 2, slotKey: 'defender:W33S6' });
 sqC.pos = new RoomPosition(23, 24, 'W33S7');
 delete world.creeps['sq-a']; delete world.creeps['sq-b'];
@@ -9670,7 +9183,6 @@ world.creeps[obRes2.name] = obRes2;
 ROLES.reserver.run(obRes2);
 assert(!retiring(obRes2), '寿命够等到停用结束：不退役');
 
-
 console.log('== 外部大脑的防御指令与敌情画像：avoid 就停到入侵者到期、fight 按指令编组；没视野时用情报里的 hostileProfile ==');
 resetWorld(11300);
 const bdHome = makeRoom('W33S7', { rcl: 5, energy: 1800, cap: 1800, owner: 'me', ctrl: { x: 34, y: 24 } });
@@ -9680,7 +9192,6 @@ world.exits.W33S7 = { '1': 'W33S6', '7': 'W32S7' };
 Memory.rooms.W33S7 = { sources: ['bd0'], plan: {}, state: { at: Game.time }, remotes: {
     W33S6: { room: 'W33S6', enabled: true, sourceCount: 1, suspendedUntil: Game.time + 100, suspendReason: 'hostileCreep', sources: [] },
     W32S7: { room: 'W32S7', enabled: true, sourceCount: 1, suspendedUntil: Game.time + 100, suspendReason: 'hostileCreep', sources: [] } } };
-// 情报：W33S6 两只近战型（画像来自大脑，房间不可见）；W32S7 三只（打不过）
 const bdProfile = (count, dps, hits, until) => ({ at: Game.time, count, hits, dps, heal: 0, kiters: false, boosted: false, until });
 Memory.map = {
     W33S6: { at: Game.time, source: 'external', armedHostiles: 2, threat: true, hostileProfile: bdProfile(2, 80, 2000, Game.time + 1300) },
@@ -9691,7 +9202,6 @@ let bdDemands = require('defense').getDemands(bdHome);
 assert(bdDemands.length === 1 && bdDemands[0].memory.targetRoom === 'W33S6' && bdDemands[0].memory.style === 'melee',
     '没有指令：按情报画像自己评估，W33S6 出一只近战、W32S7 打不过不出（得 ' + JSON.stringify(bdDemands.map((d) => [d.memory.targetRoom, d.memory.style])) + '）');
 assert(Memory.rooms.W33S7.remotes.W32S7.suspendedUntil === Game.time + 900, '打不过的 W32S7 停到画像里的到期 tick（得 +' + (Memory.rooms.W33S7.remotes.W32S7.suspendedUntil - Game.time) + '）');
-// 大脑指令：W33S6 avoid（比如它算出不值），W32S7 fight 指定编组
 Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { W33S7: { remotes: ['W33S6', 'W32S7'], scouts: 0, claim: null,
     defense: { W33S6: { action: 'avoid', until: Game.time + 1300, reason: 'notWorth' },
         W32S7: { action: 'fight', until: Game.time + 900, reason: 'winnable', squad: { count: 2, style: 'melee', body: ['move', 'move', 'move', 'attack', 'attack', 'attack'], cost: 390, total: 780 } } } } } };
@@ -9702,7 +9212,6 @@ assert(bdDemands.length === 2 && bdDemands.every((d) => d.memory.targetRoom === 
     '有指令：W33S6 按 avoid 不出、W32S7 按 fight 出 2 只指定身体（得 ' + JSON.stringify(bdDemands.map((d) => [d.memory.targetRoom, d.memory.squad, d.body.join('')])) + '）');
 assert(Memory.rooms.W33S7.remotes.W33S6.suspendedUntil === Game.time - 1 + 1300 && Memory.rooms.W33S7.defenseLog.skipped.reason === 'brain:notWorth',
     'avoid 指令：外矿停到指令的 until，skipped 记录原因（得 ' + JSON.stringify([Memory.rooms.W33S7.remotes.W33S6.suspendedUntil - Game.time, Memory.rooms.W33S7.defenseLog.skipped]) + '）');
-// 指令过期（until 已过）：退回自己评估
 world.time += 1300;
 Memory.map.W33S6.at = Game.time; Memory.map.W33S6.hostileProfile = bdProfile(2, 80, 2000, Game.time + 1000);
 Memory.map.W32S7.at = Game.time; Memory.map.W32S7.hostileProfile = bdProfile(3, 600, 12000, Game.time + 1000);
@@ -9711,7 +9220,6 @@ Memory.rooms.W33S7.remotes.W32S7.suspendedUntil = Game.time + 100;
 bdDemands = require('defense').getDemands(bdHome);
 assert(bdDemands.length === 1 && bdDemands[0].memory.targetRoom === 'W33S6', '指令 until 已过：退回游戏内评估（得 ' + JSON.stringify(bdDemands.map((d) => d.memory.targetRoom)) + '）');
 delete Memory.brain;
-
 
 console.log('== 静态矿工有 link 没容器：link 满了就把能量拿去建容器工地；集结中的 defender 在大脑改成 avoid 时退役 ==');
 resetWorld(11400);
@@ -9735,7 +9243,6 @@ lsMiner.actions.length = 0;
 ROLES.harvester.run(lsMiner);
 assert(lsMiner.actions.includes('transfer') && lsMiner.actions.includes('harvest') && !lsMiner.actions.includes('build'),
     'link 有空位：照常喂 link 并采集（得 ' + lsMiner.actions.join(',') + '）');
-// 集结中的 defender：大脑指令改成 avoid → 退役
 world.exits.W33S7 = { '1': 'W33S6' };
 Memory.rooms.W33S7.remotes = { W33S6: { room: 'W33S6', enabled: true, sourceCount: 1, suspendedUntil: Game.time + 150, suspendReason: 'hostileCreep', sources: [],
     threat: { at: Game.time, count: 2, hits: 2000, dps: 80, heal: 0, kiters: false, boosted: false, until: Game.time + 1200 } } };
@@ -9756,7 +9263,6 @@ lsDef.actions.length = 0;
 ROLES.defender.run(lsDef);
 assert(retiring(lsDef) && !lsDef.actions.includes('suicide') && lsDef.memory.retired === true, '集结中的 defender 在大脑改成 avoid 后走向 spawn 回收（得 ' + lsDef.actions.join(',') + '）');
 delete Memory.brain;
-
 
 console.log('== 援建只在弱房经济没起来时越过母房的发展档：弱房已有矿工和 hauler 时，母房 builder 等能量援建也等；弱房没 hauler 时照旧插队 ==');
 resetWorld(11500);
@@ -9800,18 +9306,15 @@ let ahSpawned = Object.values(world.creeps).filter((c) => c.memory.aid);
 const ahQueue = Memory.rooms.W33S7.spawnQueue;
 assert(ahSpawned.length === 0 && ahQueue.waiting && ahQueue.waiting.key.startsWith('core:builder'),
     '母房 builder（发展档）等能量：援建不插队，队头是 builder（得 ' + JSON.stringify([ahSpawned.map((c) => c.memory.role), ahQueue.waiting]) + '）');
-// 弱房没有 hauler 了：经济没起来，援建恢复 strategic，越过等能量的 builder
 delete world.creeps.awHa;
 world.time++;
 ahAid = aidMod2.getDemands(ahHome);
 assert(ahAid.some((d) => d.role === 'hauler' && d.strategic === true) && ahAid.filter((d) => d.role === 'harvester').every((d) => d.strategic === false), '弱房没 hauler：只有援建 hauler 是 strategic，有小矿工的源的援建矿工仍不是（得 ' + JSON.stringify(ahAid.map((d) => [d.role, d.strategic])) + '）');
-// 援建 hauler 满配 1800 买不起：宽限（300）用完后按预算缩身；builder 还在自己的宽限内等满配
 Memory.rooms.W33S7.spawnSince = Object.assign(Memory.rooms.W33S7.spawnSince || {}, { 'core:builder:1': Game.time, 'aid:aid:hauler:W35S7': Game.time - 400 });
 spawnMgr.run(ahHome);
 ahSpawned = Object.values(world.creeps).filter((c) => c.memory.aid);
 assert(ahSpawned.length === 1 && ahSpawned[0].memory.role === 'hauler' && ahSpawned[0].memory.home === 'W35S7',
     '弱房缺 hauler：援建 hauler 越过等能量的 builder 孵出（得 ' + JSON.stringify(ahSpawned.map((c) => c.memory.role + '@' + c.memory.home)) + '）');
-
 
 console.log('== 无 storage 的房：storage 工地排在道路前（builder 工地顺序与 broker 建造权重），有 storage 后道路照旧在前 ==');
 resetWorld(11600);
@@ -9844,7 +9347,6 @@ const sbrTasks2 = taskBroker.roomTasks(sbrRoom).filter((t) => t.kind === 'build'
 const sbrW2 = Object.fromEntries(sbrTasks2.map((t) => [t.target.structureType, t.weight]));
 assert(sbrW2[C.STRUCTURE_ROAD] > sbrW2[C.STRUCTURE_STORAGE], '有 storage 时 broker 权重道路 > storage 工地（得 ' + JSON.stringify(sbrW2) + '）');
 
-
 console.log('== 核心容器全丢且底线 upgrader 也没了：负责重建容器的 vital builder 排在 upgrader 前面，不被 1250 的升级者卡住 ==');
 const vuHome = makeGapWorld(11700, false, 700);
 delete world.creeps.gpUp;
@@ -9854,7 +9356,6 @@ const vuQueue = Memory.rooms.W33S7.spawnQueue;
 const vuSpawned = Object.values(world.creeps).filter((c) => !c.name.startsWith('gp'));
 assert((vuSpawned.length === 1 && vuSpawned[0].memory.role === 'builder') || (vuQueue.waiting && vuQueue.waiting.key === 'core:builder:0'),
     '容器缺失 + 无 upgrader：队头是 vital builder（孵出或等待），不是生存档 upgrader（得 ' + JSON.stringify([vuSpawned.map((c) => c.memory.role), vuQueue.waiting]) + '）');
-
 
 console.log('== storage 回库任务的 backlog 封顶：100 万空位不再把 broker backlog 遥测和 ln(backlog) 评分撑爆 ==');
 resetWorld(11800);
@@ -9866,7 +9367,6 @@ Memory.rooms.W34S7 = { sources: ['sc0'], plan: { containers: {} }, state: { at: 
 taskBroker.beginTick();
 const sbcStorageTask = taskBroker.roomTasks(sbcRoom).find((t) => t.kind === 'deliver' && t.target === sbcRoom.storage && t.tier === 4);
 assert(sbcStorageTask && sbcStorageTask.backlog === (config.storageDeliverBacklogCap || 10000), 'storage 回库任务 backlog 封顶为 config.storageDeliverBacklogCap（得 ' + (sbcStorageTask && sbcStorageTask.backlog) + '）');
-
 
 console.log('== storage 刚建成、能量还在 reserve 以下：升级者不守着空 storage 干等，换到贴着 ctrl link 的站位喝 link；有 built link 的站位优先 ==');
 {
@@ -9892,7 +9392,6 @@ console.log('== storage 刚建成、能量还在 reserve 以下：升级者不�
     assert(usUp.actions.includes('withdraw') && usLink.store[C.RESOURCE_ENERGY] < 799 && usUp.moveCalls.length === 0,
         '在 (31,25)：从 ctrl link 取能，不再移动（得 ' + usUp.actions.join(',') + ' link=' + usLink.store[C.RESOURCE_ENERGY] + '）');
     usUp.actions.length = 0;
-    // storage 1258 < lowBelow：本房能量吃紧，升级按份额降频（W16 > 2 源 × 0.6 = 12），所以"原地升级"要在周期窗口内才看得到
     let usUpgraded = false;
     for (let tick = 0; tick < 10 && !usUpgraded; tick++) {
         usUp.actions.length = 0;
@@ -9902,7 +9401,6 @@ console.log('== storage 刚建成、能量还在 reserve 以下：升级者不�
     }
     assert(usUpgraded, '有能量后原地升级（限流窗口内至少一 tick 升级；得 ' + usUp.actions.join(',') + '）');
 }
-
 
 console.log('== 拆迁不清掉护核心的 rampart 工地：塔/storage 上的 rampart 工地不在 plan.ramparts 里但和维修规则一样算方案内；裸地上的方案外 rampart 工地照拆 ==');
 {
@@ -9916,7 +9414,7 @@ console.log('== 拆迁不清掉护核心的 rampart 工地：塔/storage 上的 
         '前提：塔位 (6,40) 与 storage 位不在轮子的 rampart 外环里');
     crRoom.createConstructionSite(6, 40, C.STRUCTURE_RAMPART);
     crRoom.createConstructionSite(crPlan.storage.x, crPlan.storage.y, C.STRUCTURE_RAMPART);
-    crRoom.createConstructionSite(10, 10, C.STRUCTURE_RAMPART);   // 裸地、方案外
+    crRoom.createConstructionSite(10, 10, C.STRUCTURE_RAMPART);
     assert(!(crPlan.ramparts || []).some((p) => p.x === 10 && p.y === 10), '前提：(10,10) 不在 rampart 外环里');
     dmTick(crRoom);
     const crSites = crRoom.find(C.FIND_MY_CONSTRUCTION_SITES).filter((s) => s.structureType === C.STRUCTURE_RAMPART).map((s) => s.pos.x + ',' + s.pos.y);
@@ -9933,7 +9431,7 @@ resetWorld(9900);
     const rtHomeSpawn = makeSpawn(rtHome, 23, 21);
     const rtOther = makeRoom('W34S7', { rcl: 3, energy: 300, cap: 550, ctrl: { x: 31, y: 41 }, owner: 'me' });
     const rtOtherSpawn = makeSpawn(rtOther, 30, 30);
-    const rtFar = makeRoom('W35S7', { my: false });   // 外矿：无主，离 W34S7 一房、离母房 W33S7 两房
+    const rtFar = makeRoom('W35S7', { my: false });
     Memory.rooms.W33S7 = {}; Memory.rooms.W34S7 = {};
     const rtRouteSave = Game.map.findRoute;
     const rtHops = { 'W35S7>W34S7': 1, 'W35S7>W33S7': 2, 'W33S7>W34S7': 1, 'W34S7>W33S7': 1 };
@@ -9942,7 +9440,6 @@ resetWorld(9900);
         if (hops == null) return C.ERR_NO_PATH;
         return Array.from({ length: hops }, () => ({ exit: 3, room: to }));
     };
-    // 1) W33S7 的 defender 在 W35S7 退役：最近的是 W34S7 的 spawn（1 房），不是母房的（2 房）
     const rtA = makeCreep(rtFar, 'rt-a', ['move', 'move', 'attack', 'attack'], { home: 'W33S7', role: 'defender' });
     world.creeps[rtA.name] = rtA;
     assert(retireMod.retireAtSpawn(rtA) === 'walk' && rtA.memory.retireSpawn === rtOtherSpawn.id,
@@ -9950,12 +9447,10 @@ resetWorld(9900);
     assert(rtA.moveCalls.length === 1 && rtA.moveCalls[0].target.roomName === 'W34S7' && rtA.moveCalls[0].target.x === 30 && rtA.moveCalls[0].target.y === 30 &&
         rtA.moveCalls[0].opts.range === 1 && !rtA.actions.includes('suicide'),
         '走向该 spawn 的相邻格，不 suicide（得 ' + rtA.moveCalls.map((m) => m.target && (m.target.roomName + ':' + m.target.x + ',' + m.target.y + ' r' + m.opts.range)).join(',') + ' / ' + rtA.actions.join(',') + '）');
-    // 2) 到了 spawn 旁：由 spawn 回收，不再移动
     rtA.room = rtOther; rtA.pos = new RoomPosition(31, 30, 'W34S7'); rtA.actions.length = 0; rtA.moveCalls.length = 0;
     assert(retireMod.retireAtSpawn(rtA) === 'recycle' && rtA.actions.includes('recycled') && rtA.moveCalls.length === 0 &&
         rtOtherSpawn.actions.some((a) => a.action === 'recycleCreep' && a.target === 'rt-a'),
         '相邻时由 spawn recycleCreep（得 ' + rtA.actions.join(',') + '）');
-    // 3) 同一 tick 同一 spawn 只发一条 recycle 意图（引擎按 spawn 覆盖同名意图）：第二只原地等，不 suicide 不乱走
     const rtB = makeCreep(rtOther, 'rt-b', ['carry', 'move'], { home: 'W34S7', role: 'hauler' });
     rtB.pos = new RoomPosition(29, 30, 'W34S7'); world.creeps[rtB.name] = rtB;
     assert(retireMod.retireAtSpawn(rtB) === 'wait' && !rtB.actions.includes('suicide') && !rtB.actions.includes('recycled') && rtB.moveCalls.length === 0,
@@ -9963,13 +9458,11 @@ resetWorld(9900);
     world.time++;
     delete world.creeps['rt-a'];
     assert(retireMod.retireAtSpawn(rtB) === 'recycle' && rtB.actions.includes('recycled'), '下一 tick 轮到第二只');
-    // 4) 同房：走向本房 spawn；已在旁边则直接回收
     const rtC = makeCreep(rtHome, 'rt-c', ['work', 'work', 'work', 'work', 'work', 'move'], { home: 'W33S7', role: 'harvester' });
     rtC.pos = new RoomPosition(15, 7, 'W33S7'); world.creeps[rtC.name] = rtC;
     assert(retireMod.retireAtSpawn(rtC) === 'walk' && rtC.memory.retireSpawn === rtHomeSpawn.id &&
         rtC.moveCalls.length === 1 && rtC.moveCalls[0].target.roomName === 'W33S7' && rtC.moveCalls[0].target.x === 23 && rtC.moveCalls[0].target.y === 21,
         '同房：走向本房 spawn（得 ' + rtC.memory.retireSpawn + ' / ' + rtC.moveCalls.map((m) => m.target && (m.target.roomName + ':' + m.target.x + ',' + m.target.y)).join(',') + '）');
-    // 5) 寿命不够走到：5W1M 每格 5 tick、离最近的 W34S7 spawn 一房（约 75 格 ≈ 375 tick）只剩 120 → 原地 suicide 还能拿 20%，走过去会死在路上
     const rtD = makeCreep(rtFar, 'rt-d', ['work', 'work', 'work', 'work', 'work', 'move'], { home: 'W33S7', role: 'remoteMiner' }, { ticksToLive: 120 });
     world.creeps[rtD.name] = rtD;
     assert(retireMod.retireAtSpawn(rtD) === 'suicide' && rtD.actions.includes('suicide') && rtD.moveCalls.length === 0 && rtD.memory.retireSpawn == null,
@@ -9977,39 +9470,32 @@ resetWorld(9900);
     const rtE = makeCreep(rtFar, 'rt-e', ['work', 'work', 'work', 'work', 'work', 'move'], { home: 'W33S7', role: 'remoteMiner' }, { ticksToLive: 1400 });
     world.creeps[rtE.name] = rtE;
     assert(retireMod.retireAtSpawn(rtE) === 'walk' && rtE.memory.retireSpawn === rtOtherSpawn.id, '同样身体寿命充足：走（得 ' + rtE.actions.join(',') + '）');
-    // 5b) 走的途中每 recheckTicks 复核一次：估计只是平地下限（沼泽/绕路更久），寿命掉到不够走完就原地 suicide 保住 20%
     rtE.ticksToLive = 100; rtE.actions.length = 0; rtE.moveCalls.length = 0;
     assert(retireMod.retireAtSpawn(rtE) === 'walk' && !rtE.actions.includes('suicide'), '未到复核 tick：继续走（缓存的 spawn 不每 tick 重算路）');
     world.time += config.retire.recheckTicks;
     rtE.actions.length = 0; rtE.moveCalls.length = 0;
     assert(retireMod.retireAtSpawn(rtE) === 'suicide' && rtE.actions.includes('suicide') && rtE.moveCalls.length === 0 && rtE.memory.retireSpawn == null,
         '复核发现剩余寿命不够走完：suicide（得 ' + rtE.actions.join(',') + '）');
-    // 5c) 寻路失败（movement.go 返回 ERR_NO_PATH）：别站着耗寿命，suicide
     const rtP = makeCreep(rtFar, 'rt-p', ['move', 'attack'], { home: 'W33S7', role: 'defender' });
     world.creeps[rtP.name] = rtP;
     rtP.moveTo = () => C.ERR_NO_PATH;
     assert(retireMod.retireAtSpawn(rtP) === 'suicide' && rtP.actions.includes('suicide'), '寻路失败：suicide（得 ' + rtP.actions.join(',') + '）');
-    // 6) 缓存的 spawn 没了（被拆）：重选最近的
     rtC.actions.length = 0; rtC.moveCalls.length = 0;
     rtHomeSpawn.destroy();
     assert(retireMod.retireAtSpawn(rtC) === 'walk' && rtC.memory.retireSpawn === rtOtherSpawn.id && rtC.moveCalls[0].target.roomName === 'W34S7',
         '缓存的 spawn 没了：重选（得 ' + rtC.memory.retireSpawn + '）');
-    // 7) 路不通（findRoute ERR_NO_PATH）：suicide
     const rtF = makeCreep(rtFar, 'rt-f', ['move', 'attack'], { home: 'W33S7', role: 'defender' });
     world.creeps[rtF.name] = rtF;
     rtHops['W35S7>W34S7'] = null; rtHops['W35S7>W33S7'] = null;
     assert(retireMod.retireAtSpawn(rtF) === 'suicide' && rtF.actions.includes('suicide'), '哪个 spawn 都到不了：suicide（得 ' + rtF.actions.join(',') + '）');
-    // 8) 全账号没有 spawn：suicide
     rtOtherSpawn.destroy();
     rtC.actions.length = 0; rtC.moveCalls.length = 0; delete rtC.memory.retireSpawn;
     assert(retireMod.retireAtSpawn(rtC) === 'suicide' && rtC.actions.includes('suicide'), '没有任何 spawn：suicide（得 ' + rtC.actions.join(',') + '）');
-    // 9) 没有 findRoute（私服 mock / 老 API）：按房名线性距离退化，仍能选出最近的
     Game.map.findRoute = undefined;
     const rtNear = makeSpawn(rtOther, 30, 30);
     const rtG = makeCreep(rtFar, 'rt-g', ['move', 'attack'], { home: 'W33S7', role: 'defender' });
     world.creeps[rtG.name] = rtG;
     assert(retireMod.retireAtSpawn(rtG) === 'walk' && rtG.memory.retireSpawn === rtNear.id, '没有 findRoute 时按线性距离选（得 ' + rtG.memory.retireSpawn + '）');
-    // 10) 外矿角色的退役检查排在"先回母房"之前：母房没有 spawn（被拆）时不会在出口格来回踱步，直接走向最近的别房 spawn
     rtHops['W35S7>W34S7'] = 1; rtHops['W35S7>W33S7'] = 2;
     Game.map.findRoute = (from, to) => {
         const hops = rtHops[from + '>' + to];
@@ -10022,7 +9508,6 @@ resetWorld(9900);
     ROLES.remoteHauler.run(rtH);
     assert(rtH.memory.retireSpawn === rtNear.id && rtH.moveCalls.length === 1 && rtH.moveCalls[0].target.roomName === 'W34S7' && !rtH.actions.includes('suicide'),
         '母房无 spawn：空载 remoteHauler 走向 W34S7 的 spawn（得 ' + rtH.memory.retireSpawn + ' / ' + rtH.moveCalls.map((m) => m.target && m.target.roomName).join(',') + '）');
-    // 第二 tick 已走进 W34S7：不能再因为"不在母房"被拉回 (25,25) W33S7 来回踱步
     world.time++;
     rtH.room = rtOther; rtH.pos = new RoomPosition(20, 20, 'W34S7'); rtH.moveCalls.length = 0;
     ROLES.remoteHauler.run(rtH);
@@ -10072,7 +9557,6 @@ const dlSpawn = makeSpawn(dlHome, 23, 21);
 dlSpawn.store[C.RESOURCE_ENERGY] = 300;
 world.exits.W31S8 = {};
 Memory.map = {};
-// 容器/hauler 全灭后只剩 spawn 自产的 1/tick：EMA 停在 0.6（样本早够了）；两只带 CARRY 的矿工在岗，所以 incomeEstimate 走 EMA 分支
 const dlPlan = { anchor: { x: 23, y: 21 }, containers: { src0: { x: 15, y: 7 }, src1: { x: 30, y: 13 }, ctrl: { x: 23, y: 30 } }, roads: {}, links: {} };
 Memory.rooms.W31S8 = {
     sources: ['dl0', 'dl1'], plan: dlPlan, state: { at: Game.time, recovering: false, emergencyHarvest: false },
@@ -10093,7 +9577,6 @@ const dlHauler = Object.values(world.creeps).find((c) => c.memory.role === 'haul
 assert(dlQueue.income === 0, '零头收入（EMA 0.6）视为 0（得 ' + JSON.stringify(dlQueue.income) + '）');
 assert(dlHauler && utils.bodyCost(dlHauler.body.map((p) => p.type)) <= 300, 'hauler 全灭时按现有 300 立刻孵一只，不再等容量一半（得 ' + JSON.stringify(dlQueue.waiting) + '）');
 
-// spawn 自回的 +1 不是收入：能量 250 → 251（spawn < 300）采样为 0；真收入 +10 采样为 9（减去自产的 1）
 resetWorld(3610);
 const rgHome = makeRoom('W31S8', { rcl: 6, energy: 251, cap: 1800, ctrl: { x: 22, y: 31 }, owner: 'me' });
 rgHome._sources = [makeSource(rgHome, 14, 6, 'rg0'), makeSource(rgHome, 31, 12, 'rg1')];
@@ -10132,21 +9615,18 @@ console.log('== 矿工替补提前量含 spawn → 采集位的步行时间（ro
     for (const key of ['src0', 'src1']) { const pos = hlPlan.containers[key]; hlRoom._structs.push({ structureType: C.STRUCTURE_CONTAINER, pos: new RoomPosition(pos.x, pos.y, 'W31S8'), store: mkStore(500, 2000) }); }
     Memory.rooms.W31S8 = { sources: ['hl0', 'hl1'], plan: hlPlan, state: { at: Game.time, recovering: false, emergencyHarvest: false },
         spawnIncome: { ema: 12, n: 1000, last: 1300, at: Game.time - 1 } };
-    // 容器源的理想身体（静态矿工）：避免触发"身体换代"那条路径
     const hlOld = makeCreep(hlRoom, 'hlH0', utils.makeBody('staticHarvester', 1800), { home: 'W31S8', role: 'harvester', sourceIdx: 0, sourceId: 'hl0', staticMiner: true });
     world.creeps.hlH0 = hlOld;
     world.creeps.hlH1 = makeCreep(hlRoom, 'hlH1', utils.makeBody('staticHarvester', 1800), { home: 'W31S8', role: 'harvester', sourceIdx: 1, sourceId: 'hl1', staticMiner: true });
     world.creeps.hlHa = makeCreep(hlRoom, 'hlHa', utils.makeBody('hauler', 1300), { home: 'W31S8', role: 'hauler' });
     world.creeps.hlHb = makeCreep(hlRoom, 'hlHb', utils.makeBody('hauler', 1300), { home: 'W31S8', role: 'hauler' });
     world.creeps.hlUp = makeCreep(hlRoom, 'hlUp', utils.makeBody('upgrader', 1300), { home: 'W31S8', role: 'upgrader' });
-    // 旧矿工剩 roleLead + 10 tick：只算孵化时间时它还"在编"，不出替补；src0 采集位离 spawn 14 格，走过去要 14+ tick
     hlOld.ticksToLive = spawnMgr.roleLead(hlOld, 'harvester') + 10;
     spawnMgr.run(hlRoom);
     const hlSpawned = Object.values(world.creeps).filter((c) => c.memory.role === 'harvester' && !['hlH0', 'hlH1'].includes(c.name));
     assert(hlSpawned.length === 1 && hlSpawned[0].memory.sourceIdx === 0,
         '旧矿工剩 roleLead + 10 tick、采集位离 spawn 14 格：替补提前量含步行，现在就孵 src0 的替补（得 ' + JSON.stringify((Memory.rooms.W31S8.spawnQueue || {}).spawned) + '）');
     assert(Memory.rooms.W31S8.harvestLeg && Memory.rooms.W31S8.harvestLeg.tiles[0] === 14, '缓存 spawn → 采集位的路径格数（得 ' + JSON.stringify(Memory.rooms.W31S8.harvestLeg) + '）');
-    // 就绪判定不跟着变长：这只旧矿工仍算在岗（不因为提前量变长就进 recovering）
     for (const c of hlSpawned) delete world.creeps[c.name];
     assert(spawnMgr.countReadyRole(hlRoom, 'harvester') === 2, '就绪计数仍按 roleLead：旧矿工还算在岗（得 ' + spawnMgr.countReadyRole(hlRoom, 'harvester') + '）');
 }
@@ -10156,7 +9636,7 @@ console.log('== spawn 收入 EMA 不冻结：spawn 空而全房 ≥ 300 时引�
     resetWorld(3615);
     const fzRoom = makeRoom('W31S6', { rcl: 6, energy: 1749, cap: 2300, ctrl: { x: 22, y: 31 }, owner: 'me' });
     const fzSpawn = makeSpawn(fzRoom, 23, 21);
-    fzSpawn.store[C.RESOURCE_ENERGY] = 0;   // 孵化先抽 spawn：孵过一次 spawn 就停在 0，extension 里还有 1749
+    fzSpawn.store[C.RESOURCE_ENERGY] = 0;
     const fzCfg = require('../src/config').spawnQueue;
     Memory.rooms.W31S6 = { spawnIncome: { ema: 16.1, n: 1000, last: 1749, at: Game.time - 1 } };
     for (let t = 0; t < 400; t++) {
@@ -10164,7 +9644,6 @@ console.log('== spawn 收入 EMA 不冻结：spawn 空而全房 ≥ 300 时引�
         world.time++;
     }
     assert(Memory.rooms.W31S6.spawnIncome.ema < 1, '400 tick 没有到货：收入 EMA 衰减到 1 以下（alpha ' + fzCfg.incomeAlpha + '，得 ' + Memory.rooms.W31S6.spawnIncome.ema.toFixed(3) + '）');
-    // 全房 < 300 时引擎确实自产 +1：那 1 仍不算收入
     fzRoom.energyAvailable = 100;
     Memory.rooms.W31S6.spawnIncome = { ema: 0, n: 1000, last: 100, at: Game.time - 1 };
     fzRoom.energyAvailable = 101;
@@ -10178,7 +9657,6 @@ console.log('== 收入估计的搬运者不含只往 link/容器交货的矿工�
     const lmRoom = makeRoom('W33S7', { rcl: 6, energy: 1100, cap: 2300, ctrl: { x: 34, y: 24 }, owner: 'me' });
     lmRoom._sources = [makeSource(lmRoom, 14, 6, 'lm0'), makeSource(lmRoom, 31, 12, 'lm1')];
     makeSpawn(lmRoom, 23, 21);
-    // 线上 W33S7 的源旁 link 与容器都有（c=0@15,7 l=598@16,8）：矿工只往 link、link 满了往容器交货
     const lmPlan = { anchor: { x: 23, y: 21 }, containers: { src0: { x: 15, y: 7 }, src1: { x: 32, y: 13 } }, roads: {},
         links: { src0: { x: 16, y: 8 }, src1: { x: 31, y: 14 }, ctrl: { x: 33, y: 25 } } };
     makeStructure(lmRoom, C.STRUCTURE_LINK, 16, 8, { energy: 400, capacity: 800 });
@@ -10204,14 +9682,14 @@ console.log('== spawn 收入估计不随一车到货翻转：一车 400 每 60 t
     resetWorld(3620);
     const siRoom = makeRoom('W33S8', { rcl: 4, energy: 300, cap: 1300, ctrl: { x: 40, y: 25 }, owner: 'me' });
     const siSpawn = makeSpawn(siRoom, 36, 17);
-    siSpawn.store[C.RESOURCE_ENERGY] = 300;   // spawn 满：不扣自产
+    siSpawn.store[C.RESOURCE_ENERGY] = 300;
     const siCfg = require('../src/config').spawnQueue;
     Memory.rooms.W33S8 = { spawnIncome: { ema: 400 / 60, n: 1000, last: 300, at: Game.time - 1 } };
     let siMin = Infinity;
     let siMax = 0;
     for (let t = 1; t <= 1200; t++) {
         if (t % 60 === 0) siRoom.energyAvailable = Math.min(1300, siRoom.energyAvailable + 400);
-        if (t % 60 === 30) siRoom.energyAvailable = Math.max(0, siRoom.energyAvailable - 650);   // 花掉：负增量不采样
+        if (t % 60 === 30) siRoom.energyAvailable = Math.max(0, siRoom.energyAvailable - 650);
         spawnMgr.updateSpawnIncome(siRoom, Memory.rooms.W33S8, siCfg);
         world.time++;
         const ema = Memory.rooms.W33S8.spawnIncome.ema;
@@ -10222,8 +9700,6 @@ console.log('== spawn 收入估计不随一车到货翻转：一车 400 每 60 t
     assert(siCfg.incomeSamples >= 1 / siCfg.incomeAlpha, '样本门槛不低于一个时间常数（' + siCfg.incomeSamples + ' vs 1/' + siCfg.incomeAlpha + '）：EMA 收敛前按每源 fallback，冷启动不当紧急态');
 }
 
-// 同为生存档：非 vital 的底线 upgrader 先出现（截止更早）也排在 vital 的 hauler 后面，而且它等能量时不挡 vital
-// （基准 61b4caf：W34S7 队头 core:upgrader:0（2250）等 1425 tick、挡 4–8 条，房里 0 只 hauler、源容器 2000/2000）
 {
     const sqUpFirst = sq.schedule([
         scalable('core:upgrader:0', 1, 150, { role: 'upgrader', body: (budget) => (budget >= 2250 ? fixed(1000) : []) }),
@@ -10232,7 +9708,6 @@ console.log('== spawn 收入估计不随一车到货翻转：一车 400 每 60 t
     assert(!sqUpFirst.blocked.includes('core:hauler:0') && (sqUpFirst.actions.some((a) => a.request.key === 'core:hauler:0') ||
         (sqUpFirst.waiting && sqUpFirst.waiting.key === 'core:hauler:0')),
         '同档内 vital hauler 先于先出现的非 vital upgrader，不被它挡住（得 ' + JSON.stringify({ actions: sqUpFirst.actions.map((a) => a.request.key), waiting: sqUpFirst.waiting, blocked: sqUpFirst.blocked }) + '）');
-    // 非 vital 请求排在更前的优先级、正在等能量：vital 的请求照样被评估（不进 blocked）
     const sqCoreWait = sq.schedule([
         fixedReq('core:builder:1', 0.5, 1350, { grace: 0 }),
         fixedReq('core:hauler:0', 1, 300, { vital: true, grace: 0 }),
@@ -10242,7 +9717,6 @@ console.log('== spawn 收入估计不随一车到货翻转：一车 400 每 60 t
         '非 vital 队头等能量：vital 照常孵，非 vital 的后续请求仍被挡（得 ' + JSON.stringify({ actions: sqCoreWait.actions.map((a) => a.request.key), blocked: sqCoreWait.blocked }) + '）');
 }
 
-// 队列纯函数：生存档（vital）请求等满 survivalShrinkAfter tick 后不管收入估计，按现有能量孵；发展档不享受
 const sqStuck = (since, extra, priority, grace) => sq.schedule([Object.assign(scalable('core:hauler:0', priority || 1, grace || 30), extra || { vital: true })],
     { now: 1400, energy: 400, capacity: 1800, income: 3, spawnsFree: 1, since: { 'core:hauler:0': since }, minShare: 0.5, survivalShrinkAfter: 300 });
 let sqStuckRes = sqStuck(1200);
@@ -10259,7 +9733,7 @@ ptRoom._sources = [makeSource(ptRoom, 14, 6, 'tw0'), makeSource(ptRoom, 31, 12, 
 makeSpawn(ptRoom, 23, 21);
 const ptTower = makeStructure(ptRoom, C.STRUCTURE_TOWER, 14, 30, { store: mkStore(630, 1000) });
 const ptCtrl = makeStructure(ptRoom, C.STRUCTURE_CONTAINER, 32, 40, { my: false, energy: 228, capacity: 2000 });
-const ptStorage = makeStructure(ptRoom, C.STRUCTURE_STORAGE, 27, 36, { energy: SF_UNDER, capacity: 1000000 });   // 非富余：富余时控制器容器会升到第 1 层，这个场景要测的是非富余下的分层
+const ptStorage = makeStructure(ptRoom, C.STRUCTURE_STORAGE, 27, 36, { energy: SF_UNDER, capacity: 1000000 });
 ptRoom.storage = ptStorage;
 Memory.rooms.W34S7 = {
     sources: ['tw0', 'tw1'],
@@ -10272,9 +9746,6 @@ let ptTowerTask = ptTasks.find((task) => task.kind === 'deliver' && task.target 
 const ptCtrlTask = ptTasks.find((task) => task.kind === 'deliver' && task.target === ptCtrl);
 assert(ptTowerTask && ptTowerTask.tier === 4 && ptCtrlTask && ptCtrlTask.tier === 3,
     '无敌人、塔 630 ≥ 维修储备 500、房里没东西要修：塔补能退到第 4 层，控制器容器仍是第 3 层（得 tower ' + (ptTowerTask && ptTowerTask.tier) + ' ctrl ' + (ptCtrlTask && ptCtrlTask.tier) + '）');
-// 维修预算：房里有破损建筑且塔缺预算（< 储备 + towerMaintenanceBudget）时，补能提到第 3 层——
-// 否则塔停在储备线上一次也修不动（tower.js 要求 energy − 10 ≥ 储备），维修被升级完全抢占，基地一路烂掉
-// （线上 2026-09-07：10 个塔全停在 500–543，源容器全账号衰减，W31S4 已有两个容器死掉重建）
 {
     const ptBroken = makeStructure(ptRoom, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 0, capacity: 2000, hits: 30000, hitsMax: 250000 });
     world.time++;
@@ -10283,7 +9754,6 @@ assert(ptTowerTask && ptTowerTask.tier === 4 && ptCtrlTask && ptCtrlTask.tier ==
     const mtTower = mtTasks.find((task) => task.kind === 'deliver' && task.target === ptTower);
     assert(mtTower && mtTower.tier === 3 && mtTower.weight === config.towerMaintenanceWeight,
         '有东西要修且塔缺维修预算：补能提到第 3 层、权重 ' + config.towerMaintenanceWeight + '（得 ' + JSON.stringify(mtTower && [mtTower.tier, mtTower.weight]) + '）');
-    // 塔已经攒够维修预算（≥ 储备 + 预算）：退回第 4 层，不再跟升级抢
     ptTower.store[C.RESOURCE_ENERGY] = (config.towerRepairReserve || 500) + (config.towerMaintenanceBudget || 400);
     world.time++;
     taskBroker.beginTick();
@@ -10313,11 +9783,10 @@ ptTasks = taskBroker.roomTasks(ptRoom);
 ptTowerTask = ptTasks.find((task) => task.kind === 'deliver' && task.target === ptTower);
 assert(ptTowerTask && ptTowerTask.tier === 1 && ptTowerTask.weight > 10, '塔 450 < 维修储备：补能是第 1 层、权重高于 spawn 的 10（得 ' + JSON.stringify(ptTowerTask && [ptTowerTask.tier, ptTowerTask.weight]) + '）');
 assert(ROLES.remoteHauler.homeTarget(ptRoom, ptRemote) === ptTower, '塔 450 时 remoteHauler 先补塔');
-// spawn 有缺口时紧急塔仍先补（线上 W34S7：spawn 113/1300 持续换代，塔 11/1000 半小时没人补）
 const ptSpawn = ptRoom.find(C.FIND_MY_SPAWNS)[0];
 ptSpawn.store[RESOURCE_ENERGY] = 100;
 ptHauler.store[RESOURCE_ENERGY] = 500;
-ptHauler.pos = new RoomPosition(15, 30, 'W34S7');   // 塔 (14,30) 旁
+ptHauler.pos = new RoomPosition(15, 30, 'W34S7');
 delete ptHauler.memory.brokerTask;
 ptHauler.actions.length = 0;
 world.time += 3;
@@ -10340,7 +9809,7 @@ ptRoom._hostiles = [];
 
 console.log('== 紧急塔滞回：储备被动用后一直算紧急，直到补到不缺（free < towerRefillAt）才解除；和平期从"已补满"跌破储备记 towerBreaches ==');
 world.time += 3;
-ptTower.store[RESOURCE_ENERGY] = 1000;   // 上面几步留下的锁存：塔满（free 0）时重建任务也要评估并解除
+ptTower.store[RESOURCE_ENERGY] = 1000;
 taskBroker.beginTick();
 taskBroker.roomTasks(ptRoom);
 assert(Memory.rooms.W34S7.towerUrgent && Memory.rooms.W34S7.towerUrgent[ptTower.id] === 0 && !(Memory.rooms.W34S7.towerBreaches > 0),
@@ -10355,7 +9824,7 @@ assert(Memory.rooms.W34S7.towerUrgent[ptTower.id] === Game.time,
     '储备被动用的 tick 锁存在 towerUrgent[塔 id]（得 ' + JSON.stringify(Memory.rooms.W34S7.towerUrgent) + '）');
 assert(Memory.rooms.W34S7.towerBreaches === 1 && Memory.rooms.W34S7.towerBreachAt === Game.time,
     '遥测：补满后无敌人跌破储备（只有维修/治疗会这样）记 towerBreaches=1、towerBreachAt=现在（得 ' + JSON.stringify([Memory.rooms.W34S7.towerBreaches, Memory.rooms.W34S7.towerBreachAt]) + '）');
-ptTower.store[RESOURCE_ENERGY] = 600;   // 零头到货补到 600：储备线以上，但还没补到不缺
+ptTower.store[RESOURCE_ENERGY] = 600;
 world.time += 3;
 taskBroker.beginTick();
 ptTasks = taskBroker.roomTasks(ptRoom);
@@ -10370,13 +9839,13 @@ delete ptHauler.memory.brokerTask;
 ROLES.hauler.run(ptHauler);
 assert(ptTower.store[RESOURCE_ENERGY] === 1000 && ptSpawn.store[RESOURCE_ENERGY] === 100,
     'spawn 缺 200 时带 400 的 hauler 先把 600 的锁存塔补满（得 tower ' + ptTower.store[RESOURCE_ENERGY] + ' spawn ' + ptSpawn.store[RESOURCE_ENERGY] + '）');
-ptSpawn.store[RESOURCE_ENERGY] = 300;   // spawn 补满，后面看的是塔与控制器容器的先后
+ptSpawn.store[RESOURCE_ENERGY] = 300;
 world.time += 3;
 taskBroker.beginTick();
 ptTasks = taskBroker.roomTasks(ptRoom);
 assert(!ptTasks.some((task) => task.kind === 'deliver' && task.target === ptTower) && Memory.rooms.W34S7.towerUrgent[ptTower.id] === 0,
     '塔补到 1000（缺口 < 300）：没有补能任务、锁存解除为 0（得 ' + JSON.stringify(Memory.rooms.W34S7.towerUrgent) + '）');
-ptTower.store[RESOURCE_ENERGY] = 600;   // 补满后的和平期维修消耗到 600：只是第 4 层
+ptTower.store[RESOURCE_ENERGY] = 600;
 world.time += 3;
 taskBroker.beginTick();
 ptTasks = taskBroker.roomTasks(ptRoom);
@@ -10384,7 +9853,7 @@ ptTowerTask = ptTasks.find((task) => task.kind === 'deliver' && task.target === 
 assert(ptTowerTask && ptTowerTask.tier === 4, '没有锁存的 600：和平期维修消耗仍是第 4 层（得 ' + JSON.stringify(ptTowerTask && ptTowerTask.tier) + '）');
 assert(ROLES.remoteHauler.homeTarget(ptRoom, ptRemote) === ptCtrl, 'remoteHauler 先控制器容器后 600 的塔');
 assert(Memory.rooms.W34S7.towerBreaches === 1, '前提：600 没跌破储备，跌破记录仍是 1');
-ptTower.store[RESOURCE_ENERGY] = 490;   // 补满之后无敌人再次跌破储备：再记一次
+ptTower.store[RESOURCE_ENERGY] = 490;
 world.time += 3;
 taskBroker.beginTick();
 ptTasks = taskBroker.roomTasks(ptRoom);
@@ -10397,7 +9866,7 @@ world.time += 3;
 taskBroker.beginTick();
 taskBroker.roomTasks(ptRoom);
 ptRoom._hostiles = [{ pos: new RoomPosition(10, 10, 'W34S7'), hits: 100, hitsMax: 100, body: [{ type: 'attack' }], getActiveBodyparts: (part) => (part === 'attack' ? 1 : 0), owner: { username: 'Invader' } }];
-ptTower.store[RESOURCE_ENERGY] = 300;   // 打仗打掉的不算跌破
+ptTower.store[RESOURCE_ENERGY] = 300;
 world.time += 3;
 taskBroker.beginTick();
 taskBroker.roomTasks(ptRoom);
@@ -10445,7 +9914,6 @@ console.log('== 死房裁工地：连续 deadRoom.afterTicks 没有 builder/pion
     layout.run(drRoom);
     assert(Memory.rooms.W33S7.builderSeenAt === Game.time && drRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length > drCfg.deadRoom.keep + 1,
         '有 builder 后 builderSeenAt 更新、恢复放工地（得 ' + drRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length + '）');
-    // 没有工地的房不计时：builder 目标来自工地，否则新 RCL 解锁后永远放不出第一个工地
     delete world.creeps.drBuilder;
     for (const site of drRoom.find(C.FIND_MY_CONSTRUCTION_SITES).slice()) site.remove();
     Memory.rooms.W33S7.builderSeenAt = Game.time - 2 * drCfg.deadRoom.afterTicks;
@@ -10453,7 +9921,6 @@ console.log('== 死房裁工地：连续 deadRoom.afterTicks 没有 builder/pion
     layout.run(drRoom);
     assert(drRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length > drCfg.deadRoom.keep && Memory.rooms.W33S7.builderSeenAt === Game.time,
         '没有工地时不算死房：正常放工地并重置计时（得 ' + drRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length + '）');
-    // 只剩被经济门槛挡住的工地（builder 编制为 0）也不算死房：否则 place() 提前 return，terminal 工地永远放不出（W29S3 10-17）
     {
         const drUtils = require('../src/utils');
         const drOrig = drUtils.siteWanted;
@@ -10495,13 +9962,11 @@ console.log('== 外矿工地：停用的外矿其工地全部清掉（不需要�
     for (let i = 0; i < 4 * rsInterval; i++) { remoteMod.run(rsHome); world.time++; }
     const rsRoads = () => Object.values(Game.constructionSites).filter((s) => s.structureType === C.STRUCTURE_ROAD && (s.pos.roomName === 'W33S6' || s.pos.roomName === 'W32S7'));
     assert(rsRoads().length > 0 && rsRoads().length <= 6, '两个外矿的路工地合计不超过 roadSitesPerHome=6（得 ' + rsRoads().length + '）');
-    // 共享的路工地名额按相位先到先得，谁先轮到谁先占；下面的场景对赢家是谁不敏感
     const rsSubject = ['W33S6', 'W32S7'].find((n) => Object.values(Game.constructionSites).some((s) => s.pos.roomName === n));
     assert(!!rsSubject, '至少一个外矿拿到了路工地');
     Memory.rooms.W33S7.remotes[rsSubject].enabled = false;
     Memory.rooms.W33S7.remotes[rsSubject].suspendReason = 'notWhitelisted';
-    delete world.rooms[rsSubject];   // 停用后外矿没有己方 creep：没有视野
-    // 大脑去重后该外矿归了另一个母房：W33S7 的停用记录不能替人家清工地
+    delete world.rooms[rsSubject];
     Memory.rooms.W34S7 = { remotes: { [rsSubject]: { room: rsSubject, enabled: true, sources: [] } } };
     const rsBefore = Object.values(Game.constructionSites).filter((s) => s.pos.roomName === rsSubject).length;
     for (let i = 0; i < 2 * rsInterval; i++) { remoteMod.run(rsHome); world.time++; }
@@ -10519,10 +9984,8 @@ console.log('== 两跳外矿的入口按外矿房自己的出口取边（findRou
     resetWorld(6240);
     const enSaveRoute = Game.map.findRoute;
     world.exits.W33S7 = { '5': 'W33S8' };
-    // 相邻房：母房 BOTTOM 出口的邻房在南边，朝母房的是它的上边 y=0（edgePosition，原本就对）
     const enNear = remoteMod.entryPosition('W33S7', 'W33S8');
     assert(enNear.x === 25 && enNear.y === 0, '相邻外矿（母房南边）：入口在它的上边 y=0（得 ' + JSON.stringify(enNear) + '）');
-    // 两跳：findRoute(W33S9, W33S7) 第一步 TOP 出口 → 外矿房自己的上边 y=0（旧代码套 edgePosition 翻到 y=49）
     Game.map.findRoute = (from) => (from === 'W33S9' ? [{ exit: 1, room: 'W33S8' }, { exit: 1, room: 'W33S7' }] : from === 'W31S7' ? [{ exit: 3, room: 'W32S7' }, { exit: 3, room: 'W33S7' }] : []);
     const enTop = remoteMod.entryPosition('W33S7', 'W33S9');
     const enRight = remoteMod.entryPosition('W33S7', 'W31S7');
@@ -10544,9 +10007,6 @@ console.log('== 两跳外矿的入口按外矿房自己的出口取边（findRou
     world.exits.W33S7 = { '1': 'W33S6' };
     delete Memory.brain;
     Memory.map = {};
-    // 寻路失败回退时从错边铺下的 6 个零进度孤儿（= MAX_REMOTE_SITES）+ 1 个已经有进度的旧工地。
-    // 2026-09-12 起有进度的也清：它不在任何启用路线上，而顺手修路只发生在满载腿的 3 格射程内，没有 creep 会再路过，
-    // 永远修不完；投进去的能量清不清都收不回来，留着还要再搭上一个名额（线上改规划后 W32S5 (20,4) 搁浅 145 进度）
     const orOrphans = ['24.1', '23.2', '22.3', '21.4', '20.5', '19.6'];
     for (const key of orOrphans) { const [x, y] = key.split('.').map(Number); orA.createConstructionSite(x, y, C.STRUCTURE_ROAD); }
     orA.createConstructionSite(30, 30, C.STRUCTURE_ROAD);
@@ -10564,10 +10024,6 @@ console.log('== 两跳外矿的入口按外矿房自己的出口取边（findRou
 
 console.log('== 母房路工地名额只算自己在跑的外矿：别的母房仍启用的外矿工地不占我的配额，也不被我清掉 ==');
 {
-    // 线上 2026-09-12：W32S4 名下路工地 13/12 已超上限，其中 8 个属于别的母房的启用外矿（W32S2 的 6 个归 W33S3、
-    // W32S6 的 2 个归 W33S7）。homeRemoteRoadSites 只判断房名在不在 remotes 里、不判断 .enabled，于是别人的活工地
-    // 吃满我的配额；而 usedByAnotherHome 又（正确地）不让我清它们——形成死结：既建不了也清不掉，还全程无遥测。
-    // 这里同时断言死结的两半：(a) 我的配额不含别人的工地、我自己的外矿放得出新工地；(b) 别人的工地一个都没被清。
     resetWorld(6248);
     const qHome = makeRoom('W33S7', { rcl: 4, energy: 1300, cap: 1300, owner: 'me' });
     qHome._sources = [makeSource(qHome, 14, 6, 'q0h'), makeSource(qHome, 31, 12, 'q1h')];
@@ -10576,7 +10032,6 @@ console.log('== 母房路工地名额只算自己在跑的外矿：别的母房�
     qMine._sources = [makeSource(qMine, 11, 10, 'qa0')];
     makeStructure(qMine, C.STRUCTURE_CONTAINER, 12, 11, { id: 'qcont', capacity: 2000, energy: 0 });
     const qRoute = ['12.12', '12.13', '12.14', '12.15'].join(';');
-    // 两个"房名在我的 remotes 里但归别人跑"的房，各 6 个路工地 —— 合计 12 = roadSitesPerHome
     const qShared = [makeRoom('W32S2', { my: false, rcl: 0 }), makeRoom('W32S6', { my: false, rcl: 0 })];
     for (const room of qShared) for (let i = 0; i < 6; i++) room.createConstructionSite(20 + i, 20, C.STRUCTURE_ROAD);
     const qSites = (room) => room.find(C.FIND_MY_CONSTRUCTION_SITES).filter((s) => s.structureType === C.STRUCTURE_ROAD);
@@ -10589,7 +10044,6 @@ console.log('== 母房路工地名额只算自己在跑的外矿：别的母房�
                 road: qRoute, roadComplete: false, containerId: 'qcont' }],
             reservation: { username: null, ticksToEnd: 0, seenAt: Game.time } },
         W32S2: disabled('W32S2'), W32S6: disabled('W32S6') } };
-    // 这两个房归别的母房跑（usedByAnotherHome 看的就是"别人那边 enabled"）
     Memory.rooms.W33S3 = { remoteMemoryVersion: 1, remotes: { W32S2: { room: 'W32S2', enabled: true, sourceCount: 1, sources: [] } } };
     Memory.rooms.W33S8 = { remoteMemoryVersion: 1, remotes: { W32S6: { room: 'W32S6', enabled: true, sourceCount: 1, sources: [] } } };
     world.exits.W33S7 = { '1': 'W33S6' };
@@ -10624,7 +10078,6 @@ console.log('== 外矿容器工地优先：外矿没有容器时，本外矿 / �
     world.exits.W33S7 = { '1': 'W33S6' };
     delete Memory.brain;
     Memory.map = {};
-    // 容器烂掉后留下的 6 条零进度路工地（= MAX_REMOTE_SITES）
     for (const key of rcRoad.split(';').slice(0, 6)) { const [x, y] = key.split('.').map(Number); rcA.createConstructionSite(x, y, C.STRUCTURE_ROAD); }
     const rcSites = (room, type) => room.find(C.FIND_MY_CONSTRUCTION_SITES).filter((s) => s.structureType === type);
     assert(rcSites(rcA, C.STRUCTURE_ROAD).length === 6 && rcSites(rcA, C.STRUCTURE_CONTAINER).length === 0, '前提：6 条路工地、没有容器工地');
@@ -10635,7 +10088,6 @@ console.log('== 外矿容器工地优先：外矿没有容器时，本外矿 / �
     assert(rcSites(rcA, C.STRUCTURE_ROAD).length === 5, '只撤了一条路（得 ' + rcSites(rcA, C.STRUCTURE_ROAD).length + '）');
     const rcRec = Memory.rooms.W33S7.remotes.W33S6;
     assert(rcRec.containerSiteAt > 0 && rcRec.roadSitesYielded === 1, '遥测：containerSiteAt / roadSitesYielded（得 ' + JSON.stringify([rcRec.containerSiteAt, rcRec.roadSitesYielded]) + '）');
-    // 全账号 100 个名额占满、本外矿没有路工地：撤本母房另一外矿的零进度路工地；那个外矿自己在别人缺容器时也不再放路
     for (const s of rcSites(rcA, C.STRUCTURE_CONTAINER).concat(rcSites(rcA, C.STRUCTURE_ROAD))) s.remove();
     const rcB = makeRoom('W32S7', { my: false, rcl: 0, ctrl: { x: 26, y: 26 } });
     rcB._sources = [makeSource(rcB, 11, 10, 'rcb0')];
@@ -10654,8 +10106,6 @@ console.log('== 外矿容器工地优先：外矿没有容器时，本外矿 / �
     assert(rcSites(rcA, C.STRUCTURE_CONTAINER).length === 1, '全局名额占满：撤本母房另一外矿的零进度路工地，容器工地放出（得 container ' + rcSites(rcA, C.STRUCTURE_CONTAINER).length + '，W32S7 路 ' + rcSites(rcB, C.STRUCTURE_ROAD).length + '）');
     assert(rcSites(rcB, C.STRUCTURE_ROAD).length === 2, '另一外矿只撤了一条路、且在别人缺容器时不再补放路（得 ' + rcSites(rcB, C.STRUCTURE_ROAD).length + '）');
     for (const id of rcDummies) delete Game.constructionSites[id];
-    // 全局最后 remoteContainerSiteReserve 个名额只给外矿容器工地：两个外矿都有容器时，全局 ≥ 100 − reserve 也不放路（线上 W32S8：撤了 5 条路，
-    // 腾出的名额 11 tick 内全被别的放置者抢走，容器工地永远放不出）
     makeStructure(rcA, C.STRUCTURE_CONTAINER, 12, 11, { id: 'rcca', capacity: 2000, energy: 0 });
     Memory.rooms.W33S7.remotes.W33S6.sources[0].containerId = 'rcca';
     for (const s of rcSites(rcA, C.STRUCTURE_CONTAINER)) s.remove();
@@ -10704,9 +10154,9 @@ console.log('== 外矿运输工全局就近卸货：卸货房 = 路程最短的�
     const dpHome = makeRoom('W33S7', { rcl: 5, energy: 1800, cap: 1800, owner: 'me' });
     dpHome._sources = [makeSource(dpHome, 14, 6, 'dp0h'), makeSource(dpHome, 31, 12, 'dp1h')];
     makeSpawn(dpHome, 23, 21);
-    const dpNear = makeRoom('W33S8', { rcl: 4, energy: 0, cap: 300, owner: 'me' });   // 离外矿更近的己方房，spawn 缺能
+    const dpNear = makeRoom('W33S8', { rcl: 4, energy: 0, cap: 300, owner: 'me' });
     dpNear._sources = [makeSource(dpNear, 10, 10, 'dpn0')];
-    const dpNearSpawn = makeSpawn(dpNear, 14, 12);   // mock 的 PathFinder 是跨房直线：锚点离矿位 (12,11) 2 格，母房锚点 (23,21) 11 格
+    const dpNearSpawn = makeSpawn(dpNear, 14, 12);
     dpNearSpawn.store[C.RESOURCE_ENERGY] = 0;
     const dpRemote = makeRoom('W31S8', { my: false, rcl: 0, ctrl: { x: 26, y: 26 } });
     dpRemote._sources = [makeSource(dpRemote, 11, 10, 'dpr0')];
@@ -10720,13 +10170,11 @@ console.log('== 外矿运输工全局就近卸货：卸货房 = 路程最短的�
     world.exits.W33S8 = { '1': 'W33S7', '7': 'W32S8' };
     delete Memory.brain;
     Memory.map = {};
-    // 跳数按房名曼哈顿距离：W31S8 → W33S8 2 跳，→ W33S7 3 跳
     const dpSavedRoute = Game.map.findRoute;
     Game.map.findRoute = (from, to) => { const a = utils.roomCoords(from), b = utils.roomCoords(to); return Array.from({ length: Math.abs(a.x - b.x) + Math.abs(a.y - b.y) }, () => ({})); };
     remoteMod.run(dpHome);
     const dpRecord = Memory.rooms.W33S7.remotes.W31S8;
     assert(dpRecord.drop && dpRecord.drop.room === 'W33S8' && dpRecord.drop.hops === 2, '卸货房是路程最短的己方房 W33S8（得 ' + JSON.stringify(dpRecord.drop) + '）');
-    // 跳数少但路径更长的房不选：把 W33S8 的锚点挪到远角（45,45），母房 (23,21) 反而近 → 卸货房回到母房
     dpNearSpawn.pos = new RoomPosition(45, 45, 'W33S8');
     dpRecord.drop = null;
     remoteMod.run(dpHome);
@@ -10736,7 +10184,6 @@ console.log('== 外矿运输工全局就近卸货：卸货房 = 路程最短的�
     remoteMod.run(dpHome);
     assert(dpRecord.drop && dpRecord.drop.room === 'W33S8', '锚点挪回后重新选 W33S8');
     assert(remoteMod.dropRoom('W33S7', 'W31S8') === 'W33S8', 'remote.dropRoom 给出卸货房');
-    // 近处的房比母房富得多（storage 多出 dropRicherMargin 5 万）：不往它送——母房自己缺能（线上 W32S4 → W33S3 34 万）
     const dpRichStorage = makeStructure(dpNear, C.STRUCTURE_STORAGE, 16, 12, { energy: 300000, capacity: 1000000 });
     dpNear.storage = dpRichStorage;
     dpRecord.drop = null;
@@ -10754,9 +10201,6 @@ console.log('== 外矿运输工全局就近卸货：卸货房 = 路程最短的�
     const dpWithoutDrop = remoteMod.getDemands(dpHome).filter((d) => d.role === 'remoteHauler').length;
     dpRecord.drop = dpSavedDrop;
     assert(dpWithDrop >= 1 && dpWithDrop < dpWithoutDrop, 'hauler 编制按卸货房距离算，比按母房距离少（得 ' + dpWithDrop + ' < ' + dpWithoutDrop + '）');
-    // drop.distance 为 null 是"卸回母房"的约定（refreshDropRoom 只给别的卸货房写距离），不是缺数据：编制回退到每个源自己的
-    // source.distance（母房锚点 → 矿位，与 drop 同一个 routeLength 口径），双源外矿两条线各按各的路程。
-    // 2026-10-08 线上 52 条外矿记录里 drop.distance 为 null 的全部是 drop.room === 母房；W29* 容器满仓是 hauler 没补齐（h1/3），不是距离缺失
     {
         const nlSavedDrop = dpRecord.drop;
         const nlSavedSources = dpRecord.sources;
@@ -10769,7 +10213,6 @@ console.log('== 外矿运输工全局就近卸货：卸货房 = 路程最短的�
         const nlNearNeed = remoteMod.requiredCarryFor(nlNear, 60, 'W33S7');
         assert(nlFar.haulNeed === nlFarNeed && nlNear.haulNeed === nlNearNeed && nlFarNeed > nlNearNeed,
             'drop.distance null（卸回母房）：每个源按自己的 source.distance 编制（得 ' + nlFar.haulNeed + '/' + nlNear.haulNeed + '，应 ' + nlFarNeed + '/' + nlNearNeed + '）');
-        // 与从没算过卸货房（drop 缺失）完全一样
         dpRecord.drop = null;
         const nlNone = remoteMod.getDemands(dpHome).filter((d) => d.role === 'remoteHauler').map((d) => d.slot + ':' + d.body.length).join(',');
         assert(nlHome && nlHome === nlNone, 'drop.distance null 与没有 drop 记录的 hauler 编制一致（得 ' + nlHome + ' vs ' + nlNone + '）');
@@ -10784,8 +10227,6 @@ console.log('== 外矿运输工全局就近卸货：卸货房 = 路程最短的�
     assert(dpHauler.memory.dropRoom === 'W33S8' && dpHauler.moveCalls.length && dpHauler.moveCalls[0].target.roomName === 'W33S8',
         '满载后朝就近的卸货房 W33S8 走（得 ' + dpHauler.memory.dropRoom + ' ' + JSON.stringify(dpHauler.moveCalls[0] && dpHauler.moveCalls[0].target) + '）');
     dpHauler.room = dpNear;
-    // 贴着 spawn (14,12)：remoteHauler 自己查射程再投（同 tick 接着挑下一站要靠它）；mock 的 transfer 不查射程，
-    // 原来站在 (24,25) 隔空投递只在旧代码里成立
     dpHauler.pos = new RoomPosition(15, 13, 'W33S8');
     dpHauler.moveCalls.length = 0;
     ROLES.remoteHauler.run(dpHauler);
@@ -10937,7 +10378,6 @@ console.log('== 10-16 22:20 自动记攻击者（Memory.pvpAggressors）==');
     Memory.pvpAggressors = {}; Memory.pvpThreat = {}; Memory.highwayBlock = {};
     utils.noteAggressors(room);
     assert(!Object.keys(Memory.pvpAggressors).length, 'NPC（Invader）攻击不记');
-    // 10-17 官方系统号 Screeps 与 NPC 一样排除（attack 实伤 >0、目标真掉血也不记、不封路）
     { const sys = { id: 's1', owner: { username: 'Screeps' }, body: [{ type: 'attack' }] };
       const dmg = { id: 'm1', my: true, name: '阿燐甲', hits: 4000, hitsMax: 5000 };
       const g = Game.getObjectById; Game.getObjectById = (id) => (id === 'm1' ? dmg : null);
@@ -11027,7 +10467,6 @@ console.log('== 10-17 14:xx 战略：W35S7 强开采 O，终端网络把 O 分�
 {
     const term = require('terminal');
     const cfg = term.settings();
-    // 配置落地
     assert(config.minerals && config.minerals.force && config.minerals.force.W35S7 === true, 'W35S7 已进 minerals.force（强开采 O）');
     assert(cfg.mineralWantByResource && cfg.mineralWantByResource.O === 3000, 'mineralWantByResource.O = 3000（得 ' + (cfg.mineralWantByResource && cfg.mineralWantByResource.O) + '）');
     const mkLabsM = (n, store) => Array.from({ length: n }, (_, i) => ({ structureType: C.STRUCTURE_LAB, store: Object.assign({}, i === 0 ? (store || {}) : {}) }));
@@ -11039,31 +10478,23 @@ console.log('== 10-17 14:xx 战略：W35S7 强开采 O，终端网络把 O 分�
                 send: function (type, amount, dest) { this.sent = { type, amount, dest }; return C.OK; } },
             find: (kind, o) => (o && o.filter ? labList.filter(o.filter) : labList) };
     };
-    // O 的缺口目标 3000：recipient 已有 2000（旧 want 1000 下不算缺口），仍继续补，证明按矿种覆盖生效
     const op = term.planMineralTransfer([mkRoomM('W35S7', 20000, { O: 9000 }), mkRoomM('W33S3', 20000, { O: 2000 }, 3)], cfg);
     assert(op && op.resource === 'O' && op.to.name === 'W33S3' && op.amount <= cfg.mineralMaxSend,
         'O 只到 2000 仍按 3000 目标继续补（分批、单笔 ≤ mineralMaxSend）（得 ' + JSON.stringify(op && { r: op.resource, t: op.to.name, a: op.amount }) + '）');
-    // O 已达 3000：不再补（到位即止，配合市场 target 3000 一起停）
     assert(term.planMineralTransfer([mkRoomM('W35S7', 20000, { O: 9000 }), mkRoomM('W33S3', 20000, { O: 3000 }, 3)], cfg) === null,
         'O 已到 3000 ⇒ 不再调（到位即止）');
-    // 非 O 矿沿用 mineralWant 1000：H 已有 2000 ⇒ 不算缺口（证明只覆盖 O）
     assert(term.planMineralTransfer([mkRoomM('W35S7', 20000, { H: 9000 }), mkRoomM('W33S3', 20000, { H: 2000 }, 3)], cfg) === null,
         '非 O 矿沿用 mineralWant 1000：H 已有 2000 ⇒ 不算缺口');
-    // 矿工受 towerFloor 全局底线挡住（塔 < 500 不孵）
     const spawnSrcM = require('fs').readFileSync(require.resolve('../src/spawn.js'), 'utf8');
     assert(/function mineralMinerTarget[\s\S]*?towerFloorHold\(room\)\) return 0/.test(spawnSrcM),
         'mineralMinerTarget 开头用 towerFloorHold 挡住（塔 < 500 不孵矿工）');
-    // 10-17 17:00 战略：W35S7 自留量（mineralKeep）按房降到 0——纯外发房发送门槛降到 want、能把 O 发到接近 0
     const keepCfg = Object.assign({}, cfg, { mineralKeepByRoom: { W35S7: 0 } });
-    // 自留 0：W35S7 只有 3500 O（> 0 + want 3000）就外发，一笔 2000；接收方补到位
     const kp = term.planMineralTransfer([mkRoomM('W35S7', 20000, { O: 3500 }), mkRoomM('W33S3', 20000, { O: 0 }, 3)], keepCfg);
     assert(kp && kp.resource === 'O' && kp.from.name === 'W35S7' && kp.to.name === 'W33S3' && kp.amount === 2000,
         'W35S7 自留 0：有 3500 O 即外发一笔 2000 给 W33S3（得 ' + JSON.stringify(kp && { f: kp.from.name, t: kp.to.name, a: kp.amount }) + '）');
-    // 对照：不配 mineralKeepByRoom（全局自留 3000）时，3500 O（< 3000 + want 3000 = 6000）不发
     const noKeepCfg = Object.assign({}, cfg, { mineralKeepByRoom: {} });
     assert(term.planMineralTransfer([mkRoomM('W35S7', 20000, { O: 3500 }), mkRoomM('W33S3', 20000, { O: 0 }, 3)], noKeepCfg) === null,
         '对照：全局自留 3000 时 3500 O 不够发送门槛 6000 ⇒ 不发（证明按房自留 0 生效）');
-    // 自留 0 能把 O 发到接近 0：只有 1500 O（recipientFree 足、maxSend 2000）⇒ 发 1500（store − keep0）
     const kp2 = term.planMineralTransfer([mkRoomM('W35S7', 20000, { O: 3500 }), mkRoomM('W33S3', 20000, { O: 2600 }, 3)], keepCfg);
     assert(kp2 && kp2.amount === Math.min(3500, 2000), 'W35S7 自留 0：发送量 = min(store − 0, maxSend)，不为自己留 O');
 }
@@ -11072,10 +10503,8 @@ console.log('== 10-17 02:00 W36S6 strongholdLoot 取货（默认关）==');
 {
     const cq = require('../src/conquest');
     const savedRooms = Game.rooms, savedConq = Memory.conquest, savedSk = require('../src/config').sk.validate;
-    // 默认关：无 Memory.conquest → 零需求
     Memory.conquest = undefined; Game.rooms = {};
     assert(cq.getDemands({ name: 'W33S3', controller: { my: true }, energyCapacityAvailable: 5600, storage: { store: { energy: 30000 } }, find: () => [] }).length === 0, '默认无指令：conquest 零需求');
-    // 构造 W36S6：两个战利品容器各压一个敌方 rampart，核心有 rampart（不拆）
     const cont = (x, y, store) => ({ structureType: C.STRUCTURE_CONTAINER, pos: { x, y }, store });
     const ramp = (x, y) => ({ structureType: C.STRUCTURE_RAMPART, pos: { x, y }, owner: { username: 'Invader' }, my: false, hits: 200000, hitsMax: 300000000 });
     const w36 = { name: 'W36S6', controller: {}, find: () => [
@@ -11092,23 +10521,19 @@ console.log('== 10-17 02:00 W36S6 strongholdLoot 取货（默认关）==');
     const home = { name: 'W33S3', controller: { my: true }, energyCapacityAvailable: 5600, storage: { store: { energy: 30000 } }, find: () => [] };
     let ds = cq.getDemands(home);
     assert(ds.some((x) => x.role === 'siegeDismantler' && x.memory.lootTiles) && ds.some((x) => x.role === 'siegeGuard') && ds.some((x) => x.role === 'lootHauler'), '破防阶段出拆墙队+护卫+搬运兵');
-    // 显式坐标覆盖
     const d2 = Object.assign({}, d, { lootTiles: [[1, 1]] });
     Memory.conquest = d2; Game.rooms = { W36S6: w36 };
     assert(cq.lootTilesOf(d2, w36)[0].join(',') === '1,1', '配置显式坐标覆盖自动识别');
-    // 撤退：拆墙队总血 < 一半 → 不出新兵
     Game.creeps = { a: { memory: { targetRoom: 'W36S6', role: 'siegeDismantler' }, hits: 100, hitsMax: 1000, spawning: false } };
     Memory.conquest = d; cq.run();
     assert(d.retreat === true && cq.retreatFor('W36S6') === true && cq.getDemands(home).length === 0, '拆墙队总血 < 一半：撤退，不出新兵');
     Game.creeps = {};
-    // skReaper 验证模式（默认关）
     const cfg = require('../src/config'); cfg.sk.validate = { enabled: false, home: 'W33S3', room: 'W36S6', units: 9 };
     Memory.conquest = undefined;
     assert(cq.getDemands(home).length === 0, 'validate 关：无 reaper 需求');
     cfg.sk.validate = { enabled: true, home: 'W33S3', room: 'W36S6', units: 9 };
     const vd = cq.getDemands(home);
     assert(vd.length === 1 && vd[0].role === 'skReaper' && vd[0].memory.validate && vd[0].memory.remoteRoom === 'W36S6', 'validate 开：W33S3 出 1 只验证 reaper');
-    // 10-17 硬规则：boosts 未装齐 → 整队等待，waitReason 记录
     cfg.sk.validate = { enabled: false, home: null, room: null };
     const dB = { type: 'strongholdLoot', target: 'W36S6', sponsors: ['W33S3'], dismantlers: 1, guards: 0, boosts: { dismantler: ['XZH2O'] } };
     Memory.conquest = dB; Game.rooms = {};
@@ -11134,9 +10559,7 @@ console.log('== 10-17 02:08 军事 boost lab 补能量链路（默认关）==');
     const room = { name: 'W33S3', storage: { my: true, store: { energy: 30000, [C.RESOURCE_ENERGY]: 30000 } } };
     Memory.rooms = Object.assign({}, Memory.rooms, { W33S3: {} });
     const l = lab('m1');
-    // 默认：militaryLabs 空 → 非 boostLab 的 lab 不补（零影响）
     assert(tb.labEnergyWant(room, l, false, Memory.rooms.W33S3) === 0, '默认关：普通 lab storageRich=false 不补能量');
-    // militaryLabs 标了这个 lab → 即便 storageRich=false 也补（storage > energyFloorMinStorage）
     Memory.rooms.W33S3.militaryLabs = { XZH2O: 'm1' };
     assert(tb.labEnergyWant(room, l, false, Memory.rooms.W33S3) > 0, '军事 lab：storageRich=false 也补能量，boostCreep 不断粮');
     const poor = { name: 'W33S3', storage: { my: true, store: { energy: 500, [C.RESOURCE_ENERGY]: 500 } } };
@@ -11198,27 +10621,22 @@ console.log('== 10-17 10:26 能量买单：跟最高买价 ≤45、单独 200 �
         buy: { resources: [], rooms: [] } });
     const savedRooms = Game.rooms, savedMem = Memory.market;
     const term = (e) => ({ my: true, store: { energy: e, getFreeCapacity: () => 100000, [C.RESOURCE_ENERGY]: e } });
-    // W34S7 缺能量（storage+terminal < 1 万），W35S7 不缺
     Game.rooms = { W34S7: { name: 'W34S7', terminal: term(1000), storage: { store: { energy: 2000 } } },
                    W35S7: { name: 'W35S7', terminal: term(8000), storage: { store: { energy: 9000 } } } };
     let created = null;
     const mkMarket = (credits, buyTop) => ({ credits, orders: {},
         getAllOrders: (f) => (f && (f.type === (C.ORDER_BUY || 'buy')) ? [{ price: buyTop, amount: 5000 }, { price: 20, amount: 1000 }] : []),
         createOrder: (o) => { created = o; return C.OK != null ? C.OK : 0; } });
-    // credits < 500 万：不挂
     Memory.market = { ledger: { day: 1, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 }, orders: {} };
     assert(mk.runOwnOrders(cfg, mkMarket(4000000, 60)) === null && created === null, 'credits < creditFloor 500 万：不挂能量买单');
-    // credits 够：挂 W34S7，价 = min(最高买价 60, maxPrice 45) = 45
     Memory.market = { ledger: { day: 1, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 }, orders: {} };
     const r = mk.runOwnOrders(cfg, mkMarket(9000000, 60));
     assert(r && created && created.roomName === 'W34S7' && created.resourceType === (C.RESOURCE_ENERGY || 'energy'), '只给缺能量房 W34S7 挂单（W35S7 不缺跳过）');
     assert(created.price === 45, '价格封顶 maxPrice 45（最高买价 60 → 45）');
     assert(Memory.market.ledger.energyBuyCredits > 0 && Memory.market.ledger.buyCredits === 0, '能量买单记 energyBuyCredits，不占普通 buyCredits');
-    // 最高买价低于 45 时跟买价
     Memory.market = { ledger: { day: 1, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 }, orders: {} };
     created = null; mk.runOwnOrders(cfg, mkMarket(9000000, 38));
     assert(created && created.price === 38, '最高买价 38 < 45：跟到 38');
-    // 5 日均价 × 1.15 更低时，价格跟均价带（min(最高买价, 45, 均价×1.15)）
     { const savedGM = Game.market;
       Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 }, orders: {} };
       const m2 = { credits: 9000000, orders: {},
@@ -11229,37 +10647,31 @@ console.log('== 10-17 10:26 能量买单：跟最高买价 ≤45、单独 200 �
       mk.runOwnOrders(cfg, m2);
       assert(created && Math.abs(created.price - 34.5) < 0.01, '均价 30 × 1.15 = 34.5 < 最高买价/45：价格跟到 34.5（得 ' + (created && created.price) + '）');
       Game.market = savedGM; }
-    // 日额度 200 万用满：不再挂
     Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 2000000, deals: 0 }, orders: {} };
     created = null; assert(mk.runOwnOrders(cfg, mkMarket(9000000, 40)) === null && created === null, 'energyBuyCredits 日额度 200 万用满：不再挂');
-    // preferSenders：W29S3 有 terminal 且 storage+terminal > terminalNetwork.sendAbove 时，本轮不市场买（让内部发送先走）
     { const cfg2 = Object.assign({}, cfg, { ownOrders: Object.assign({}, cfg.ownOrders, { energy: Object.assign({}, cfg.ownOrders.energy, { preferSenders: ['W29S3'] }) }) });
       const sendAbove = Number(require('../src/config').terminalNetwork.sendAbove) || 100000;
       Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 }, orders: {} };
       const savedR = Game.rooms;
       Game.rooms = Object.assign({}, Game.rooms, { W29S3: { name: 'W29S3', terminal: term(0), storage: { store: { energy: sendAbove + 50000 } } } });
       created = null; assert(mk.runOwnOrders(cfg2, mkMarket(9000000, 40)) === null && created === null, 'preferSenders W29S3 能发（> sendAbove）：本轮不市场买能量');
-      // W29S3 跌破 sendAbove（发完/不够）：恢复市场买
       Game.rooms.W29S3 = { name: 'W29S3', terminal: term(0), storage: { store: { energy: sendAbove - 50000 } } };
       Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 }, orders: {} };
       created = null; mk.runOwnOrders(cfg2, mkMarket(9000000, 40));
       assert(created && created.roomName === 'W34S7', 'W29S3 发完跌破 sendAbove：恢复市场买');
       Game.rooms = savedR; }
-    // 10-17 13:57 按最缺能优先（不再每轮都挑名单第一个房）
     { const cfg3 = Object.assign({}, cfg, { ownOrders: Object.assign({}, cfg.ownOrders, { energy: Object.assign({}, cfg.ownOrders.energy, { perRoomDailyCredits: 500000 }) }) });
       Game.rooms = { W34S7: { name: 'W34S7', terminal: term(2000), storage: { store: { energy: 3000 } } },
                      W35S7: { name: 'W35S7', terminal: term(500), storage: { store: { energy: 500 } } } };
       Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
       created = null; mk.runOwnOrders(cfg3, mkMarket(9000000, 40));
       assert(created && created.roomName === 'W35S7', '最缺能的 W35S7（1000 < W34S7 5000）先挂单，不是名单第一个');
-      // 单房 50 万上限：W34S7 已花满，额度留给 W35S7
       Game.rooms = { W34S7: { name: 'W34S7', terminal: term(1000), storage: { store: { energy: 1000 } } },
                      W35S7: { name: 'W35S7', terminal: term(2000), storage: { store: { energy: 3000 } } } };
       Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: { W34S7: 500000 }, deals: 0 }, orders: {} };
       created = null; mk.runOwnOrders(cfg3, mkMarket(9000000, 40));
       assert(created && created.roomName === 'W35S7', 'W34S7 单房 50 万已花满：跳过，挂给 W35S7');
       assert(Memory.market.ledger.energyBuyByRoom.W35S7 > 0 && Memory.market.ledger.energyBuyByRoom.W34S7 === 500000, '消费记进 energyBuyByRoom[房]，含手续费');
-      // 两个房都花满：不挂
       Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: { W34S7: 500000, W35S7: 500000 }, deals: 0 }, orders: {} };
       created = null; assert(mk.runOwnOrders(cfg3, mkMarket(9000000, 40)) === null && created === null, '两个房单日上限都用满：不再挂'); }
     Game.rooms = savedRooms; Memory.market = savedMem;
@@ -11274,21 +10686,18 @@ console.log('== 10-17 11:04 原料买入：只给 W32S4 补 X/O 到 3000，lab �
         ownOrders: { enabled: true, expireTicks: 3000, fee: 0.05, minBuyAmount: 100, buyMinerals: true, sell: [], energy: null },
         buy: { resources: ['X', 'O'], target: 3000, orderAmount: 500, rooms: ['W32S4'] } });
     const savedRooms = Game.rooms, savedMem = Memory.market, savedGM = Game.market, savedBucket = Game.cpu.bucket, savedStats = Memory.stats;
-    // 前面的测试删了 config.industry.labRooms（15827 行才还原）：labsAllowed 需要它，本块临时补回
     const indC = require('../src/config').industry; const savedLabRooms = indC.labRooms, savedReserveCfg = indC.labStorageReserve;
     indC.labRooms = ['W32S4', 'W33S3']; indC.labStorageReserve = reserve;
-    Game.cpu.bucket = 10000; Memory.stats = [];   // deposit.cpuOk → true
+    Game.cpu.bucket = 10000; Memory.stats = [];
     const mkMineralMarket = (credits) => ({ credits, orders: {}, getAllOrders: () => [],
         getHistory: () => [{ avgPrice: 5 }, { avgPrice: 5 }], createOrder: (o) => { createdM.push(o); return C.OK != null ? C.OK : 0; } });
     const term = { my: true, store: { X: 0, O: 0, getFreeCapacity: () => 100000 } };
     const mkRoom = (storEnergy) => ({ name: 'W32S4', terminal: term, storage: { my: true, store: { energy: storEnergy, [C.RESOURCE_ENERGY]: storEnergy } } });
     let createdM = [];
-    // lab 被能量闸挡住（storage 能量 < labStorageReserve）：不买
     Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 }, orders: {} };
     Game.rooms = { W32S4: mkRoom(reserve - 1) }; Game.market = mkMineralMarket(9000000); createdM = [];
     mk.runOwnOrders(cfg, Game.market);
     assert(createdM.length === 0, 'lab 被能量闸挡住（storage<labStorageReserve）：不补原料');
-    // storage 能量够：补 X/O
     Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 }, orders: {} };
     Game.rooms = { W32S4: mkRoom(reserve + 50000) }; Game.market = mkMineralMarket(9000000); createdM = [];
     mk.runOwnOrders(cfg, Game.market);
@@ -11300,11 +10709,9 @@ console.log('== 10-17 11:04 原料买入：只给 W32S4 补 X/O 到 3000，lab �
 
 console.log('== 10-16 19:00 市场降档：日额度 15 万、只给 W32S4 买 Z、救急买能量不占日额度 ==');
 {
-    // 前面的场景会改写/删掉 config.market 做 mock：读一份新鲜的源配置
     const cfgPath = require.resolve('../src/config'); const savedCfg = require.cache[cfgPath]; delete require.cache[cfgPath];
     const mc = require('../src/config').market; require.cache[cfgPath] = savedCfg;
     assert(mc.dailyBuyCredits === 150000, '每日买入上限 15 万（得 ' + mc.dailyBuyCredits + '）');
-    // 10-17 11:04：恢复少量 X/O 买入，只给 W32S4 的 XGH2O 链补到 3000
     assert(JSON.stringify(mc.buy.resources.slice().sort()) === '["O","X"]' && JSON.stringify(mc.buy.rooms) === '["W32S4"]' && mc.buy.target === 3000, '只给 W32S4 买 X/O 补到 3000（得 ' + JSON.stringify(mc.buy) + '）');
     assert(!Object.keys(mc.buyShare.reserve || {}).length, 'O/X 不再占预留份额');
     assert(mc.buyEnergy.spawnStuckEmergency === true && mc.buyEnergy.emergencyOutsideDaily === true, '救急买能量保留、且不占日额度');
@@ -11332,15 +10739,12 @@ console.log('== 10-17 14:12 六个买能房全部进攒能档（bankRooms 0.6，
 {
     const br = config.upgrading.bankRooms;
     for (const r of ['W34S7', 'W35S7', 'W37S5', 'W31S5', 'W37S7', 'W31S6']) assert(br[r] === 0.6, r + ' 在 bankRooms、系数 0.6（得 ' + br[r] + '）');
-    const twoSrc = () => [{ energyCapacity: 3000 }, { energyCapacity: 3000 }];   // 2 源 → sourceSupply 20 → 封顶 12
+    const twoSrc = () => [{ energyCapacity: 3000 }, { energyCapacity: 3000 }];
     const richMem = { storageRich: { on: true, at: 1 } };
-    // 攒能房：storage 50 万、storageRich 开着，仍封在 12（买来的能量只进 storage，不放开升级规模）
     const bankRoom = { name: 'W34S7', find: twoSrc, storage: { my: true, store: { energy: 500000, [C.RESOURCE_ENERGY]: 500000 } }, terminal: null, controller: { level: 7, my: true } };
     assert(utils.upgraderSupplyWork(bankRoom, richMem) === 12, '攒能房 storage 50 万也封在 12（不按 storage 放开）（得 ' + utils.upgraderSupplyWork(bankRoom, richMem) + '）');
-    // 对照：非攒能房同样 storage → 可持续供给随富余放开（> 12），证明是 bank 规则在封顶
     const freeRoom = { name: 'W30S5', find: twoSrc, storage: { my: true, store: { energy: 500000, [C.RESOURCE_ENERGY]: 500000 } }, terminal: null, controller: { level: 7, my: true } };
     assert(utils.upgraderSupplyWork(freeRoom, richMem) > 12, '非攒能房 storage 50 万：供给放开（> 12）（得 ' + utils.upgraderSupplyWork(freeRoom, richMem) + '）');
-    // 防降级最低保障：即使源很小，bankingWorkCap 也 >= 1（控制器永远有 1 WORK 升级，不会降级）
     const tiny = { name: 'W37S5', find: () => [{ energyCapacity: 1000 }], storage: { my: true, store: { energy: 0 } }, controller: { level: 7, my: true } };
     assert(utils.bankingWorkCap(tiny) >= 1, '攒能房封顶也不低于 1 WORK（防控制器降级）（得 ' + utils.bankingWorkCap(tiny) + '）');
 }
@@ -11351,7 +10755,7 @@ console.log('== 援建加码：容量 < 1300 且 storage 不足的弱房受援�
     const aiHome = makeRoom('W33S7', { rcl: 5, energy: 1800, cap: 1800, owner: 'me' });
     aiHome._sources = [makeSource(aiHome, 14, 6, 'ai0'), makeSource(aiHome, 31, 12, 'ai1')];
     makeSpawn(aiHome, 23, 21);
-    const aiStorage = makeStructure(aiHome, C.STRUCTURE_STORAGE, 21, 20, { energy: 36000, capacity: 1000000 });   // 10-16：导出线跟富余线 3 万
+    const aiStorage = makeStructure(aiHome, C.STRUCTURE_STORAGE, 21, 20, { energy: 36000, capacity: 1000000 });
     aiHome.storage = aiStorage;
     const aiWeak = makeRoom('W33S8', { rcl: 4, energy: 300, cap: 900, owner: 'me' });
     aiWeak._sources = [makeSource(aiWeak, 4, 19, 'aw0'), makeSource(aiWeak, 13, 32, 'aw1')];
@@ -11367,7 +10771,7 @@ console.log('== 援建加码：容量 < 1300 且 storage 不足的弱房受援�
     const aiCourier = aidMod.getDemands(aiHome).find((d) => d.role === 'courier');
     assert(aiCourier && aiCourier.memory.home === 'W33S8' && aiCourier.memory.from === 'W33S7' && aiCourier.strategic === false && utils.bodyCost(aiCourier.body) <= aidCfg.courierBudget,
         '母房 storage 36000 ≥ exportAbove：出一只非 strategic 的 courier 需求（得 ' + JSON.stringify(aiCourier && [aiCourier.memory, utils.bodyCost(aiCourier.body)]) + '）');
-    {   // 10-16：exportAfterTerminal 名单里的母房 terminal 建成前不导出
+    {
         const keepList = aidCfg.exportAfterTerminal;
         aidCfg.exportAfterTerminal = ['W33S7'];
         const savedTerm = aiHome.terminal;
@@ -11388,7 +10792,6 @@ console.log('== 援建加码：容量 < 1300 且 storage 不足的弱房受援�
     assert(!aidMod.needsAid(aiHome, aiWeak), '弱房 storage 12000 ≥ storageBelow 不再受援');
     aiWeak._structs.splice(aiWeak._structs.indexOf(aiWeakStorage), 1);
     aiWeak.storage = null;
-    // courier 行为
     const aiC = makeCreep(aiHome, 'aiC', utils.makeBody('hauler', 1600), { home: 'W33S8', role: 'courier', from: 'W33S7', aid: 'W33S7' });
     aiC.pos = new RoomPosition(22, 21, 'W33S7');
     world.creeps.aiC = aiC;
@@ -11408,7 +10811,6 @@ console.log('== 援建加码：容量 < 1300 且 storage 不足的弱房受援�
     aiStorage.store[C.RESOURCE_ENERGY] = 26000;
     assert(!aidMod.getDemands(aiHome).some((d) => d.role === 'courier'), '在岗 courier 满编时不再出需求');
 }
-
 
 console.log('== 私服验证探针 validationProbe：按房记录 _validationRooms，含 storage 能量 ==');
 {
@@ -11435,7 +10837,6 @@ console.log('== 两个房同时开荒：各自的母房都要出 pioneer；援�
     const cbB = makeRoom('W33S8', { rcl: 4, energy: 800, cap: 800, ctrl: { x: 40, y: 25 }, owner: 'me' });
     cbB._sources = [makeSource(cbB, 4, 19, 'cbb0'), makeSource(cbB, 13, 32, 'cbb1')];
     makeSpawn(cbB, 14, 40);
-    // 两个刚占下的新房：controller 归我方、只有 spawn 工地、没有 spawn（线上 2026-09-06 W31S6/W31S8）
     const cbN1 = makeRoom('W31S6', { rcl: 1, my: true, ctrl: { x: 31, y: 41 } });
     cbN1._sources = [makeSource(cbN1, 19, 19, 'cbn10'), makeSource(cbN1, 36, 40, 'cbn11')];
     cbN1.createConstructionSite(17, 19, C.STRUCTURE_SPAWN);
@@ -11483,13 +10884,11 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     assert(rsStorageCollect && rsSrcCollect && rsStorageCollect.rich === true && rsStorageCollect.weight < rsSrcCollect.weight, 'storage 9 万且控制器容器 200/2000：storage 取货标 rich 但权重低于源容器（兜底）（得 ' + JSON.stringify([rsStorageCollect && rsStorageCollect.weight, rsStorageCollect && rsStorageCollect.rich, rsSrcCollect && rsSrcCollect.weight]) + '）');
     assert(Memory.rooms.W30S5.storageRich && Memory.rooms.W30S5.storageRich.on === true && Memory.rooms.W30S5.storageRich.at === Game.time, '富余状态写进 Memory.rooms[房].storageRich（得 ' + JSON.stringify(Memory.rooms.W30S5.storageRich) + '）');
     assert(rsCtrlDeliver && rsCtrlDeliver.tier === 1, '富余时控制器容器的投递提到第 1 层（得 ' + (rsCtrlDeliver && rsCtrlDeliver.tier) + '）');
-    // hauler 满载、spawn/ext 满：先送控制器容器（第 1 层里 spawn 无缺口）
     const rsHauler = world.creeps.rsHa0;
     rsHauler.pos = new RoomPosition(22, 21, 'W30S5');
     rsHauler.store[C.RESOURCE_ENERGY] = 800;
     ROLES.hauler.run(rsHauler);
     assert(rsCtrl.store[C.RESOURCE_ENERGY] === 1000 || headingTo(rsHauler, rsCtrl), 'spawn/ext 满时满载 hauler 把能量送进控制器容器（得 ' + rsCtrl.store[C.RESOURCE_ENERGY] + '）');
-    // 空载 hauler：源容器 1500 有货 → 先取源容器，storage 不动（storage 压过源容器会把矿工溢出的能量丢在地上衰减，A/B 总 CP −5%）
     const rsHauler2 = world.creeps.rsHa1;
     rsHauler2.pos = new RoomPosition(22, 22, 'W30S5');
     rsHauler2.store[C.RESOURCE_ENERGY] = 0;
@@ -11497,7 +10896,6 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     ROLES.hauler.run(rsHauler2);
     assert(rsStorage.store[C.RESOURCE_ENERGY] === SF_RICH && (rsSrc0.store[C.RESOURCE_ENERGY] < 1500 || rsSrc1.store[C.RESOURCE_ENERGY] < 1500 || rsHauler2.moveCalls.length > 0),
         '空载 hauler 先取源容器而不是 storage（storage ' + rsStorage.store[C.RESOURCE_ENERGY] + '，动作 ' + rsHauler2.actions.join(',') + '）');
-    // 源容器都空了（< 100）：兜底才从 storage 取
     rsSrc0.store[C.RESOURCE_ENERGY] = 50; rsSrc1.store[C.RESOURCE_ENERGY] = 50;
     world.time += 3;
     taskBroker.beginTick();
@@ -11509,14 +10907,12 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     ROLES.hauler.run(rsHauler2b);
     assert(rsStorage.store[C.RESOURCE_ENERGY] < SF_RICH, '源容器都空时空载 hauler 从 storage 取（兜底）（storage ' + rsStorage.store[C.RESOURCE_ENERGY] + '，动作 ' + rsHauler2b.actions.join(',') + '）');
     rsSrc0.store[C.RESOURCE_ENERGY] = 1500; rsSrc1.store[C.RESOURCE_ENERGY] = 1500;
-    // 升级者目标：容器 200/2000 而 storage 9 万 → 供给比例只看容器（EMA 往下走），上限仍用富余表（RCL5：3 而不是 2）
     Memory.rooms.W30S5.upgradeSupply = { ema: 0.5, extra: 2, at: -1, changedAt: -1 };
     rsCtrl.store[C.RESOURCE_ENERGY] = 200;
     spawnMgr.run(rsRoom);
     const rsCfg = require('../src/config').upgrading;
     assert(Memory.rooms.W30S5.upgradeSupply.ema < 0.5 && Memory.rooms.W30S5.demand.targets.upgrader < rsCfg.maxUpgradersRich[5],
         '容器只有 10%：供给 EMA 只按容器到货往下走、升级者减员，不按 storage 水位配（得 ema ' + Memory.rooms.W30S5.upgradeSupply.ema + ' 目标 ' + Memory.rooms.W30S5.demand.targets.upgrader + '）');
-    // 容器喂得饱（95%）：上限才用富余表（RCL5：3 而不是 2）
     Memory.rooms.W30S5.upgradeSupply = { ema: 0.5, extra: 2, at: -1, changedAt: -1 };
     rsCtrl.store[C.RESOURCE_ENERGY] = 1900;
     world.time += 3;
@@ -11524,14 +10920,12 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     const rsTargets = Memory.rooms.W30S5.demand.targets;
     assert(rsTargets.upgrader === rsCfg.maxUpgradersRich[5] && rsTargets.upgrader > rsCfg.maxUpgraders[5], 'storage 富余且容器喂得饱：升级者上限到 maxUpgradersRich[5]（得 ' + rsTargets.upgrader + '）');
     rsCtrl.store[C.RESOURCE_ENERGY] = 200;
-    // 滞回：storage 从 9 万掉到 1.5 万仍算富余（≥ storageFeedBelow 1 万）
     rsStorage.store[C.RESOURCE_ENERGY] = SF_MID;
     world.time += 3;
     taskBroker.beginTick();
     const rsTasksH = taskBroker.roomTasks(rsRoom);
     const rsCtrlDeliverH = rsTasksH.find((t) => t.kind === 'deliver' && t.target === rsCtrl);
     assert(rsCtrlDeliverH && rsCtrlDeliverH.tier === 1 && Memory.rooms.W30S5.storageRich.on === true, '滞回：storage 1.5 万（曾富余）仍是富余，控制器容器仍在第 1 层（得 ' + JSON.stringify([rsCtrlDeliverH && rsCtrlDeliverH.tier, Memory.rooms.W30S5.storageRich]) + '）');
-    // storage 掉到 storageFeedBelow 以下：回到普通规则
     rsStorage.store[C.RESOURCE_ENERGY] = SF_UNDER;
     world.time += 3;
     taskBroker.beginTick();
@@ -11540,23 +10934,17 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     const rsStorageCollect2 = rsTasks2.find((t) => t.kind === 'collect' && t.target === rsStorage);
     assert(rsCtrlDeliver2 && rsCtrlDeliver2.tier === 3 && (!rsStorageCollect2 || (rsStorageCollect2.weight < 6 && !rsStorageCollect2.rich)) && Memory.rooms.W30S5.storageRich.on === false,
         'storage 8000 时控制器容器回到第 3 层、storage 取货不再 rich（得 ' + JSON.stringify([rsCtrlDeliver2 && rsCtrlDeliver2.tier, rsStorageCollect2 && [rsStorageCollect2.weight, rsStorageCollect2.rich], Memory.rooms.W30S5.storageRich]) + '）');
-    // competeAt：刚看到过竞争需求（保持期内），限流生效——spawn.run 会按本房实况重写 builderBacklog
     Memory.rooms.W30S5.upgradeSupply = { ema: 0.5, extra: 2, at: -1, changedAt: -1, competeAt: world.time };
     spawnMgr.run(rsRoom);
-    // storage 掉到 lowBelow 以下同时进入升级低档：控制器限流到 W12，而每只容器站位的升级者已是 W12——
-    // 数量按 上限 ÷ 每只 WORK 封顶为 1（第 2 只只会把 duty 摊到 0.5，线上 W32S4/W34S7/W30S5 就是两只 W12 各干一半）
     const rsPer = spawnMgr.upgraderBody(rsRoom, Memory.rooms.W30S5, rsRoom.energyCapacityAvailable).filter((part) => part === 'work').length;
-    // 2026-10-08 起身体按可持续供给（≤ W20）而不是瞬时限流定：RCL5 容量 1800 的 W16；数量仍按 限流 12 ÷ 16 封顶为 1
     assert(utils.upgraderWorkCap(rsRoom, Memory.rooms.W30S5) === 12 && rsPer === 16, '前提：低档限流 W12、每只升级者 W16（容量所限，不再缩到限流值）（得 cap ' + utils.upgraderWorkCap(rsRoom, Memory.rooms.W30S5) + ' W' + rsPer + '）');
     assert(Memory.rooms.W30S5.demand.targets.upgrader === 1 && 1 < rsCfg.maxUpgraders[5],
         'storage 富余退出且进入升级低档：升级者按限流封顶为 1，不按 extra 加到 maxUpgraders[5]（得 ' + Memory.rooms.W30S5.demand.targets.upgrader + '）');
-    // 滞回另一侧：退出后 storage 回到 1.5 万不重新进入（要到 2 万）
     rsStorage.store[C.RESOURCE_ENERGY] = SF_MID;
     world.time += 3;
     taskBroker.beginTick();
     const rsCtrlDeliverL = taskBroker.roomTasks(rsRoom).find((t) => t.kind === 'deliver' && t.target === rsCtrl);
     assert(rsCtrlDeliverL && rsCtrlDeliverL.tier === 3 && Memory.rooms.W30S5.storageRich.on === false, '滞回：退出后 1.5 万不重新进入富余（得 ' + JSON.stringify([rsCtrlDeliverL && rsCtrlDeliverL.tier, Memory.rooms.W30S5.storageRich]) + '）');
-    // 专职短途搬运工 feeder：storage 富余 + 容器供能 + storage 到控制器容器 12 格（≤ feederMaxDistance）→ 编制 1；hauler 编制不再算 storage 回流项
     const rsFeederCfg = require('../src/config').upgrading;
     world.time += 3;
     spawnMgr.run(rsRoom);
@@ -11572,15 +10960,14 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     assert(rsFeeder && utils.bodyPartCount(rsFeeder.body, 'carry') >= 4 && utils.bodyPartCount(rsFeeder.body, 'move') >= 2, '孵出 feeder：CARRY ≥ 4、MOVE ≥ 2（得 ' + (rsFeeder && rsFeeder.body.map((p) => p.type[0]).join('')) + '）');
     assert(spawnMgr.feederBody(rsRoom, Memory.rooms.W30S5, 250).length === 0 && utils.bodyPartCount(spawnMgr.feederBody(rsRoom, Memory.rooms.W30S5, 600), 'carry') >= 4,
         '预算不够 4 CARRY 的 feeder 不孵（返回空身体等预算），600 预算给 ≥ 4 CARRY（得 ' + JSON.stringify([spawnMgr.feederBody(rsRoom, Memory.rooms.W30S5, 250).length, spawnMgr.feederBody(rsRoom, Memory.rooms.W30S5, 600).map((p) => p[0]).join('')]) + '）');
-    // 角色：空载去 storage 取；满载送控制器容器；富余关闭且空载 → 退役
     const rsF = makeCreep(rsRoom, 'rs-feeder', ['carry', 'carry', 'carry', 'carry', 'move', 'move'], { home: 'W30S5', role: 'feeder' });
-    rsF.pos = new RoomPosition(22, 20, 'W30S5');   // storage (21,20) 旁
+    rsF.pos = new RoomPosition(22, 20, 'W30S5');
     world.creeps[rsF.name] = rsF;
     const rsStorageBefore = rsStorage.store[C.RESOURCE_ENERGY];
     ROLES.feeder.run(rsF);
     assert(rsF.actions.includes('withdraw') && rsStorage.store[C.RESOURCE_ENERGY] < rsStorageBefore && rsF.store[C.RESOURCE_ENERGY] === 200, '空载 feeder 从 storage 取满（得 ' + rsF.actions.join(',') + ' 载 ' + rsF.store[C.RESOURCE_ENERGY] + '）');
     rsF.actions.length = 0;
-    rsF.pos = new RoomPosition(32, 25, 'W30S5');   // 控制器容器 (33,25) 旁
+    rsF.pos = new RoomPosition(32, 25, 'W30S5');
     const rsCtrlBefore = rsCtrl.store[C.RESOURCE_ENERGY];
     ROLES.feeder.run(rsF);
     assert(rsF.actions.includes('transfer') && rsCtrl.store[C.RESOURCE_ENERGY] === rsCtrlBefore + 200 && rsF.store[C.RESOURCE_ENERGY] === 0, '满载 feeder 送进控制器容器（得 ' + rsF.actions.join(',') + ' 容器 ' + rsCtrl.store[C.RESOURCE_ENERGY] + '）');
@@ -11589,7 +10976,7 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     ROLES.feeder.run(rsF);
     assert(!rsF.actions.includes('transfer') && !rsF.actions.includes('suicide') && rsF.memory.retireSpawn == null, '容器满时 feeder 在旁等，不退役（得 ' + rsF.actions.join(',') + '）');
     rsCtrl.store[C.RESOURCE_ENERGY] = 200;
-    rsStorage.store[C.RESOURCE_ENERGY] = SF_UNDER;   // 富余关闭（< storageFeedBelow）
+    rsStorage.store[C.RESOURCE_ENERGY] = SF_UNDER;
     rsF.store[C.RESOURCE_ENERGY] = 0; rsF.actions.length = 0; rsF.moveCalls.length = 0;
     world.time += 3;
     ROLES.feeder.run(rsF);
@@ -11597,7 +10984,6 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     delete world.creeps[rsF.name];
     for (const name of Object.keys(world.creeps)) if (world.creeps[name].memory.role === 'feeder') delete world.creeps[name];
     rsStorage.store[C.RESOURCE_ENERGY] = SF_MID;
-    // 控制器由 link 供能（线上 W33S7）：富余时 hauler 直接把 storage 能量送进控制器 link
     rsStorage.store[C.RESOURCE_ENERGY] = SF_RICH;
     rsPlan.links = { ctrl: { x: 32, y: 26 }, src0: { x: 16, y: 7 } };
     const rsCtrlLink = makeStructure(rsRoom, C.STRUCTURE_LINK, 32, 26, { store: mkStore(100, 800) });
@@ -11609,7 +10995,6 @@ console.log('== storage 富余要花在升级上：控制器容器提到第 1 �
     const rsStorageCollect3 = rsTasks3.find((t) => t.kind === 'collect' && t.target === rsStorage);
     assert(rsLinkDeliver && rsLinkDeliver.tier === 1 && rsLinkDeliver.weight === 9, 'link 供能 + storage 富余：控制器 link 是第 1 层投递目标（得 ' + JSON.stringify(rsLinkDeliver && [rsLinkDeliver.tier, rsLinkDeliver.weight]) + '）');
     assert(rsStorageCollect3 && rsStorageCollect3.rich === true && rsStorageCollect3.weight >= 8, 'link 模式下 storage 取货是几格短途：权重 8 压过源容器，第一轮竞价就放行（得 ' + JSON.stringify([rsStorageCollect3.weight, rsStorageCollect3.rich]) + '）');
-    // link 供能房：容器不由 hauler 喂，升级者供给信号仍是 storage 水位（容器 200 但 storage 9 万 → EMA 往上走、上限到富余表）
     Memory.rooms.W30S5.upgradeSupply = { ema: 0.5, extra: 2, at: -1, changedAt: -1 };
     rsCtrl.store[C.RESOURCE_ENERGY] = 200;
     world.time += 3;
@@ -11639,7 +11024,7 @@ console.log('== spawn 工地永远最先建：builder 排序与 broker 建造权
     const spSites = spRoom.find(C.FIND_MY_CONSTRUCTION_SITES);
     const spSpawnSite = spSites.find((s) => s.structureType === C.STRUCTURE_SPAWN);
     const spBuilder = makeCreep(spRoom, 'spB', ['work', 'work', 'carry', 'carry', 'move', 'move'], { home: 'W31S8', role: 'builder' });
-    spBuilder.pos = new RoomPosition(12, 13, 'W31S8');   // 就站在路工地旁
+    spBuilder.pos = new RoomPosition(12, 13, 'W31S8');
     world.creeps.spB = spBuilder;
     assert(ROLES.builder.nextSite(spRoom) === spSpawnSite, 'builder 的下一个工地是 spawn，不是脚边的路（得 ' + (ROLES.builder.nextSite(spRoom) || {}).structureType + '）');
     taskBroker.beginTick();
@@ -11658,7 +11043,6 @@ resetWorld(9960);
     Memory.rooms.W34S7 = { sources: ['cp0'] };
     const parts = (types, hits) => types.map((type) => ({ type, hits }));
     const cripple = (creep, body) => { creep.body = body; creep.hitsMax = body.length * 100; creep.hits = body.reduce((sum, part) => sum + part.hits, 0); return creep; };
-    // 线上阿燐乙：1 WORK + 10 CARRY + 4 MOVE 打成 0 血，7 MOVE 还活着
     const cpHauler = cripple(makeCreep(cpHome, 'cp-hauler', ['carry', 'move'], { home: 'W34S7', role: 'remoteHauler', remoteRoom: 'W32S5', slotKey: 'remoteHauler:W32S5:src:0' }),
         parts(['work', ...utils.repeat('carry', 10), ...utils.repeat('move', 4)], 0).concat(parts(utils.repeat('move', 7), 100)));
     assert(JSON.stringify(utils.crippledParts(cpHauler)) === '["carry"]', 'CARRY 全 0 血的 remoteHauler 是残废（得 ' + JSON.stringify(utils.crippledParts(cpHauler)) + '）');
@@ -11679,7 +11063,6 @@ resetWorld(9960);
     const cpDef = cripple(makeCreep(cpHome, 'cp-def', ['attack', 'move'], { home: 'W34S7', role: 'defender' }), parts(['attack', 'move'], 0).concat(parts(['move'], 100)));
     assert(utils.crippledParts(cpDef) === null, 'defender 有自己的退役流程，不归残废规则管');
 
-    // 宽限：第一次看到只记 crippledSince（本房有塔的话几 tick 就治回来），不退役
     const grace = Number((config.retire || {}).crippledGrace) || 10;
     assert(retireMod.retireCrippled(cpHauler) === false && cpHauler.memory.crippledSince === Game.time && !cpHauler.memory.crippled && cpHauler.moveCalls.length === 0,
         '首次发现只记 crippledSince、不退役（得 ' + JSON.stringify(cpHauler.memory) + '）');
@@ -11695,19 +11078,16 @@ resetWorld(9960);
     assert(utils.isRetiring(cpHauler.memory), 'crippled 视为退役中：编制/槽位不再算它');
     world.time += 1;
     assert(retireMod.retireCrippled(cpHauler) === true && cpLog.length === 1, '下一 tick 继续退役，不重复记日志');
-    // 宽限期内部件治回来：撤掉 crippledSince，回岗
     world.time += 1;
     const cpHealed = cripple(makeCreep(cpHome, 'cp-healed', ['carry', 'move'], { home: 'W34S7', role: 'hauler' }), parts(['carry', 'carry'], 0).concat(parts(['move', 'move'], 100)));
     assert(retireMod.retireCrippled(cpHealed) === false && cpHealed.memory.crippledSince === Game.time, '前提：残废 hauler 进入宽限');
     cpHealed.body[0].hits = 100; cpHealed.hits += 100;
     assert(retireMod.retireCrippled(cpHealed) === false && cpHealed.memory.crippledSince == null, '宽限期内治好：撤掉 crippledSince（得 ' + JSON.stringify(cpHealed.memory) + '）');
-    // 退役途中被塔治好：撤标记回岗
     cpHauler.body[1].hits = 100; cpHauler.hits += 100;
     assert(retireMod.retireCrippled(cpHauler) === false && !cpHauler.memory.crippled && !cpHauler.memory.retireSpawn && !utils.isRetiring(cpHauler.memory),
         '回收途中 CARRY 治回来：撤掉 crippled/retireSpawn 回岗（得 ' + JSON.stringify(cpHauler.memory) + '）');
     assert(retireMod.retireCrippled(cpFull) === false && cpFull.memory.crippledSince == null && !cpFull.memory.crippled, '健康 creep 不受影响');
 
-    // 编制计数：残废中的 hauler 不算在岗、不占外矿槽位
     for (const key of Object.keys(world.creeps)) delete world.creeps[key];
     const cpGood = makeCreep(cpHome, 'cp-good', utils.makeBody('hauler', 1300), { home: 'W34S7', role: 'hauler' });
     const cpBad = makeCreep(cpHome, 'cp-bad', utils.makeBody('hauler', 1300), { home: 'W34S7', role: 'hauler', crippled: Game.time });
@@ -11732,7 +11112,6 @@ resetWorld(9980);
         const pos = hmPlan.containers[key];
         hmHome._structs.push({ structureType: C.STRUCTURE_CONTAINER, pos: new RoomPosition(pos.x, pos.y, 'W33S8'), store: mkStore(1500, 2000) });
     }
-    // 份额的输入是 spawn 孵化花费 EMA（spawnSpend）：这里花费与收入同为 19，份额 19/20（收入 ≠ 花费的情形见"spawn 花费 EMA"一段）
     Memory.rooms.W33S8 = { sources: ['hm0', 'hm1'], plan: hmPlan, state: { at: Game.time, recovering: false, emergencyHarvest: false }, spawnIncome: { ema: 19, n: 500, last: 1300, at: Game.time - 1 },
         spawnSpend: { ema: 19, at: Game.time, n: 500 } };
     ['hm0', 'hm1'].forEach((id, index) => { world.creeps['hmH' + index] = makeCreep(hmHome, 'hmH' + index, utils.makeBody('staticHarvester', 1300), { home: 'W33S8', role: 'harvester', sourceIdx: index, sourceId: id, staticMiner: true }); });
@@ -11741,13 +11120,10 @@ resetWorld(9980);
     spawnMgr.run(hmHome);
     const hmWith = Memory.rooms.W33S8.demand.targets.hauler;
     const hmModel = Memory.rooms.W33S8.haulModel;
-    // 断言改动（2026-09-12 按 CARRY 定编）：每车停靠按方案身体（haulModel.perBody）算，不再按在岗平均载量；编制 = 方案只数（每只 ≤ 满配的最少只数，
-    // 不低于底线），不再是 ceil(load / 0.8)——后者随在岗身体大小变（身体越小只数越多）
     assert(hmModel && hmModel.production === 20 && Math.abs(hmModel.spawnShare - 0.95) < 0.01 && Math.abs(hmModel.deliveryTicks - hmCfg.deliveryStopTicks * 0.95 * hmModel.perBody * 50 / 50) < 0.15,
         '模型分解：产出 20、spawn 份额 19/20、每车停靠 = deliveryStopTicks × 份额 × 方案 CARRY × 50 / 50（得 ' + JSON.stringify(hmModel) + '）');
     assert(hmWith === hmModel.heads && hmModel.heads >= hmCfg.floor[4] && hmModel.heads <= hmCfg.ceil[4] && hmModel.heads * hmModel.perBody >= hmModel.cstar - 1e-6,
         '编制 = 方案只数（在 floor/ceil 之间），只数 × 每只 CARRY 盖得住 C*（得 ' + hmWith + ' vs ' + JSON.stringify(hmModel) + '）');
-    // 关掉停靠项：C* 只剩路程项，总 CARRY 与只数都不高于带停靠的
     const hmSaved = hmCfg.deliveryStopTicks;
     hmCfg.deliveryStopTicks = 0;
     world.time += 1;
@@ -11757,24 +11133,17 @@ resetWorld(9980);
     assert(hmOff && hmOff.deliveryTicks === 0 && hmOff.cstar < hmModel.cstar && hmWithout <= hmWith && hmOff.heads * hmOff.perBody <= hmModel.heads * hmModel.perBody,
         '停靠项关掉：停靠 0、C* 更小、编制与总 CARRY 不高于带停靠（得 ' + hmWithout + ' ≤ ' + hmWith + ' ' + JSON.stringify(hmOff) + '）');
     hmCfg.deliveryStopTicks = hmSaved;
-    // 停靠占用的只数 = 进 spawn/ext 的能量 × 每停 tick ÷ 一格 extension 容量（与身体大小无关）
-    // 断言改动（2026-09-12 deliveryStopTicks 1.5 → 1.1）：hauler 投递的那一 tick 就起步（7faced5），每停一格从 1.42 tick 降到约 1.0，
-    // 这类房的停靠项从 0.57 只降到 0.42 只 hauler——仍是不能忽略的一项，门槛从 0.5 调到 0.4
     const hmStopHaulers = hmModel.production * hmModel.spawnShare * hmCfg.deliveryStopTicks / 50;
     assert(hmStopHaulers > 0.4, '停靠项在 W33S8 型的房里 ≥ 0.4 只 hauler 的负载（得 ' + hmStopHaulers + '）');
-    // 先按原花费跑一 tick 让停靠项重新出现，再让花费归零看峰值是否留住
     world.time += 1;
     spawnMgr.run(hmHome);
     assert(Memory.rooms.W33S8.haulModel && Memory.rooms.W33S8.haulModel.deliveryTicks > 0, '恢复停靠项后停靠 tick 重新出现（得 ' + JSON.stringify(Memory.rooms.W33S8.haulModel) + '）');
-    // spawn 不孵东西（能量都去了控制器）：花费 0 → 份额 0、停靠项 0（能量压到 0，本 tick 不会有新的孵化记账）
     world.time += 1;
     hmHome.energyAvailable = 0;
     Memory.rooms.W33S8.spawnSpend = { ema: 0, at: Game.time, n: 500 };
     spawnMgr.run(hmHome);
     assert(Memory.rooms.W33S8.haulModel && Memory.rooms.W33S8.haulModel.spawnShare === 0 && Memory.rooms.W33S8.haulModel.deliveryTicks === 0, 'spawn 花费 0：停靠份额 0（得 ' + JSON.stringify(Memory.rooms.W33S8.haulModel) + '）');
     assert(Memory.rooms.W33S8.haulModel.maxDeliveryTicks > 0, '花费归零后 haulModel 仍记着停靠项峰值 maxDeliveryTicks（得 ' + JSON.stringify(Memory.rooms.W33S8.haulModel) + '）');
-    // 没有 spawnSpend 记录（新部署）：按本房 creep 的维持费播种（以前是"收入样本不足按 deliverySpawnShare 0"——那等于新部署后的
-    // 头几百 tick 完全不算停靠；维持费是稳态花费的无偏估计）
     world.time += 1;
     delete Memory.rooms.W33S8.spawnSpend;
     const hmUpkeep = Object.values(world.creeps).filter((c) => c.memory.home === 'W33S8').reduce((sum, c) => sum + utils.bodyCost(c.body) / 1500, 0);
@@ -11787,10 +11156,9 @@ resetWorld(9980);
 console.log('== link 工地先于道路/extension 放置、建造权重高于道路（基准 W34S7：RCL6 名额被 ext 工地占满 20k tick，link 放出后 0 进度 5k tick） ==');
 {
     const lkRoom = demoRoom(9990, 5);
-    makeSpawn(lkRoom, 23, 21);   // 已有 spawn：没有 spawn 的房会先放 spawn 工地（placeFirstSpawn），这里只测其余顺序
+    makeSpawn(lkRoom, 23, 21);
     const lkPlan = Memory.rooms.W33S7.plan;
     assert(lkPlan && lkPlan.links && lkPlan.links.ctrl && lkPlan.links.src0, '前提：轮子方案有 ctrl/src0 link 位');
-    // 全局名额只剩 10（别的房占了 90 个工地）：旧顺序下道路/extension 会把 10 个名额全吃掉
     for (let i = 0; i < 90; i++) world.constructionSites['far' + i] = { id: 'far' + i, structureType: C.STRUCTURE_ROAD, pos: new RoomPosition(1, 1, 'W1N1'), progress: 0, progressTotal: 300, my: true, room: { name: 'W1N1' } };
     Memory.rooms.W33S7.builderSeenAt = Game.time;
     for (let i = 0; i < require('../src/config').layoutInterval + 2 && lkRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length === 0; i++) { layout.run(lkRoom); world.time++; }
@@ -11824,22 +11192,18 @@ resetWorld(10000);
         getActiveBodyparts: (part) => (part === 'attack' ? 5 : part === 'move' ? 1 : 0), owner: { username: 'Invader' } };
     smRoom._hostiles = [smInvader];
     Memory.brain = null;
-    // 1) 没有大脑指令、核心建筑完好：不开（旧规则：无塔 + 武装敌人就开）
     (towerMod.resetCache(), towerMod.run)(smRoom);
     assert(smCtrl.safeModeCalls === 0 && smCtrl.safeMode === 0, '无指令且核心完好：不开 safe mode（旧规则会为一只 NPC 开盾）');
-    // 2) 兜底：spawn 掉到 50% 以下才开，记 fallback
     smSpawn.hits = 2400;
     (towerMod.resetCache(), towerMod.run)(smRoom);
     assert(smCtrl.safeModeCalls === 1 && Memory.rooms.W31S8.defenseLog && Memory.rooms.W31S8.defenseLog.safeMode && Memory.rooms.W31S8.defenseLog.safeMode.by === 'fallback:core-hurt',
         '无指令但 spawn 掉到 48%：兜底开盾并记 fallback（得 ' + JSON.stringify(Memory.rooms.W31S8.defenseLog && Memory.rooms.W31S8.defenseLog.safeMode) + '）');
     assert(Memory.rooms.W31S8.defenseLog.safeMode.hostiles[0][0] === 'Invader' && Memory.rooms.W31S8.defenseLog.safeMode.hostiles[0][1] === '5A1M', '记录敌人主人与身体摘要（得 ' + JSON.stringify(Memory.rooms.W31S8.defenseLog.safeMode.hostiles) + '）');
-    // 3) 大脑说 activate：立刻开，记 brain:<reason>
     smReset();
     Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { W31S8: { remotes: [], safeMode: { action: 'activate', reason: 'no-help', dps: 150, atTick: Game.time } } } };
     world.time += 1; brainMod.run();
     (towerMod.resetCache(), towerMod.run)(smRoom);
     assert(smCtrl.safeModeCalls === 1 && Memory.rooms.W31S8.defenseLog.safeMode.by === 'brain:no-help', '大脑 activate：核心完好也立刻开盾并记 brain:no-help（得 ' + JSON.stringify(Memory.rooms.W31S8.defenseLog.safeMode) + '）');
-    // 4) 大脑说 hold：spawn 40% 不开（fallback 线 50% 不适用），掉到 25% 才作为最后手段开
     smReset();
     Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { W31S8: { remotes: [], safeMode: { action: 'hold', reason: 'help-in-time', atTick: Game.time } } } };
     world.time += 1; brainMod.run();
@@ -11849,14 +11213,12 @@ resetWorld(10000);
     smSpawn.hits = 1200;
     (towerMod.resetCache(), towerMod.run)(smRoom);
     assert(smCtrl.safeModeCalls === 1 && Memory.rooms.W31S8.defenseLog.safeMode.by === 'lastResort:core-hurt', '大脑 hold 但 spawn 24%：最后手段开盾并记 lastResort（得 ' + JSON.stringify(Memory.rooms.W31S8.defenseLog.safeMode) + '）');
-    // 5) 决定过期（atTick 早于 decisionTtl）：当没有指令，回到兜底规则
     smReset();
     Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 1800000, intel: {}, rooms: { W31S8: { remotes: [], safeMode: { action: 'activate', reason: 'no-help', atTick: Game.time - require('../src/config').safeMode.decisionTtl - 1 } } } };
     world.time += 1; brainMod.run();
     assert(towerMod.safeModeDecision(smRoom) === null, '过期的决定视为没有');
     (towerMod.resetCache(), towerMod.run)(smRoom);
     assert(smCtrl.safeModeCalls === 0, '过期的 activate 不开（核心完好）（得 ' + smCtrl.safeModeCalls + '）');
-    // 6) safe mode 中的己方房不出 defender（弱敌人：不在 safe mode 时 defense 会出兵作为对照）
     smReset();
     Memory.brain = null;
     world.time += 1;
@@ -11871,7 +11233,6 @@ resetWorld(10000);
     assert(smDuring === 0, 'safe mode 中不出 defender（得 ' + smDuring + '）');
     smRoom._hostiles = [];
     Memory.brain = null;
-    // 7) 别房占着 safe mode：activateSafeMode 返回 ERR_BUSY，不算开盾，失败码记进 defenseLog.safeModeError（2026-09-06 W31S5 vs W31S8）
     smReset();
     smRoom._hostiles = [smInvader];
     Memory.brain = { version: 1, issuedAt: Date.now(), ttlMs: 10 * 60 * 1000, ack: {}, intel: {},
@@ -11886,8 +11247,6 @@ resetWorld(10000);
         '别房占着 safe mode：不记开盾、记 safeModeError（得 ' + JSON.stringify(Memory.rooms.W31S8.defenseLog) + '）');
     smCtrl.activateSafeMode = smBusyActivate;
     Memory.brain = null;
-    // 8) 己方房连续阵亡上限：同一波敌人阵亡 maxOwnLosses（2）只后不再续派（本房敌人一直可见，"阵亡后没再看到敌情"的门永远不闭），
-    //    大脑 fight 指令可越过，房间清场后 streak 归零、下一波重新出兵
     smReset();
     smRoom._hostiles = [smWeak];
     world.time += 1;
@@ -11953,20 +11312,18 @@ console.log('== 危急结构 + 没有 builder：第一只 builder 提到生存�
     Memory.rooms.W33S7 = { sources: ['cb0', 'cb1'], plan: { wheel: true, version: 'test', containers: {}, links: {}, roads: { all: '25.25' } } };
     world.creeps.cbH0 = makeCreep(cbRoom, 'cbH0', ['work', 'work', 'move'], { home: 'W33S7', role: 'harvester', sourceIdx: 0, sourceId: 'cb0', staticMiner: true });
     world.creeps.cbH1 = makeCreep(cbRoom, 'cbH1', ['work', 'work', 'move'], { home: 'W33S7', role: 'harvester', sourceIdx: 1, sourceId: 'cb1', staticMiner: true });
-    cbRoom.createConstructionSite(29, 26, C.STRUCTURE_EXTENSION);   // 泛用工地（lab 这类奢侈工地要等 storage 过门槛，utils.luxuryAllowed）
+    cbRoom.createConstructionSite(29, 26, C.STRUCTURE_EXTENSION);
     const cbRoad = makeStructure(cbRoom, C.STRUCTURE_ROAD, 25, 25, { hits: 100, hitsMax: 5000, my: false });
     spawnMgr.run(cbRoom);
     assert(!Memory.rooms.W33S7.state.recovering, '前提：两只矿工，不 recovering');
     assert(Memory.rooms.W33S7.criticalBuilder && Memory.rooms.W33S7.criticalBuilder.n > 0,
         '没有 builder 且存在危急道路：记下 criticalBuilder（第一只 builder 提到生存档）（得 ' + JSON.stringify(Memory.rooms.W33S7.criticalBuilder) + '）');
     const marked = Memory.rooms.W33S7.criticalBuilder.n;
-    // 有 builder 在岗时不再提级（有界：只影响"一只都没有"的那一刻）
     world.creeps.cbBuilder = makeCreep(cbRoom, 'cbBuilder', ['work', 'carry', 'move'], { home: 'W33S7', role: 'builder' });
     world.time++;
     spawnMgr.run(cbRoom);
     assert(!Memory.rooms.W33S7.criticalBuilder || Memory.rooms.W33S7.criticalBuilder.n === marked,
         '已有 builder 时不再提级（得 ' + JSON.stringify(Memory.rooms.W33S7.criticalBuilder) + '）');
-    // 道路修回危急线以上后也不提级
     delete world.creeps.cbBuilder;
     cbRoad.hits = 4200;
     world.time++;
@@ -11982,9 +11339,7 @@ console.log('== builder 取能点按距离选最近（容器/storage/收货 link
     makeSpawn(esRoom, 23, 21);
     const esStorage = makeStructure(esRoom, C.STRUCTURE_STORAGE, 31, 26, { energy: 500, capacity: 1000000 });
     esRoom.storage = esStorage;
-    // 远处的源容器有同样多的能量：旧代码永远先选它（容器优先），builder 走 16 格
     const farContainer = makeStructure(esRoom, C.STRUCTURE_CONTAINER, 15, 7, { energy: 500, capacity: 2000, my: false });
-    // 控制器 link（收货端）：800 能量，旧代码 builder 完全用不到
     const ctrlLink = makeStructure(esRoom, C.STRUCTURE_LINK, 32, 24, { energy: 800, capacity: 800 });
     const src0Link = makeStructure(esRoom, C.STRUCTURE_LINK, 16, 8, { energy: 800, capacity: 800 });
     esRoom.createConstructionSite(30, 26, C.STRUCTURE_ROAD);
@@ -11998,7 +11353,6 @@ console.log('== builder 取能点按距离选最近（容器/storage/收货 link
     assert(esBuilder.actions.includes('withdraw') && esStorage.store.energy < 500,
         '取能点选最近的 storage（2 格），不是 16 格外的源容器（得 ' + JSON.stringify(esBuilder.actions) + '）');
     assert(farContainer.store.energy === 500 && ctrlLink.store.energy === 800, '没动远处的容器与 link');
-    // storage 空、link 满：从控制器 link 借能（升级者只要 10/tick，link 常年 800/800 堵着）
     esStorage.store.energy = 0;
     esBuilder.store[C.RESOURCE_ENERGY] = 0;
     esBuilder.actions.length = 0;
@@ -12006,21 +11360,19 @@ console.log('== builder 取能点按距离选最近（容器/storage/收货 link
     ROLES.builder.run(esBuilder);
     assert(esBuilder.actions.includes('withdraw') && ctrlLink.store.energy < 800 && src0Link.store.energy === 800,
         'storage 空时从控制器 link 借能，不动源 link（得 ' + JSON.stringify(esBuilder.actions) + '，ctrlLink ' + ctrlLink.store.energy + '）');
-    // link 低于 linkKeepAt + linkDrawMargin：不借（缓冲留给升级者），回落到容器
     ctrlLink.store.energy = 500;
     esBuilder.store[C.RESOURCE_ENERGY] = 0;
     esBuilder.actions.length = 0;
     world.time++;
     ROLES.builder.run(esBuilder);
     assert(ctrlLink.store.energy === 500, 'link 低于 keep + margin 时不借（得 ' + ctrlLink.store.energy + '）');
-    // 取能点在 8 格内：不等 hauler 投递，直接去取
     const hauler = makeCreep(esRoom, 'hauler.selfFetch', ['carry', 'carry', 'move'], { home: 'W48S48', role: 'hauler' });
     hauler.pos = new RoomPosition(23, 21, esRoom.name);
     world.creeps[hauler.name] = hauler;
     esStorage.store.energy = 500;
     esBuilder.store[C.RESOURCE_ENERGY] = 0;
     esBuilder.actions.length = 0;
-    esBuilder.memory.feedAt = world.time;   // 刚在工地上用完能量（旧代码会原地等 50 tick）
+    esBuilder.memory.feedAt = world.time;
     esBuilder.pos = new RoomPosition(30, 27, esRoom.name);
     world.time++;
     ROLES.builder.run(esBuilder);
@@ -12049,7 +11401,6 @@ console.log('== 奢侈建筑（lab/factory…）等 storage 过门槛再建，te
     assert(utils.siteWanted(lxRoom, sitesOf(C.STRUCTURE_TERMINAL)[0]), 'storage 0：terminal 工地算 wanted');
     const lxTerminalBacklog = spawnMgr.constructionBacklog(lxRoom);
     assert((lxTerminalBacklog.byType[C.STRUCTURE_TERMINAL] || lxTerminalBacklog.byType.terminal) > 0, 'storage 0：terminal 进 builder 编制的 backlog（得 ' + JSON.stringify(lxTerminalBacklog) + '）');
-    // 已有的 lab 工地（门槛之前放下的）：builder 不选它，backlog 也不计它
     sitesOf(C.STRUCTURE_TERMINAL).forEach((site) => site.remove && site.remove());
     lxRoom.createConstructionSite(28, 30, C.STRUCTURE_LAB);
     world.time++;
@@ -12061,12 +11412,10 @@ console.log('== 奢侈建筑（lab/factory…）等 storage 过门槛再建，te
     world.time++;
     const lxNext = ROLES.builder.nextSite(lxRoom);
     assert(lxNext && lxNext.structureType === C.STRUCTURE_ROAD, '门槛之下 builder 照常建道路（得 ' + (lxNext && lxNext.structureType) + '）');
-    // storage 低于新门槛（1 万）仍不放 lab
     lxStorage.store.energy = 9000;
     world.time++;
     layout.run(lxRoom);
     assert(sitesOf(C.STRUCTURE_LAB).length === 1, 'storage 9000 < 1 万：不新增 lab 工地（得 ' + sitesOf(C.STRUCTURE_LAB).length + '）');
-    // storage 过门槛（luxuryStorageAbove 10000）：恢复——放 lab、backlog 计入
     lxStorage.store.energy = 12000;
     world.time++;
     layout.run(lxRoom);
@@ -12101,7 +11450,6 @@ console.log('== spawn 为队头攒能量时 builder/升级者不跟它抢（线�
     assert(hgCtrlLink.store.energy === 800 && hgSrcCont.store.energy === 500 && hgSpawn.store.energy === 300 && hgExt.store.energy === 565,
         'spawn 在攒能量时 builder 不借 ctrl link、不刮源容器、不抽 spawn/ext 余量（得 ' + JSON.stringify(hgBuilder.actions) +
         ' link ' + hgCtrlLink.store.energy + ' cont ' + hgSrcCont.store.energy + ' ext ' + hgExt.store.energy + '）');
-    // 源容器已经溢出（hauler 跟不上）：那部分 builder 可以拿
     hgSrcCont.store.energy = 1800;
     hgBuilder.actions.length = 0;
     Memory.rooms.W48S48.spawnWaiting.at = world.time + 1;
@@ -12109,7 +11457,6 @@ console.log('== spawn 为队头攒能量时 builder/升级者不跟它抢（线�
     ROLES.builder.run(hgBuilder);
     assert(hgBuilder.actions.includes('withdraw') && hgSrcCont.store.energy < 1800 && hgCtrlLink.store.energy === 800,
         '源容器溢出（≥ sourceLinkOverflow）时 builder 可以取（得 ' + JSON.stringify(hgBuilder.actions) + ' cont ' + hgSrcCont.store.energy + '）');
-    // storage 里有 spawn 缺口（1350 − 865 = 485）以外的能量：builder 可以拿缺口以外的部分
     hgSrcCont.store.energy = 500;
     hgStorage.store.energy = 2000;
     hgBuilder.store[C.RESOURCE_ENERGY] = 0;
@@ -12118,7 +11465,6 @@ console.log('== spawn 为队头攒能量时 builder/升级者不跟它抢（线�
     world.time++;
     ROLES.builder.run(hgBuilder);
     assert(hgBuilder.actions.includes('withdraw') && hgStorage.store.energy < 2000, 'storage 在 spawn 缺口之外还有余量时 builder 可以取（得 ' + hgStorage.store.energy + '）');
-    // 队头不再等能量（spawnWaiting 过期）：恢复原规则，storage 与源容器都空时照常借 ctrl link
     hgStorage.store.energy = 0;
     hgSrcCont.store.energy = 0;
     hgBuilder.store[C.RESOURCE_ENERGY] = 0;
@@ -12127,11 +11473,10 @@ console.log('== spawn 为队头攒能量时 builder/升级者不跟它抢（线�
     world.time++;
     ROLES.builder.run(hgBuilder);
     assert(hgBuilder.actions.includes('withdraw') && hgCtrlLink.store.energy < 800, 'spawn 不缺能时照常从 ctrl link 借能（得 ' + hgCtrlLink.store.energy + '）');
-    // 升级者：spawn 在攒能量时同样不从 spawn/ext 抽余量（容器与 link 都空）
     hgCtrlLink.store.energy = 0;
     Memory.rooms.W48S48.spawnWaiting.at = world.time + 1;
     const hgUp = makeCreep(hgRoom, 'upgrader.hungry', ['work', 'carry', 'move'], { home: 'W48S48', role: 'upgrader' });
-    hgUp.pos = new RoomPosition(24, 22, hgRoom.name);   // 贴着 spawn：旧代码当 tick 就会从 spawn 抽余量
+    hgUp.pos = new RoomPosition(24, 22, hgRoom.name);
     world.creeps[hgUp.name] = hgUp;
     const extBefore = hgExt.store.energy;
     world.time++;
@@ -12142,8 +11487,6 @@ console.log('== spawn 为队头攒能量时 builder/升级者不跟它抢（线�
 
 console.log('== 已解析 Memory 跨 tick 复用 ==');
 {
-    // 模拟引擎：每 tick 把 Memory 重新装成 getter，首次访问 JSON.parse 进 RawMemory._parsed。
-    // 新代码在连续 tick 上应删掉 getter、复用上一 tick 的对象，从而跳过 parse。
     let parses = 0;
     const prevRaw = global.RawMemory;
     function installEngineMemory(fromObj) {
@@ -12236,7 +11579,7 @@ ROLES.hauler.run(idleHubHauler);
 assert(!idleHubHauler.actions.includes('withdraw'), 'hub with no consumers does not withdraw storage');
 const hubSpawn = makeSpawn(hubRoom,23,21);
 hubSpawn.store.energy = 0;
-world.time += 3;   // 任务池每 3 tick 重建：新出现的消费者（这里是新 spawn）进池子后 hub hauler 才会为它取货
+world.time += 3;
 taskBroker.beginTick();
 ROLES.hauler.run(idleHubHauler);
 assert(idleHubHauler.actions.includes('withdraw') && idleHubHauler.memory.hubCargo, 'hub withdraws storage for spawn demand');
@@ -12282,8 +11625,6 @@ console.log('== 外矿相邻满载掉落优先于容器，不为零碎掉落绕�
     assert(Memory.rooms.W33S7.remoteEnergySalvaged && Memory.rooms.W33S7.remoteEnergySalvaged.amount === 100, '下一 tick 实际到账才记录救回能量');
     creep.store.energy = 0; creep.memory.state = 'collect'; drop.amount = 1;
     ROLES.remoteHauler.run(creep);
-    // 2026-09-12 起掉落与容器同 tick 取（pickup 与 withdraw 不同管线）：相邻的零碎掉落顺手捡掉，容器只补差额（99），
-    // 仍是一个 tick 装满、不为掉落绕路（原断言"掉落不动、容器出 100"是旧的"掉落装不满就不捡"规则）
     assert(drop.amount === 0 && container.store.energy === 1901, '零碎掉落不足装满时同 tick 捡掉落 + 容器补差，一次装满');
 }
 
@@ -12342,7 +11683,7 @@ console.log('== builder 空 storage 不再永久挂机：容器空、storage 空
     bRoom.storage = bStorage;
     const bSrc = makeSource(bRoom, 14, 6, 'b-src');
     bRoom._sources = [bSrc];
-    bRoom.createConstructionSite(29, 26, C.STRUCTURE_EXTENSION);   // 泛用工地（lab 这类奢侈工地要等 storage 过门槛，utils.luxuryAllowed）
+    bRoom.createConstructionSite(29, 26, C.STRUCTURE_EXTENSION);
     Memory.rooms.W33S7 = { sources: [bSrc.id], plan: { anchor: { x: 23, y: 21 }, containers: {}, links: {}, roads: {} },
         state: { at: world.time, recovering: false, emergencyHarvest: false } };
     const bBuilder = makeCreep(bRoom, 'builder.emptyStorage', ['work', 'work', 'carry', 'move'], { home: bRoom.name, role: 'builder' });
@@ -12353,7 +11694,6 @@ console.log('== builder 空 storage 不再永久挂机：容器空、storage 空
     assert(bBuilder.actions.includes('withdraw') && bBuilder.store.energy > 0,
         'storage 空 + 容器空时 builder 从 spawn/ext 余量取能，而不是对着空 storage 空转（得 ' + JSON.stringify(bBuilder.actions) + ' e=' + bBuilder.store.energy + '）');
     assert(bStorage.store.energy === 0, 'builder 不从空 storage 取能');
-    // 有能量的 storage 仍然是优先来源
     resetWorld(4515);
     const cRoom = makeRoom('W33S7', { rcl: 6, energy: 550, cap: 2300, ctrl: { x: 34, y: 24 }, owner: 'me' });
     makeSpawn(cRoom, 23, 21);
@@ -12362,7 +11702,7 @@ console.log('== builder 空 storage 不再永久挂机：容器空、storage 空
     cRoom.storage = cStorage;
     const cSrc = makeSource(cRoom, 14, 6, 'c-src');
     cRoom._sources = [cSrc];
-    cRoom.createConstructionSite(29, 26, C.STRUCTURE_EXTENSION);   // 泛用工地（lab 这类奢侈工地要等 storage 过门槛，utils.luxuryAllowed）
+    cRoom.createConstructionSite(29, 26, C.STRUCTURE_EXTENSION);
     Memory.rooms.W33S7 = { sources: [cSrc.id], plan: { anchor: { x: 23, y: 21 }, containers: {}, links: {}, roads: {} },
         state: { at: world.time, recovering: false, emergencyHarvest: false } };
     const cBuilder = makeCreep(cRoom, 'builder.filledStorage', ['work', 'carry', 'move'], { home: cRoom.name, role: 'builder' });
@@ -12381,11 +11721,9 @@ console.log('== builder 先修"会消失的"危急结构再建造：有工地时
     makeSpawn(kRoom, 23, 21);
     const kSrc = makeSource(kRoom, 14, 6, 'k-src');
     kRoom._sources = [kSrc];
-    // 方案内的路：5000 上限、当前 80 血（1.6% < criticalRepairShare 0.2）
     const kRoad = makeStructure(kRoom, C.STRUCTURE_ROAD, 25, 25, { hits: 80, hitsMax: 5000, my: false });
-    // 一条还算健康的路：不该被 builder 抢修
     makeStructure(kRoom, C.STRUCTURE_ROAD, 26, 25, { hits: 4200, hitsMax: 5000, my: false });
-    kRoom.createConstructionSite(29, 26, C.STRUCTURE_EXTENSION);   // 泛用工地（lab 这类奢侈工地要等 storage 过门槛，utils.luxuryAllowed）
+    kRoom.createConstructionSite(29, 26, C.STRUCTURE_EXTENSION);
     Memory.rooms.W33S7 = { sources: [kSrc.id],
         plan: { anchor: { x: 23, y: 21 }, containers: {}, links: {}, roads: { all: '25.25;26.25' } },
         state: { at: world.time, recovering: false, emergencyHarvest: false } };
@@ -12397,8 +11735,6 @@ console.log('== builder 先修"会消失的"危急结构再建造：有工地时
     ROLES.builder.run(kBuilder);
     assert(kBuilder.actions.includes('repair') && kRoad.hits === 180,
         '有工地时 builder 先修危急道路（80/5000），不是去建造（得 ' + JSON.stringify(kBuilder.actions) + '）');
-    // 滞回：开修之后修到普通维修线（towerRepairBelow 60%）才回去建造——以前修到 20% 以上一点就走，衰减几百 tick 又跌回来
-    // （线上 W33S7 方案内道路 54/89 条停在 20–30%），builder 在工地和同一批路之间来回拉扯
     kRoad.hits = 1200;
     kBuilder.actions.length = 0;
     kBuilder.store[C.RESOURCE_ENERGY] = 100;
@@ -12407,14 +11743,12 @@ console.log('== builder 先修"会消失的"危急结构再建造：有工地时
     assert(kBuilder.actions.includes('repair') && !kBuilder.actions.includes('build') && kBuilder.memory.repairId === kRoad.id &&
         Memory.rooms.W33S7.builderRepairHold && Memory.rooms.W33S7.builderRepairHold.n === 1,
         '危急线以上（1200/5000）但没到 60%：接着修，记 builderRepairHold（得 ' + JSON.stringify([kBuilder.actions, Memory.rooms.W33S7.builderRepairHold]) + '）');
-    // 修到 60% 以上：回到建造
     kRoad.hits = 3100;
     kBuilder.actions.length = 0;
     world.time++;
     ROLES.builder.run(kBuilder);
     assert(kBuilder.actions.includes('build') && !kBuilder.actions.includes('repair') && !kBuilder.memory.repairId,
         '修到普通维修线以上（3100/5000）就回到建造（得 ' + JSON.stringify(kBuilder.actions) + '）');
-    // 能量用完就放下：下一车重新挑，20% 以上的不再插队
     kRoad.hits = 1200;
     kBuilder.memory.repairId = kRoad.id;
     kBuilder.store[C.RESOURCE_ENERGY] = 0;
@@ -12460,7 +11794,6 @@ console.log('== 塔的维修预算：射程内有"会消失的"危急结构时�
     const tSrc = makeSource(tRoom, 14, 6, 't-src');
     tRoom._sources = [tSrc];
     const tTower = makeStructure(tRoom, C.STRUCTURE_TOWER, 6, 40, { store: mkStore(500, 1000) });
-    // 塔射程内（5 格）的危急道路 + 射程外（35 格）的危急道路
     const nearRoad = makeStructure(tRoom, C.STRUCTURE_ROAD, 11, 40, { hits: 100, hitsMax: 5000, my: false });
     makeStructure(tRoom, C.STRUCTURE_ROAD, 41, 33, { hits: 100, hitsMax: 5000, my: false });
     Memory.rooms.W33S7 = { sources: [tSrc.id],
@@ -12472,7 +11805,6 @@ console.log('== 塔的维修预算：射程内有"会消失的"危急结构时�
     assert(towerTask && towerTask.tier === 1 && towerTask.weight === 11,
         '射程内有危急道路时塔的补能提到第 1 层（得 ' + JSON.stringify(towerTask && { tier: towerTask.tier, weight: towerTask.weight }) + '）');
     assert(Memory.rooms.W33S7.towerCritical && Memory.rooms.W33S7.towerCritical.x === 6, '遥测记录危急补能（towerCritical）');
-    // 只有射程外的危急结构：不升层（塔修不到，升层只是白抢 spawn 的能量）
     nearRoad.hits = 4200;
     world.time++;
     taskBroker.beginTick();
@@ -12493,7 +11825,6 @@ console.log('== 塔优先修射程内（800 血/10 能量 vs 射程外恒 200）
     gTower.repair = (target) => (gTower.repairCalls.push(target), C.OK);
     gTower.attack = () => C.OK;
     gTower.heal = () => C.OK;
-    // 射程外（35 格）的路比例更低（1.6%），射程内（5 格）的路 2%——旧代码会去修射程外那条
     const farRoad = makeStructure(gRoom, C.STRUCTURE_ROAD, 41, 33, { hits: 80, hitsMax: 5000, my: false });
     const nearRoad = makeStructure(gRoom, C.STRUCTURE_ROAD, 11, 40, { hits: 100, hitsMax: 5000, my: false });
     Memory.rooms.W33S7 = { sources: [gSrc.id],
@@ -12504,7 +11835,6 @@ console.log('== 塔优先修射程内（800 血/10 能量 vs 射程外恒 200）
     assert(gTower.repairCalls.length === 1 && gTower.repairCalls[0] === nearRoad,
         '塔修射程内的路（100/5000），不去够射程外比例更低的（80/5000）（得 ' +
         (gTower.repairCalls[0] && (gTower.repairCalls[0].pos.x + ',' + gTower.repairCalls[0].pos.y)) + '）');
-    // 射程内没有可修目标时仍退回全局（别让角落的塔彻底闲死）
     nearRoad.hits = 5000;
     gTower.repairCalls.length = 0;
     world.time++;
@@ -12520,7 +11850,6 @@ console.log('== 工地名额满时把零进度 rampart 工地让给方案里缺�
     makeSpawn(rRoom, 23, 21);
     const rSrc = makeSource(rRoom, 14, 6, 'r-src');
     rRoom._sources = [rSrc];
-    // 40 个名额全被零进度 rampart 工地占满（线上 W33S7 的形态：36 个外环 rampart + terminal + labs）
     const capTiles = [];
     for (let y = 42; y < 49 && capTiles.length < 40; y++) {
         for (let x = 1; x < 49 && capTiles.length < 40; x++) {
@@ -12531,7 +11860,7 @@ console.log('== 工地名额满时把零进度 rampart 工地让给方案里缺�
     for (const [x, y] of capTiles) rRoom.createConstructionSite(x, y, C.STRUCTURE_RAMPART);
     assert(rRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length === 40, '前置：工地名额已满（' + rRoom.find(C.FIND_MY_CONSTRUCTION_SITES).length + '）');
     Memory.rooms.W33S7 = { sources: [rSrc.id],
-        spawnIncome: { ema: require('../src/config').rampartRingMinIncome + 10, n: 500, last: 0, at: world.time },   // 外环要过收入门槛才留得住零进度的 rampart 工地
+        spawnIncome: { ema: require('../src/config').rampartRingMinIncome + 10, n: 500, last: 0, at: world.time },
         plan: { version: 'wheel-layout-2.1.0', wheel: true, anchor: { x: 23, y: 21 }, containers: {}, links: {}, labs: [], towers: [], ext: [],
             ramparts: capTiles.map(([x, y]) => ({ x, y })), roads: { all: '20.20;21.20;22.20' } },
         state: { at: world.time, recovering: false, emergencyHarvest: false } };
@@ -12545,7 +11874,6 @@ console.log('== 工地名额满时把零进度 rampart 工地让给方案里缺�
     layout.run(rRoom);
     const roadSites = rRoom.find(C.FIND_MY_CONSTRUCTION_SITES).filter((s) => s.structureType === C.STRUCTURE_ROAD);
     assert(roadSites.length === 2, '下一轮把让出的名额放成道路工地（得 ' + roadSites.length + ' 条）');
-    // 没有缺失道路时不再动 rampart 工地
     const rampartsBefore = rRoom.find(C.FIND_MY_CONSTRUCTION_SITES).filter((s) => s.structureType === C.STRUCTURE_RAMPART).length;
     Memory.rooms.W33S7.plan.roads = {};
     world.time += 11;
@@ -12568,11 +11896,11 @@ console.log('\n== 运输饱和度遥测：按上一 tick 的位置 / 载货变�
     hs.pos = new RoomPosition(10, 10, 'W33S7');
     const step = (fn) => { haulStats.observe(hs); haulStats.observe(hsUp); if (fn) fn(); world.time++; };
     const hsStorage = makeStructure(hsRoom, C.STRUCTURE_STORAGE, 14, 10, { energy: 5000, capacity: 1000000 });
-    step(() => { hs.pos = new RoomPosition(11, 10, 'W33S7'); });                                  // 2995：空跑
-    step(() => { haulStats.noteAction(hs, 'withdraw', hsStorage); hs.store[C.RESOURCE_ENERGY] = 100; });   // 2996：从 storage 取货（原地）
-    step(() => { hs.pos = new RoomPosition(12, 10, 'W33S7'); });                                  // 2997：满载出发
-    step(() => { haulStats.note(hs, 'full'); });                                                  // 2998：满载原地等（登记原因 full）
-    step(() => { haulStats.noteAction(hs, 'transfer', hsStorage); hs.store[C.RESOURCE_ENERGY] = 50; hs.pos = new RoomPosition(13, 10, 'W33S7'); }); // 2999：送回 storage 同时挪位
+    step(() => { hs.pos = new RoomPosition(11, 10, 'W33S7'); });
+    step(() => { haulStats.noteAction(hs, 'withdraw', hsStorage); hs.store[C.RESOURCE_ENERGY] = 100; });
+    step(() => { hs.pos = new RoomPosition(12, 10, 'W33S7'); });
+    step(() => { haulStats.note(hs, 'full'); });
+    step(() => { haulStats.noteAction(hs, 'transfer', hsStorage); hs.store[C.RESOURCE_ENERGY] = 50; hs.pos = new RoomPosition(13, 10, 'W33S7'); });
     haulStats.observe(hs);
     haulStats.flush();
     const b = ((Memory.haulStats || {}).rooms || {}).W33S7 && Memory.haulStats.rooms.W33S7.hauler;
@@ -12583,14 +11911,12 @@ console.log('\n== 运输饱和度遥测：按上一 tick 的位置 / 载货变�
     assert(b && b.inS === 100 && b.outS === 50 && b.churn === 50, '从 storage 取出的货又送回 storage 记为倒腾（inS 100 / outS 50 / churn 50）：' + JSON.stringify(b && { inS: b.inS, outS: b.outS, churn: b.churn }));
     assert(!Memory.haulStats.rooms.W33S7.upgrader, '非运输角色（upgrader）不计入');
     assert(Memory.haulStats.last && Memory.haulStats.last.W33S7 && Memory.haulStats.last.W33S7.hauler.t === 5, 'last 记本窗口的 tick 数（监控取最近一窗）');
-    // 断档（CPU 跳过 / 退役那一 tick 没观察）不分类：隔一 tick 再看到的变化不算进任何一类
     world.time += 2;
     hs.pos = new RoomPosition(20, 20, 'W33S7');
     haulStats.observe(hs);
     world.time += 30 - (world.time % 30);
     haulStats.flush();
     assert(Memory.haulStats.rooms.W33S7.hauler.t === 5, '断档后的第一次观察不分类（累计 tick 仍是 5）');
-    // 非 flush tick 不写 Memory；累计值跨窗口相加
     haulStats.observe(hs);
     world.time++;
     haulStats.observe(hs);
@@ -12599,11 +11925,10 @@ console.log('\n== 运输饱和度遥测：按上一 tick 的位置 / 载货变�
     world.time += 30 - (world.time % 30);
     haulStats.flush();
     assert(Memory.haulStats.rooms.W33S7.hauler.t === 6 && Memory.haulStats.rooms.W33S7.hauler.idle === 2, '下一个 flush 把新窗口累加进去（t 5 → 6，idle 1 → 2）');
-    // 原型包装只记录、原样返回：运输型 creep 的 transfer 返回 OK 时登记目标类型，非运输角色与失败的调用不登记
     const savedTransfer = Creep.prototype.transfer;
     Creep.prototype.transfer = function (target) { return target && target.full ? C.ERR_FULL : C.OK; };
     haulStats.installActionHooks();
-    haulStats.installActionHooks();   // 重复安装不叠两层
+    haulStats.installActionHooks();
     const hooked = Object.create(Creep.prototype);
     Object.assign(hooked, { name: 'hsHooked', memory: { role: 'hauler', home: 'W33S7' }, pos: new RoomPosition(5, 5, 'W33S7'), store: hs.store, spawning: false });
     world.creeps.hsHooked = hooked;
@@ -12636,7 +11961,6 @@ console.log('\n== broker：溢出优先、源容器进账、刷新保留封顶�
     };
     const leaseOf = (c) => c.memory.brokerTask && String(c.memory.brokerTask.id).split(':')[0];
 
-    // 13) 溢出优先：满仓的源容器权重压过 storage 的富余回流，storage 退回兜底
     {
         const { r } = hsRoomFor(7220, { rcl: 5, energy: 1800, cap: 1800 });
         Memory.rooms.W33S7.plan.links = { ctrl: { x: 32, y: 26 } };
@@ -12655,7 +11979,6 @@ console.log('\n== broker：溢出优先、源容器进账、刷新保留封顶�
         const calm = taskBroker.roomTasks(r).find((t) => t.kind === 'collect' && t.target === r.storage);
         assert(calm && calm.weight === 8, '不溢出时 link 房 storage 富余回流权重照旧 8（得 ' + (calm && calm.weight) + '）');
     }
-    // 14) 源容器进账：旁边有矿工在采记 10/tick，源 link 还收得下时按 0
     {
         const { r } = hsRoomFor(7230);
         const src = makeStructure(r, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 400, capacity: 2000 });
@@ -12669,7 +11992,6 @@ console.log('\n== broker：溢出优先、源容器进账、刷新保留封顶�
         const linked = taskBroker.roomTasks(r).find((t) => t.kind === 'collect' && t.target === src);
         assert(linked && linked.inflow === 0, '源 link 还收得下：矿工先喂 link，容器进账按 0（得 ' + (linked && linked.inflow) + '）');
     }
-    // 15) 刷新保留封顶与水位：storage 回库任务在非重建 tick 仍封顶；控制器容器补过 fillBelow 就退出池子
     {
         const { r } = hsRoomFor(7240, { rcl: 5 });
         Memory.rooms.W33S7.plan.containers.ctrl = { x: 33, y: 25 };
@@ -12686,7 +12008,6 @@ console.log('\n== broker：溢出优先、源容器进账、刷新保留封顶�
         assert(!pool.some((t) => t.kind === 'deliver' && t.target === ctrl), '控制器容器补到 fillBelow 以上：刷新时退出池子，不冲过缓冲线');
         void h;
     }
-    // 16) 卡住检测不把疲劳当卡住：沼泽上满载 hauler 连续 7 tick 原地（疲劳 > 0），租约的任务不被屏蔽
     {
         const { r } = hsRoomFor(7250, { energy: 1000 });
         const ext = makeStructure(r, C.STRUCTURE_EXTENSION, 30, 21, { energy: 0, capacity: 50 });
@@ -12724,7 +12045,6 @@ console.log('\n== 搬运饱和：同 tick 投递/取货 + 起步、按量预留�
     };
     const leaseOf = (c) => c.memory.brokerTask && String(c.memory.brokerTask.id).split(':')[0];
 
-    // 1) 投递 + 起步：贴着 extension A 投完，当 tick 就朝 3 格外的 B 走（旧代码 transfer 后 return，下一 tick 才动）
     {
         const { r } = hsRoomFor(7100, { energy: 1200 });
         const extA = makeStructure(r, C.STRUCTURE_EXTENSION, 25, 21, { energy: 0, capacity: 50 });
@@ -12735,7 +12055,6 @@ console.log('\n== 搬运饱和：同 tick 投递/取货 + 起步、按量预留�
         assert(extA.store[RESOURCE_ENERGY] === 50 && h.store[RESOURCE_ENERGY] === 250 && headingTo(h, extB) && leaseOf(h) === extB.id,
             '投完 A（50）当 tick 朝下一格 B 起步并租下 B（A=' + extA.store[RESOURCE_ENERGY] + ' 手里=' + h.store[RESOURCE_ENERGY] + ' 租约=' + leaseOf(h) + '）');
     }
-    // 2) 投空 + 起步去取货：最后 50 投进 A，当 tick 朝有货的源容器走
     {
         const { r } = hsRoomFor(7110, { energy: 1250 });
         const extA = makeStructure(r, C.STRUCTURE_EXTENSION, 25, 21, { energy: 0, capacity: 50 });
@@ -12746,7 +12065,6 @@ console.log('\n== 搬运饱和：同 tick 投递/取货 + 起步、按量预留�
         assert(extA.store[RESOURCE_ENERGY] === 50 && headingTo(h, src) && leaseOf(h) === src.id,
             '投空的那一 tick 就朝源容器起步（租约 ' + leaseOf(h) + '）');
     }
-    // 3) 取货 + 起步：贴着源容器取满，当 tick 朝有缺口的 extension 走
     {
         const { r } = hsRoomFor(7120, { energy: 900 });
         const ext = makeStructure(r, C.STRUCTURE_EXTENSION, 24, 22, { energy: 0, capacity: 50 });
@@ -12758,7 +12076,6 @@ console.log('\n== 搬运饱和：同 tick 投递/取货 + 起步、按量预留�
             '取满的那一 tick 就朝投递目标起步（手里 ' + h.store[RESOURCE_ENERGY] + '）');
         assert(src.store[RESOURCE_ENERGY] === 1450, 'withdraw 带显式数量：只取空位那么多（容器 ' + src.store[RESOURCE_ENERGY] + '）');
     }
-    // 4) 顺手捡 + 投递同 tick：脚边的掉落 pickup 不再占掉这一 tick 的 transfer
     {
         const { r } = hsRoomFor(7130, { energy: 1250 });
         const ext = makeStructure(r, C.STRUCTURE_EXTENSION, 25, 21, { energy: 0, capacity: 50 });
@@ -12769,7 +12086,6 @@ console.log('\n== 搬运饱和：同 tick 投递/取货 + 起步、按量预留�
         assert(h.actions.includes('pickup') && h.actions.includes('transfer') && ext.store[RESOURCE_ENERGY] === 50,
             '同一 tick：pickup 脚边掉落 + transfer 进 extension（动作 ' + JSON.stringify(h.actions) + '）');
     }
-    // 5) 取货按量预留：300 能量的容器（没有矿工进账）被 A 租下后，B 不再租同一个
     {
         const { r } = hsRoomFor(7140);
         const src = makeStructure(r, C.STRUCTURE_CONTAINER, 30, 13, { my: false, energy: 300, capacity: 2000 });
@@ -12780,14 +12096,12 @@ console.log('\n== 搬运饱和：同 tick 投递/取货 + 起步、按量预留�
         ROLES.hauler.run(b);
         assert(leaseOf(a) === src.id && leaseOf(b) !== src.id,
             '300 能量被 A（空位 350）承诺完：B 不再跑同一个容器（A→' + leaseOf(a) + ' B→' + leaseOf(b) + '）');
-        // 租约就是预留：下一 tick B 先跑，A 的租约在 tick 开头已记成认领，B 仍然不抢
         world.time++;
         delete b.memory.brokerTask;
         taskBroker.beginTick();
         ROLES.hauler.run(b);
         assert(leaseOf(b) !== src.id, '下一 tick B 先跑：A 的租约已在 tick 开头预留，B 不抢（B→' + leaseOf(b) + '）');
     }
-    // 6) 投递按量预留 + 同 tick 扣减：A 刚把 extension 灌满，同 tick 后跑的 B 不再把它当目标
     {
         const { r } = hsRoomFor(7150, { energy: 1000 });
         const ext = makeStructure(r, C.STRUCTURE_EXTENSION, 25, 21, { energy: 0, capacity: 50 });
@@ -12801,7 +12115,6 @@ console.log('\n== 搬运饱和：同 tick 投递/取货 + 起步、按量预留�
             'A 同 tick 灌满的 extension 不再被 B 选中（ext=' + ext.store[RESOURCE_ENERGY] + ' B 动作 ' + JSON.stringify(b.actions) + ' 租约 ' + leaseOf(b) + '）');
         void ext2;
     }
-    // 7) 取货门槛随容量与路程：1000 容量的空 hauler 不为 20 格外的 150 能量专程跑（旧门槛固定 100）；spawn 在等能量时照跑
     {
         const { r } = hsRoomFor(7160);
         const src = makeStructure(r, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 150, capacity: 2000 });
@@ -12810,13 +12123,12 @@ console.log('\n== 搬运饱和：同 tick 投递/取货 + 起步、按量预留�
         ROLES.hauler.run(h);
         assert(leaseOf(h) !== src.id && !headingTo(h, src), '不急时不为 20 格外的 150 能量跑一趟（租约 ' + leaseOf(h) + '）');
         world.time++;
-        r.energyAvailable = 200;   // spawn/ext 见底：急用
+        r.energyAvailable = 200;
         delete h.memory.brokerTask;
         taskBroker.beginTick();
         ROLES.hauler.run(h);
         assert(leaseOf(h) === src.id && headingTo(h, src), 'spawn/ext 见底时照样去拿（租约 ' + leaseOf(h) + '）');
     }
-    // 8) 补满：源旁有矿工进账、往返长，取到 200 不急着走——记下补满目标原地等；spawn 见底时立刻带着走
     {
         const { r } = hsRoomFor(7170);
         const src = makeStructure(r, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 200, capacity: 2000 });
@@ -12852,7 +12164,6 @@ console.log('\n== 搬运饱和：同 tick 投递/取货 + 起步、按量预留�
         const fillRec = Memory.rooms.W33S7.haulFill;
         assert(fillRec && fillRec.start === 1 && fillRec.left === 1, '补满遥测：进入补满、急用时带货离开各记一次（得 ' + JSON.stringify(fillRec) + '）');
     }
-    // 9) storage 的货不回 storage（非 hub 房也一样）：富余房为 ctrl link 取的货，link 满了就揣着，不倒回仓库
     {
         const { r } = hsRoomFor(7180, { rcl: 5 });
         const storage = makeStructure(r, C.STRUCTURE_STORAGE, 21, 20, { energy: 60000, capacity: 1000000 });
@@ -12863,13 +12174,12 @@ console.log('\n== 搬运饱和：同 tick 投递/取货 + 起步、按量预留�
         taskBroker.beginTick();
         ROLES.hauler.run(h);
         assert(!h.actions.includes('transfer') && storage.store[RESOURCE_ENERGY] === 60000, '揣着 storage 的货、没有消费者：不送回 storage');
-        world.time += 150;   // 超过 storageCargoRelease 仍送不出去：允许放回
+        world.time += 150;
         h.actions.length = 0;
         taskBroker.beginTick();
         ROLES.hauler.run(h);
         assert(h.actions.includes('transfer') && storage.store[RESOURCE_ENERGY] === 60400, '揣了 100+ tick 仍无消费者：放回 storage，不一直揣着');
     }
-    // 10) 非 hub 房从 storage 只取还没人认领的消费者缺口：spawn 缺 200 就只取 200（旧代码按满载取）
     {
         const { r, sp } = hsRoomFor(7190, { rcl: 5, energy: 1600, cap: 1800 });
         sp.store[RESOURCE_ENERGY] = 100;
@@ -12880,7 +12190,6 @@ console.log('\n== 搬运饱和：同 tick 投递/取货 + 起步、按量预留�
         assert(h.actions.includes('withdraw') && h.store[RESOURCE_ENERGY] === 200 && h.memory.hubCargo && storage.store[RESOURCE_ENERGY] === 59800,
             '消费者只缺 200：从 storage 取 200 并记 hubCargo（手里 ' + h.store[RESOURCE_ENERGY] + '）');
     }
-    // 11) 第 1 层先问 spawn/ext：storage 富余时的控制器容器（权重 9、缺 1800）不再按收益压过缺 50 的 extension
     {
         const { r } = hsRoomFor(7200, { rcl: 5, energy: 1750, cap: 1800 });
         Memory.rooms.W33S7.plan.containers.ctrl = { x: 33, y: 25 };
@@ -12894,20 +12203,18 @@ console.log('\n== 搬运饱和：同 tick 投递/取货 + 起步、按量预留�
         ROLES.hauler.run(h);
         assert(headingTo(h, ext) && leaseOf(h) === ext.id, 'spawn/ext 有缺口：先去 6 格外的 extension，不先灌 3 格外的控制器容器（租约 ' + leaseOf(h) + '）');
     }
-    // 12) 顺路投递：朝远处 extension 走的路上，旁边一格 extension 在重建间隔内被抽空（池子里还没有它）——当 tick 顺手灌上
     {
         const { r } = hsRoomFor(7210, { energy: 1200 });
         const near1 = makeStructure(r, C.STRUCTURE_EXTENSION, 27, 22, { energy: 50, capacity: 50 });
         const far = makeStructure(r, C.STRUCTURE_EXTENSION, 33, 21, { energy: 0, capacity: 50 });
         const h = hsHauler(r, 'hs.drive', 300, 26, 21);
-        taskBroker.beginTick();              // 池子在 near1 满着时建好
-        near1.store[RESOURCE_ENERGY] = 0;    // 同一重建间隔内被 spawn 抽空
+        taskBroker.beginTick();
+        near1.store[RESOURCE_ENERGY] = 0;
         world.time++;
         taskBroker.beginTick();
         ROLES.hauler.run(h);
         assert(near1.store[RESOURCE_ENERGY] === 50 && headingTo(h, far), '朝远处 extension 走的同时顺手灌上旁边刚空的一格（近=' + near1.store[RESOURCE_ENERGY] + '）');
     }
-    // 17) 零头补满：揣着 60/350、没有投递目标时去源容器补，而不是在 spawn 旁发呆
     {
         const { r } = hsRoomFor(7260);
         const src = makeStructure(r, C.STRUCTURE_CONTAINER, 30, 13, { my: false, energy: 900, capacity: 2000 });
@@ -12916,7 +12223,6 @@ console.log('\n== 搬运饱和：同 tick 投递/取货 + 起步、按量预留�
         ROLES.hauler.run(h);
         assert(headingTo(h, src) && leaseOf(h) === src.id, '零头 + 无投递目标：去源容器补满（租约 ' + leaseOf(h) + '）');
     }
-    // 18) 在取空的源容器旁等进账（能量 0 不在任务池里也算），并租下它：第二只 hauler 不来一起等
     {
         const { r } = hsRoomFor(7270);
         const src = makeStructure(r, C.STRUCTURE_CONTAINER, 30, 13, { my: false, energy: 0, capacity: 2000 });
@@ -12940,7 +12246,6 @@ console.log('\n== 升级者先喝 ctrl link：贴着 link 与 storage 时先取 
     ulRoom.energyCapacityAvailable = 2300;
     ulRoom.energyAvailable = 2300;
     makeSpawn(ulRoom, 23, 21);
-    // storage 先建（find 顺序在前）、link 后建：旧代码一次 find 取"link 或 storage"会拿到 storage
     const ulStorage = makeStructure(ulRoom, C.STRUCTURE_STORAGE, ulPlan.storage.x, ulPlan.storage.y, { energy: 50000, capacity: 1000000 });
     const ulLink = makeStructure(ulRoom, C.STRUCTURE_LINK, ulPlan.links.ctrl.x, ulPlan.links.ctrl.y, { energy: 700, capacity: 800 });
     const near = (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)) <= 1;
@@ -12956,13 +12261,11 @@ console.log('\n== 升级者先喝 ctrl link：贴着 link 与 storage 时先取 
     assert(ulLink.store[C.RESOURCE_ENERGY] < 700 && ulStorage.store[C.RESOURCE_ENERGY] === 50000,
         '贴着两者时先喝 ctrl link（link ' + ulLink.store[C.RESOURCE_ENERGY] + ' storage ' + ulStorage.store[C.RESOURCE_ENERGY] + '）');
     assert(Memory.rooms.W33S7.upgraderDrink && Memory.rooms.W33S7.upgraderDrink.linkOverStorage === 1, '决策遥测：两者都取得到时选 link 记一次');
-    // link 空了照样喝 storage（高于底线的部分）
     ulLink.store[C.RESOURCE_ENERGY] = 0;
     ulUp.store[C.RESOURCE_ENERGY] = 0;
     world.time++;
     ROLES.upgrader.run(ulUp);
     assert(ulStorage.store[C.RESOURCE_ENERGY] < 50000, 'ctrl link 空时照样从 storage 取');
-    // 站位排序：只有贴 link 的那格是道路，其它都不是——贴 link 的仍排第一（旧排序道路格垫底）
     ulPlan.roads = { all: both.x + '.' + both.y };
     world.time++;
     const ulSorted = layout.upgraderStorageStations(ulRoom, ulPlan);
@@ -12974,7 +12277,7 @@ console.log('\n== 升级者先喝 ctrl link：贴着 link 与 storage 时先取 
 console.log('\n== 路网变了就让轮子重算：签名（道路数 / 障碍建筑）变化时 invalidateRoom，同一房两次至少隔 200 tick ==');
 {
     resetWorld(8000);
-    const nwName = 'W39S9';   // 独立房名：movement 的签名表在 global 里跨场景保留
+    const nwName = 'W39S9';
     const nw = makeRoom(nwName, { rcl: 5 });
     const phase = utils.roomPhase(nwName, 50);
     const toPhase = (from) => from + ((phase - (from % 50)) + 50) % 50;
@@ -12998,21 +12301,19 @@ console.log('\n== 路网变了就让轮子重算：签名（道路数 / 障碍�
     movement.beginTick();
     assert(deletions() === 2, '签名没变：不重算');
     world.time += 1;
-    nw._structs.pop();   // 少了一条路，但不是本房的核对 tick
+    nw._structs.pop();
     movement.beginTick();
     assert(deletions() === 2, '非本房核对 tick：不核对');
     assert(wheelMovementState.deletedRooms.filter((d) => d.roomName === nwName && d.kind === 'refresh').length === 2 && Memory.rooms[nwName].pathRefresh.regen === 1,
         '可见房重算时用 refreshRoom：删路径并当场重建 costMatrix（遥测 regen）');
-    // 数量不变、位置变了（一条烂掉、另一格新修）：坐标哈希照样变
     world.time = toPhase(world.time + 200);
     movement.beginTick();
     const before = deletions();
     const moved = nw._structs.find((st) => st.structureType === C.STRUCTURE_ROAD);
     moved.pos = new RoomPosition(12, 12, nwName);
-    world.time += 200;   // 等满限频期
+    world.time += 200;
     movement.beginTick();
     assert(deletions() === before + 1, '道路数不变但换了位置：签名变化、重算（得 ' + before + ' → ' + deletions() + '）');
-    // 两格一上一下各挪一格（格号之和不变）：线性哈希 Σ cell×K 会抵消，逐格混合后照样变
     const ra = makeStructure(nw, C.STRUCTURE_ROAD, 20, 20, {});
     const rb = makeStructure(nw, C.STRUCTURE_ROAD, 30, 30, {});
     world.time = toPhase(world.time + 200);
@@ -13027,7 +12328,6 @@ console.log('\n== 路网变了就让轮子重算：签名（道路数 / 障碍�
 
 console.log('\n== storage 站位供能的房不再往 ctrl link 搬 storage 的能量；hub 房从 storage 按缺口取；溢出按源、带滞回、只放一只 hauler ==');
 {
-    // F2：升级者站在 storage 旁、storage 在底线 + 工作带以上 → ctrl link 的富余回流 / 按需补给都不发（升级者自己就喝得到 storage）
     const fsRoom2 = demoRoom(7400, 6);
     const fsPlan2 = Memory.rooms.W33S7.plan;
     makeSpawn(fsRoom2, 23, 21);
@@ -13041,13 +12341,12 @@ console.log('\n== storage 站位供能的房不再往 ctrl link 搬 storage 的�
     assert(feeds(fsRoom2).length === 0 && taskBroker.controllerFeedLink(fsRoom2) === null,
         'storage 5 万 + storage 站位：池子里没有往 ctrl link 的补给任务（得 ' + JSON.stringify(feeds(fsRoom2).map((t) => [t.id, t.weight])) + '）');
     assert(Memory.rooms.W33S7.ctrlLinkFeedSkip && Memory.rooms.W33S7.ctrlLinkFeedSkip.n >= 1, '决策遥测 ctrlLinkFeedSkip');
-    fsRoom2.storage.store[C.RESOURCE_ENERGY] = 1500;   // storage 在升级者底线以下：link 照常要补
+    fsRoom2.storage.store[C.RESOURCE_ENERGY] = 1500;
     world.time += 3;
     taskBroker.beginTick();
     assert(feeds(fsRoom2).length === 1, 'storage 1500（低于底线 + 工作带）：照常给 ctrl link 补给');
     delete world.creeps[fsUp2.name];
 
-    // F3：hub 房按消费者缺口从 storage 取——塔只缺 300，1000 容量的 hauler 只取 300（以前满载取，揣 100 tick 再退回）
     resetWorld(7420);
     const hbRoom = makeRoom('W33S7', { rcl: 7, energy: 800, cap: 800 });
     hbRoom._sources = [makeSource(hbRoom, 31, 12, 'hb0'), makeSource(hbRoom, 14, 6, 'hb1')];
@@ -13059,7 +12358,7 @@ console.log('\n== storage 站位供能的房不再往 ctrl link 搬 storage 的�
     makeStructure(hbRoom, C.STRUCTURE_LINK, 16, 7, { energy: 0, capacity: 800 });
     makeSpawn(hbRoom, 23, 21);
     const hbTower = makeStructure(hbRoom, C.STRUCTURE_TOWER, 20, 22, { store: mkStore(700, 1000) });
-    makeHostile(hbRoom, 40, 40, ['attack']);   // 有敌人：塔缺口 300 也是投递任务
+    makeHostile(hbRoom, 40, 40, ['attack']);
     assert(linksMod.hubHaulMode(hbRoom, hbPlan), '前提：hub 模式');
     const hbHauler = makeCreep(hbRoom, 'hb.hauler', utils.makeBody('hauler', 1550), { home: 'W33S7', role: 'hauler' });
     world.creeps[hbHauler.name] = hbHauler;
@@ -13071,7 +12370,6 @@ console.log('\n== storage 站位供能的房不再往 ctrl link 搬 storage 的�
         'hub 房塔缺 300：只从 storage 取 300（手里 ' + hbHauler.store[C.RESOURCE_ENERGY] + '）');
     void hbTower;
 
-    // F4：溢出按源、带滞回；溢出源的取货只放一只 hauler
     const { r: spRoom } = (() => {
         resetWorld(7440);
         const r = makeRoom('W33S7', { rcl: 4, energy: 1300, cap: 1300, ctrl: { x: 34, y: 24 } });
@@ -13115,7 +12413,6 @@ console.log('\n== storage 站位够不着堵满的 ctrl link：指定一只升�
     const stations = layout.upgraderStorageStations(rlRoom, rlPlan);
     const ctrlPos = rlRoom.controller.pos;
     const adj = (a, b) => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y)) <= 1;
-    // 找一个 ctrl link 位：不贴任何 storage 站位格、旁边有控制器 3 格内的空地
     let linkPos = null;
     for (let dy = -4; dy <= 4 && !linkPos; dy++) {
         for (let dx = -4; dx <= 4 && !linkPos; dx++) {
@@ -13146,18 +12443,14 @@ console.log('\n== storage 站位够不着堵满的 ctrl link：指定一只升�
     assert(targetA && adj(targetA, rlLink.pos) && !rlA.actions.includes('withdraw') && Memory.rooms.W33S7.linkRelief && Memory.rooms.W33S7.linkRelief.n === 1,
         '站位都不贴 link、link 800：名字最小的升级者空手时去 link 旁喝（去 ' + JSON.stringify(targetA) + '）');
     assert(rlB.actions.includes('withdraw') && !rlB.moveCalls.length, '另一只照常在 storage 站位取');
-    // link 低于缓冲线：不派
     rlLink.store[C.RESOURCE_ENERGY] = 300;
     rlA.moveCalls.length = 0; rlA.actions.length = 0;
     world.time++;
     ROLES.upgrader.run(rlA);
     assert(rlA.actions.includes('withdraw') && !rlA.moveCalls.length, 'link 只有 300（< linkKeepAt）：在 storage 站位取，不去 link 旁');
-    // link 旁的格对满载的升级者也是工位（交通解算不推开）
     const sidePos = new RoomPosition(targetA.x, targetA.y, 'W33S7');
     rlA.store[C.RESOURCE_ENERGY] = 50;
     assert(movement.isWorkTile(rlA, sidePos) === true, 'storage 站位房里 ctrl link 旁的格也是升级者工位');
-    // 已到 link 旁、身边还有个有能量的容器（energySourceAt 里容器先于 link）：就地从容器取，不再派位。
-    // 旧代码照样 movement.go 去 link 旁的空格，原地"移动"、从不 withdraw（wip 768f2a1）
     rlLink.store[C.RESOURCE_ENERGY] = 800;
     let rlContPos = null;
     for (let dy = -1; dy <= 1 && !rlContPos; dy++) for (let dx = -1; dx <= 1 && !rlContPos; dx++) {
@@ -13179,7 +12472,6 @@ console.log('\n== storage 站位够不着堵满的 ctrl link：指定一只升�
     const rlRec = Memory.rooms.W33S7.linkReliefInPlace;
     assert(rlRec.drank > 0 && rlRec.drank === 1000 - rlCont.store[C.RESOURCE_ENERGY] && rlRec.first != null,
         '遥测 linkReliefInPlace.drank 记下就地真的取到的量、first 记第一次（得 ' + JSON.stringify(rlRec) + '）');
-    // withdraw 失败（例如容器被别人同 tick 取空）：drank 不涨
     const rlDrank = rlRec.drank;
     rlA.store[C.RESOURCE_ENERGY] = 0;
     const rlWithdraw = rlA.withdraw;
@@ -13189,7 +12481,6 @@ console.log('\n== storage 站位够不着堵满的 ctrl link：指定一只升�
     rlA.withdraw = rlWithdraw;
     assert(Memory.rooms.W33S7.linkReliefInPlace.n === rlInPlaceBefore + 2 && Memory.rooms.W33S7.linkReliefInPlace.drank === rlDrank,
         'withdraw 没成：n 照记、drank 不涨（得 ' + JSON.stringify(Memory.rooms.W33S7.linkReliefInPlace) + '）');
-    // 还在 storage 站位（不在 link 旁）时照常派位，不受影响
     rlA.pos = new RoomPosition(stations[0].x, stations[0].y, 'W33S7');
     rlA.store[C.RESOURCE_ENERGY] = 0;
     rlA.moveCalls.length = 0; rlA.actions.length = 0;
@@ -13224,7 +12515,6 @@ console.log('\n== 补满与预留的边界：同 tick 保留补满认领、等�
         c.store[C.RESOURCE_ENERGY] = energy;
         return c;
     };
-    // 1) 补满中的 A 取了一口留下接着等：同 tick 后跑的 B 不来一起等（consume 释放的认领被记回去）
     {
         const r = bxRoom(9100);
         const x = makeStructure(r, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 200, capacity: 2000 });
@@ -13239,7 +12529,6 @@ console.log('\n== 补满与预留的边界：同 tick 保留补满认领、等�
         assert(a.memory.fill === x.id && leaseB !== x.id + ':collect' && !headingTo(b, x),
             'A 在 X 补满（取了 200 留下）：同 tick 的 B 不去 X 一起等（B 租约 ' + leaseB + '）');
     }
-    // 2) 等候点粘住：A 在已取空、有进账的 X 旁补满；远处还有一个有进账的 Y——不在两个等候点之间来回跑
     {
         const r = bxRoom(9120);
         const x = makeStructure(r, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 0, capacity: 2000 });
@@ -13252,7 +12541,6 @@ console.log('\n== 补满与预留的边界：同 tick 保留补满认领、等�
         ROLES.hauler.run(a);
         assert(a.moveCalls.length === 0 && a.memory.fill === x.id, '在取空的 X 旁补满、远处 Y 只有 60：留在 X 等，不往 Y 跑（移动 ' + JSON.stringify(a.moveCalls.map((m) => m.target)) + '）');
     }
-    // 3) 在租约目标的射程内原地等 8 tick 不算卡住（以前第 6 tick 把这个源容器的取货任务屏蔽 150 tick）
     {
         const r = bxRoom(9140);
         const x = makeStructure(r, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 300, capacity: 2000 });
@@ -13264,27 +12552,23 @@ console.log('\n== 补满与预留的边界：同 tick 保留补满认领、等�
             taskBroker.finishCreep(a, taskBroker.startCreep(a));
         }
         taskBroker.beginTick();
-        // 用等着的 hauler 自己查（别的 hauler 会被它的预留挡住，混淆"被屏蔽"）：屏蔽的任务 bestTask 直接跳过
         const still = taskBroker.pickTask(a, r, (t) => t.kind === 'collect' && t.target === x, false);
         assert(still, '贴着租约目标等了 8 tick：源容器取货任务没被屏蔽');
     }
-    // 4) 别人揣着能量、已经认领的缺口不再从 storage 取（以前按 backlog 算，同一个缺口被重复取、多出来的被 storage 货锁揣着）
     {
         const r = bxRoom(9160);
         r.energyAvailable = 1100;
         const sp = r.find(C.FIND_MY_SPAWNS)[0];
-        sp.store[C.RESOURCE_ENERGY] = 100;   // spawn 缺 200
+        sp.store[C.RESOURCE_ENERGY] = 100;
         const storage = makeStructure(r, C.STRUCTURE_STORAGE, 21, 20, { energy: 60000, capacity: 1000000 });
         const carrier = haulerAt(r, 'bx.carrier', 500, 26, 24);
         taskBroker.beginTick();
-        ROLES.hauler.run(carrier);   // 揣着 500 认领 spawn 的 200 缺口，往 spawn 走
+        ROLES.hauler.run(carrier);
         const empty = haulerAt(r, 'bx.empty', 0, 22, 20);
         ROLES.hauler.run(empty);
         assert(storage.store[C.RESOURCE_ENERGY] === 60000 && !empty.actions.includes('withdraw'),
             'spawn 的 200 缺口已被揣着能量的 hauler 认领：空 hauler 不再从 storage 取（storage ' + storage.store[C.RESOURCE_ENERGY] + '）');
     }
-    // 5) 地上的矿物永远不进能量任务池（broker 的 collect 是能量会计，进去会被当能量卸给 spawn）。
-    //    收不收由打捞路径单独决定（roles/hauler.js salvagePickup，见"打捞"场景）：有 terminal/storage 可卸才去捡
     {
         const r = bxRoom(9180);
         makeDropped(r, 16, 8, 800, 'H');
@@ -13294,7 +12578,6 @@ console.log('\n== 补满与预留的边界：同 tick 保留补满认领、等�
         assert(!a.actions.includes('pickup') && !(a.memory.brokerTask && a.memory.brokerTask.kind === 'collect'),
             '地上 800 H、房里没有 terminal/storage：捡了只能扔，不去捡');
         assert(!taskBroker.roomTasks(r).some((t) => t.kind === 'collect' && t.target && t.target.resourceType === 'H'), '矿物掉落根本不进任务池');
-        // 同一个房补上 storage：打捞路径接管去收，但矿物仍然不进能量任务池
         r.storage = makeStructure(r, C.STRUCTURE_STORAGE, 21, 20, { energy: 0, capacity: 1000000 });
         world.time++;
         taskBroker.beginTick();
@@ -13303,14 +12586,13 @@ console.log('\n== 补满与预留的边界：同 tick 保留补满认领、等�
         assert(a.store.H > 0 && a.actions.includes('pickup'), '有了 storage：同一堆 800 H 被打捞走（车上 ' + (a.store.H || 0) + '）');
         assert(!taskBroker.roomTasks(r).some((t) => t.kind === 'collect' && t.target && t.target.resourceType === 'H'), '打捞不经过能量任务池');
     }
-    // 6) 源采空（等再生）：容器进账按 0 算，补满中的 hauler 带着货去送，不守着空容器（也不在两格之间来回跳）
     {
         const r = bxRoom(9200);
         r.energyAvailable = 1100;
         r.find(C.FIND_MY_SPAWNS)[0].store[C.RESOURCE_ENERGY] = 100;
         const x = makeStructure(r, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 0, capacity: 2000 });
         minerAt(r, 'bx.m6', 15, 7, 'bx0', 0);
-        r._sources[0].energy = 0;   // 采空了，等 300 tick 再生
+        r._sources[0].energy = 0;
         const a = haulerAt(r, 'bx.dry', 300, 16, 8);
         a.memory.fill = x.id;
         taskBroker.beginTick();
@@ -13319,7 +12601,6 @@ console.log('\n== 补满与预留的边界：同 tick 保留补满认领、等�
         assert(!a.memory.fill && headingTo(a, r.find(C.FIND_MY_SPAWNS)[0]) && fillRec.drop >= 1,
             '源采空：不再算进账，揣着 300 的 hauler 去送 spawn 并清掉补满目标（fill ' + a.memory.fill + '、移动 ' + JSON.stringify(a.moveCalls.map((m) => m.target)) + '）');
     }
-    // 7) 到达时的量按源里还剩多少封顶：源只剩 50 时，远处 hauler 不该按"进账 × 路程"算出几百
     {
         const r = bxRoom(9220);
         makeStructure(r, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 300, capacity: 2000 });
@@ -13331,7 +12612,6 @@ console.log('\n== 补满与预留的边界：同 tick 保留补满认领、等�
         const avail = taskBroker.availableFor(task, far);
         assert(task && avail > 300 && avail <= 350, '源里只剩 50：到达量 = 存量 300 + 最多 50（得 ' + avail + '）');
     }
-    // 8) 还在别的房间的认领者（援建 hauler 在路上）不挡本房 hauler 取本房源容器的货
     {
         const r = bxRoom(9240);
         const x = makeStructure(r, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 400, capacity: 2000 });
@@ -13345,7 +12625,6 @@ console.log('\n== 补满与预留的边界：同 tick 保留补满认领、等�
         assert(headingTo(local, x) || (local.memory.brokerTask && local.memory.brokerTask.id === x.id + ':collect'),
             '跨房认领者按 50 格全额预留不该挡住本房 hauler（本房租约 ' + JSON.stringify(local.memory.brokerTask) + '）');
     }
-    // 9) 身上剩的 storage 货只有零头又没消费者：解锁，去源容器补满，而不是揣着 5 能量在 storage 边停 100 tick
     {
         const r = bxRoom(9260);
         const x = makeStructure(r, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 800, capacity: 2000 });
@@ -13358,12 +12637,11 @@ console.log('\n== 补满与预留的边界：同 tick 保留补满认领、等�
         ROLES.hauler.run(a);
         assert(!a.memory.hubCargo && headingTo(a, x), '5 能量的 storage 零头：解锁并去源容器补满（移动 ' + JSON.stringify(a.moveCalls.map((m) => m.target)) + '）');
     }
-    // 10) 在源容器补满的 hauler 不被 storage 的富余取货拉走（揣着源头的货跑去 storage，再原封不动倒回去）
     {
         const r = bxRoom(9280);
         const x = makeStructure(r, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 0, capacity: 2000 });
         makeStructure(r, C.STRUCTURE_STORAGE, 21, 20, { energy: 60000, capacity: 1000000 });
-        makeStructure(r, C.STRUCTURE_CONTAINER, 33, 24, { my: false, energy: 600, capacity: 2000 });   // 控制器容器：有缺口但没见底（见底会变成紧急投递）
+        makeStructure(r, C.STRUCTURE_CONTAINER, 33, 24, { my: false, energy: 600, capacity: 2000 });
         Memory.rooms.W33S7.plan.containers.ctrl = { x: 33, y: 24 };
         Memory.rooms.W33S7.storageRich = { rich: true, at: Game.time };
         minerAt(r, 'bx.m10', 15, 7, 'bx0', 0);
@@ -13374,7 +12652,6 @@ console.log('\n== 补满与预留的边界：同 tick 保留补满认领、等�
         assert(a.moveCalls.length === 0 && a.memory.fill === x.id && !a.actions.includes('withdraw'),
             '补满中的 hauler 不去 storage 补货：留在源容器等（移动 ' + JSON.stringify(a.moveCalls.map((m) => m.target)) + '）');
     }
-    // 11) 身上混进了矿物（旧版本捡的）：先卸进 storage，不再一辈子占着容量
     {
         const r = bxRoom(9300);
         const storage = makeStructure(r, C.STRUCTURE_STORAGE, 21, 20, { energy: 1000, capacity: 1000000 });
@@ -13394,21 +12671,18 @@ console.log('\n== 运输遥测 v2：按动作钩子计同 tick 取送、涓流�
     const vr = makeRoom('W33S7', { rcl: 4, energy: 1300, cap: 1300 });
     vr._sources = [makeSource(vr, 14, 6, 'v2s0')];
     const vCont = makeStructure(vr, C.STRUCTURE_CONTAINER, 15, 7, { my: false, energy: 1500, capacity: 2000 });
-    const h = makeCreep(vr, 'v2.h', ['carry', 'carry', 'carry', 'carry', 'move', 'move'], { home: 'W33S7', role: 'hauler' });   // 容量 200
+    const h = makeCreep(vr, 'v2.h', ['carry', 'carry', 'carry', 'carry', 'move', 'move'], { home: 'W33S7', role: 'hauler' });
     world.creeps[h.name] = h;
     h.pos = new RoomPosition(20, 20, 'W33S7');
     h.store[C.RESOURCE_ENERGY] = 100;
     const tick = (fn) => { haulStats.observe(h); if (fn) fn(); world.time++; };
-    // 同 tick pickup +100 与 transfer −100：净载货 0，v1 记成原地不动；v2 按动作钩子记 ac / ldT / ulT
     tick(() => { haulStats.noteAction(h, 'pickup', { resourceType: 'energy', amount: 100 }); haulStats.noteAction(h, 'transfer', { structureType: C.STRUCTURE_EXTENSION }); });
-    // 涓流等货：原地每 tick +10，5 tick
     for (let i = 0; i < 5; i++) tick(() => { h.store[C.RESOURCE_ENERGY] += 10; });
-    // 投空，然后空跑 6 tick、原地停 3 tick = 走去停车
     tick(() => { h.store[C.RESOURCE_ENERGY] = 0; });
     for (let i = 0; i < 6; i++) tick(() => { h.pos = new RoomPosition(h.pos.x + 1, 20, 'W33S7'); });
-    vr.energyAvailable = 800;   // spawn/ext 缺 500、源容器 1500 ≥ 半车：原地空闲算"有货没人搬"
+    vr.energyAvailable = 800;
     for (let i = 0; i < 4; i++) tick();
-    vr.energyAvailable = 1300;   // 补回 ≥ 90%：补能期结束
+    vr.energyAvailable = 1300;
     tick();
     haulStats.observe(h);
     while (world.time % 30 !== 0) world.time++;
@@ -13421,7 +12695,6 @@ console.log('\n== 运输遥测 v2：按动作钩子计同 tick 取送、涓流�
     const roomRec = Memory.haulStats.rooms.W33S7._room;
     assert(roomRec && roomRec.rfN === 1 && roomRec.rfT >= 4, '房级：spawn/ext 从 < 90% 补回 ≥ 90% 记一次补能期：' + JSON.stringify(roomRec));
     void vCont;
-    // 老死带货：寿命 1、身上 80 能量的外矿 hauler 下一 tick 消失 → lostAge 80，死在外矿房（非己方）另记 lostAgeOut，外矿线同记
     const rh = makeCreep(vr, 'v2.rh', ['carry', 'carry', 'move', 'move'], { home: 'W33S7', role: 'remoteHauler', remoteRoom: 'W32S7' });
     world.creeps[rh.name] = rh;
     rh.pos = new RoomPosition(5, 5, 'W32S7');
@@ -13443,7 +12716,6 @@ console.log('== spawn 花费 EMA（mem.spawnSpend）：按实际孵化成本记�
 {
     const ssAlpha = 1 / (config.hauling.spawnSpendWindow || 1500);
     const ssRate = (room, mem) => (typeof spawnMgr.spawnSpendRate === 'function' ? spawnMgr.spawnSpendRate(room, mem) : NaN);
-    // RCL4 两源容器房（W33S8 形态）：spawn 收入 EMA 19（补货时的到货速率），实际孵化花费只有 5/tick
     const ssScene = (time, energy) => {
         resetWorld(time);
         const room = makeRoom('W33S8', { rcl: 4, energy, cap: 1300, ctrl: { x: 22, y: 31 }, owner: 'me' });
@@ -13461,23 +12733,19 @@ console.log('== spawn 花费 EMA（mem.spawnSpend）：按实际孵化成本记�
         world.creeps.ssHa = makeCreep(room, 'ssHa', utils.makeBody('hauler', 1300), { home: 'W33S8', role: 'hauler' });
         return room;
     };
-    // (1) 首次读取：用本房 creep 的维持费（Σ 身体成本 / 寿命）当初值——新部署的房不从 0 爬一代
     let ssRoom = ssScene(10400, 0);
     const ssUpkeep = Object.values(world.creeps).reduce((sum, c) => sum + utils.bodyCost(c.body) / 1500, 0);
     const ssSeed = ssRate(ssRoom, Memory.rooms.W33S8);
     assert(Math.abs(ssSeed - ssUpkeep) < 1e-9 && Memory.rooms.W33S8.spawnSpend && Memory.rooms.W33S8.spawnSpend.n === 0,
         '首次读取按维持费播种（期望 ' + ssUpkeep.toFixed(3) + '，得 ' + ssSeed + ' ' + JSON.stringify(Memory.rooms.W33S8.spawnSpend) + '）');
-    // (2) 读数按经过的 tick 衰减：1500 tick（一个窗口）后剩 (1−α)^1500 ≈ 1/e
     Memory.rooms.W33S8.spawnSpend = { ema: 10, at: Game.time - 1500, n: 3 };
     const ssDecayed = ssRate(ssRoom, Memory.rooms.W33S8);
     assert(Math.abs(ssDecayed - 10 * Math.pow(1 - ssAlpha, 1500)) < 1e-9, '1500 tick 没孵化：10 衰减到 ' + (10 * Math.pow(1 - ssAlpha, 1500)).toFixed(3) + '（得 ' + ssDecayed + '）');
-    // (3) 停靠份额 = 花费 / 源产出：收入 EMA 19 时旧代码给 0.95；实际花费 5 → 0.25（能量 0：本 tick 什么都不孵，模型用的就是这个 5）
     Memory.rooms.W33S8.spawnSpend = { ema: 5, at: Game.time, n: 3 };
     spawnMgr.run(ssRoom);
     const ssModel = Memory.rooms.W33S8.haulModel;
     assert(ssModel && ssModel.production === 20 && Math.abs(ssModel.spend - 5) < 0.01 && Math.abs(ssModel.spawnShare - 0.25) < 0.005,
         '停靠份额按孵化花费 5/20 = 0.25，不按收入 EMA 19/20（得 ' + JSON.stringify(ssModel) + '）');
-    // (4) 队列孵化记账：新 creep 的身体成本 × α 叠到衰减后的读数上
     ssRoom = ssScene(10410, 1300);
     Memory.rooms.W33S8.spawnSpend = { ema: 0, at: Game.time, n: 0 };
     spawnMgr.run(ssRoom);
@@ -13486,7 +12754,6 @@ console.log('== spawn 花费 EMA（mem.spawnSpend）：按实际孵化成本记�
     const ssTrack = Memory.rooms.W33S8.spawnSpend;
     assert(ssBorn.length === 1 && ssTrack.n === 1 && Math.abs(ssTrack.ema - ssAlpha * ssCost) < 1e-9 && ssTrack.at === Game.time,
         '队列孵化一只（' + ssBorn.map((c) => c.memory.role + ':' + utils.bodyCost(c.body)).join(',') + '）：spawnSpend 记 α × 成本（得 ' + JSON.stringify(ssTrack) + '）');
-    // (5) 应急 drop miner（[WORK,MOVE] 150）也是 spawn 花出去的能量
     resetWorld(10420);
     const ssDrop = makeRoom('W33S7', { rcl: 2, energy: 162, cap: 300, ctrl: { x: 22, y: 31 } });
     ssDrop._sources = [makeSource(ssDrop, 14, 6, 'sd0'), makeSource(ssDrop, 31, 12, 'sd1')];
@@ -13497,7 +12764,6 @@ console.log('== spawn 花费 EMA（mem.spawnSpend）：按实际孵化成本记�
     const ssDropTrack = Memory.rooms.W33S7.spawnSpend;
     assert(Object.values(world.creeps).some((c) => c.memory.dropMiner) && ssDropTrack.n === 1 && Math.abs(ssDropTrack.ema - ssAlpha * 150) < 1e-9,
         '应急 drop miner 的 150 记进 spawnSpend（得 ' + JSON.stringify(ssDropTrack) + '）');
-    // (6) 换代（tryBodyUpgrade，队列清空、能量满）孵出的新身体同样记账
     resetWorld(10430);
     const ssUp = makeRoom('W33S7', { rcl: 3, energy: 1050, cap: 1050, ctrl: { x: 34, y: 24 } });
     ssUp._sources = [makeSource(ssUp, 31, 12, 'su0'), makeSource(ssUp, 14, 6, 'su1')];
@@ -13511,7 +12777,6 @@ console.log('== spawn 花费 EMA（mem.spawnSpend）：按实际孵化成本记�
     }
     world.creeps.suH0 = makeCreep(ssUp, 'suH0', utils.makeBody('staticHarvester', 1050), { home: 'W33S7', role: 'harvester', sourceIdx: 0, sourceId: 'su0', staticMiner: true });
     world.creeps.suH1 = makeCreep(ssUp, 'suH1', utils.makeBody('staticHarvester', 1050), { home: 'W33S7', role: 'harvester', sourceIdx: 1, sourceId: 'su1', staticMiner: true });
-    // 一只 300 的旧升级者（换代目标 1050）+ 一只满配的：升级者编制 2 已满，队列清空时换掉小的
     world.creeps.suUp0 = makeCreep(ssUp, 'suUp0', utils.makeBody('upgrader', 300), { home: 'W33S7', role: 'upgrader' }, { ticksToLive: 1000 });
     world.creeps.suUp1 = makeCreep(ssUp, 'suUp1', utils.makeBody('upgrader', 1050), { home: 'W33S7', role: 'upgrader' });
     world.creeps.suBu = makeCreep(ssUp, 'suBu', utils.makeBody('builder', 1050), { home: 'W33S7', role: 'builder' });
@@ -13527,12 +12792,10 @@ console.log('== spawn 花费 EMA（mem.spawnSpend）：按实际孵化成本记�
 console.log('== core hauler 按 CARRY 定编：C* = max(模型 + storage 补给, 实测, 补给爆发)，只数从底线起、每只 = clamp(ceil(C* ÷ 只数), minBodyCarry[RCL], 满配)，与在岗身体大小无关 ==');
 {
     const hc = config.hauling;
-    // 旧代码没有 hauling.sizing：补一份同样的表（只用来算期望值），好让每条断言在旧代码上各自报失败而不是整段抛错
     const sz = hc.sizing || (hc.sizing = {});
     if (!sz.minBodyCarry) sz.minBodyCarry = { 1: 4, 2: 4, 3: 4, 4: 4, 5: 4, 6: 4, 7: 6, 8: 10 };
     const savedMode = sz.mode;
     const bodyWithCarry = (carry) => utils.makeBody('hauler', Math.max(200, Math.floor(carry / 2) * 150 + (carry % 2 ? 100 : 0)));
-    // storage (21,20)；extension、spawn、塔都放在离 storage 切比雪夫 5 格处 → storage 往返 2 × 5 + turnBuffer
     const EXT5 = [15, 16, 17, 18, 19, 21, 22, 23, 24, 25].map((y) => ({ x: 26, y }));
     const TOWERS5 = [{ x: 16, y: 15 }, { x: 16, y: 20 }, { x: 16, y: 25 }, { x: 16, y: 16 }, { x: 16, y: 24 }, { x: 17, y: 15 }];
     const cpScene = (time, o) => {
@@ -13578,10 +12841,7 @@ console.log('== core hauler 按 CARRY 定编：C* = max(模型 + storage 补给,
     const near4 = { rcl: 4, cap: 1300, spend: 5, roads: { src0: road(6, 24, 20), src1: road(6, 22, 20) } };
     const fullOf = (cap) => utils.bodyPartCount(utils.makeBody('hauler', cap), 'carry');
 
-    // ---- A. 模型（sizing.mode 'model'：不看实测、没有满配一半的兜底）----
     sz.mode = 'model';
-    // (1) hub 房（RCL7：store link 贴 storage + operator 站位、两源 link）：源产出 0，孵化花费 29/tick 全部从 storage 补。
-    //     模型 = 29 × 往返 12 ÷ 50 ≈ 7 在途 CARRY + 停靠，÷ 0.8；2 只时每只 5.3–6.0 → 6。旧代码：模型 0 → 两只满配一半 16C
     let room = hub(10500);
     spawnMgr.run(room);
     let m = modelOf();
@@ -13590,12 +12850,10 @@ console.log('== core hauler 按 CARRY 定编：C* = max(模型 + storage 补给,
     assert(m.base > 0 && Math.abs(m.base - m.flow) < 0.11 && m.burst > 4 && Math.abs(m.cstar - m.flow) < 0.11 && m.heads * m.perBody >= m.cstar,
         'hub 房的 C* 来自 storage 补给项（base = flow，模型里没有源），补给爆发项在但不起主导（得 ' + JSON.stringify(m) + '）');
     assert(m.dBase === 5 && m.extFrom === 'built' && m.spend === 29, 'storage 到已建 extension/spawn 平均 5 格（得 ' + JSON.stringify([m.dBase, m.extFrom, m.spend]) + '）');
-    // (2) 同一 hub 房花费只有 6/tick（基准 W34S9 型）：补给爆发 5600 × 往返 ÷ (50 × 300) 起主导，每只按 RCL7 的 minBodyCarry 6
     room = hub(10510, { spend: 6 });
     spawnMgr.run(room);
     m = modelOf();
     assert(m.perBody === sz.minBodyCarry[7] && m.heads === 2 && Math.abs(m.cstar - m.burst) < 0.11 && m.burst > m.flow, '低花费 hub 房：2 只 × ' + sz.minBodyCarry[7] + ' CARRY，C* = 补给爆发（得 ' + JSON.stringify(m) + '）');
-    // (3) RCL7 → RCL8：容量 5600 → 12900、extension 一格 200——爆发项跟着容量重算，每只按 RCL8 的 minBodyCarry 10（RCL 变了，滞回照样立即重算）
     room.controller.level = 8;
     room.energyCapacityAvailable = 12900;
     world.time++;
@@ -13604,34 +12862,26 @@ console.log('== core hauler 按 CARRY 定编：C* = max(模型 + storage 补给,
     const rcl8Decision = ((Memory.rooms.W33S7.haulCtl || {}).decisions || []).slice(-1)[0] || {};
     assert(m.perBody === sz.minBodyCarry[8] && m.heads === 2 && m.burst > 10 && m.full === fullOf(12900) && rcl8Decision.reason === 'regime',
         'RCL8：补给爆发 > 10 CARRY、每只 ' + sz.minBodyCarry[8] + '，按 RCL 变化立即重算（得 ' + JSON.stringify(m) + ' ' + JSON.stringify(rcl8Decision) + '）');
-    // (4) hub 模式翻转：store link 贴着 storage，但 operator 站位（(21,19)/(22,20)）被建筑占住——没人倒 store link，源 link 会堵住、
-    //     矿工溢进源容器。旧代码只看"有 store link"就把两源按 Infinity 算成 0 运量
     room = hub(10520, { spend: 6 });
     makeStructure(room, C.STRUCTURE_EXTENSION, 21, 19, { energy: 0, capacity: 100 });
     makeStructure(room, C.STRUCTURE_EXTENSION, 22, 20, { energy: 0, capacity: 100 });
     spawnMgr.run(room);
     m = modelOf();
     assert(m.production === 20 && m.linkFed === 0 && m.linkDrain === 0, '没有 operator 站位：不是 hub，两源 20/tick 仍算 hauler 运量（得 ' + JSON.stringify(m) + '）');
-    // (5) RCL6 link 房（没有 store link）：两只 10 WORK 升级者吃得完两源，产出 0；花费 8/tick 从 storage 补 → 每只 4，底线 3 − 2 = 2
     room = rcl6(10530);
     spawnMgr.run(room);
     m = modelOf();
     assert(m.production === 0 && m.linkFed === 2 && m.heads === 2 && targetOf() === 2 && m.perBody === sz.minBodyCarry[6] && m.base > 0,
         'RCL6 link 房：2 只 × ' + sz.minBodyCarry[6] + ' CARRY（旧代码 2 × ' + Math.ceil(fullOf(2300) / 2) + '）（得 ' + JSON.stringify(m) + '）');
-    // (6) 升级限流：storage 2000（吃紧）+ 有竞争需求 → 升级者只吃 20 × 0.6 = 12/tick，link 链搬不走的 8/tick 堆在源容器——算 hauler 运量
-    //     （旧代码按升级者 WORK 20 记成两源 link 供能、运量 0）
     room = rcl6(10540, { storage: 2000, upgradeSupply: { ema: 0, extra: 0, at: -1, changedAt: -1, low: true, competeAt: 10540 } });
     spawnMgr.run(room);
     m = modelOf();
     assert(m.linkDrain === 12 && m.linkFed === 1 && m.production === 8, '限流的升级者只吃 12/tick：link 搬 12、源容器还有 8/tick 要 hauler 搬（得 ' + JSON.stringify(m) + '）');
-    // (7) RCL4 容器房（无 storage）：两源 20/tick、路 6 格 → 在途 CARRY ÷ 0.8 + 停靠，2 只时每只 3.7–3.9 → 4（旧代码满配一半 9）
     room = cpScene(10550, near4);
     spawnMgr.run(room);
     m = modelOf();
     assert(m.production === 20 && m.heads === 2 && m.perBody === 4 && m.base === 0 && m.burst === 0 && m.perBody < Math.ceil(fullOf(1300) / 2),
         'RCL4 近源容器房：2 只 × 4 CARRY（旧代码 2 × ' + Math.ceil(fullOf(1300) / 2) + '）（得 ' + JSON.stringify(m) + '）');
-    // (8) 远源容器房：路 25 格 + 控制器段 12 × 0.75 → 在途约 27 CARRY ÷ 0.8 ≈ 34；2 只每只要 18–19 > 满配 17 → 3 只 × 13。
-    //     只数只看方案：在岗三只 2C 的小 hauler（旧代码平均载量 100 → 需求 ≥ 18 只、封顶 5）不会把只数顶上去，缺的 CARRY 由补差头 core:hauler:x 补
     const far = { rcl: 4, cap: 1300, spend: 5, ctrlContainer: true, roads: { src0: road(25, 24, 20), src1: road(25, 22, 21), ctrl: road(12, 24, 22) } };
     room = cpScene(10560, Object.assign({ haulers: [2, 2, 2] }, far));
     spawnMgr.run(room);
@@ -13644,7 +12894,6 @@ console.log('== core hauler 按 CARRY 定编：C* = max(模型 + storage 补给,
     spawnMgr.run(room);
     assert(targetOf() === 3 && !(Memory.rooms.W33S7.haulerResidual && Memory.rooms.W33S7.haulerResidual.at === Game.time),
         '三只方案身体在岗：目标 3、不出补差头（得 目标 ' + targetOf() + ' ' + JSON.stringify(Memory.rooms.W33S7.haulerResidual) + '）');
-    // (9) 临时编制（+1 只，每只大小不变）：塔在烧储备且有武装敌人 / spawn 等能量 100+ tick 而 storage 够补 / 源容器 ≥ 90% 满
     room = hub(10580, { spend: 6, towerEnergy: 300 });
     makeHostile(room, 40, 40, ['attack', 'move']);
     spawnMgr.run(room);
@@ -13661,10 +12910,8 @@ console.log('== core hauler 按 CARRY 定编：C* = max(模型 + storage 补给,
     room = cpScene(10597, Object.assign({ srcEnergy: 1850 }, near4));
     spawnMgr.run(room);
     assert(targetOf() === 3 && modelOf().temp === 'overflow' && modelOf().perBody === 4, '源容器 1850 ≥ 2000 × spillShare：临时 +1、每只不变（得 ' + targetOf() + ' ' + JSON.stringify(modelOf()) + '）');
-    // 临时编制的决策事件：按原因计 tick，同一 tick 多次调用（换代扫描也会算编制）只计一次
     const tempLog = Memory.rooms.W33S7.haulTemp || {};
     assert(tempLog.why === 'overflow' && tempLog.overflow === 1 && tempLog.at === Game.time, 'haulTemp 记下这次溢出临时编制（得 ' + JSON.stringify(tempLog) + '）');
-    // (10) extension 还没建：用方案里的 plan.ext（10 格离 storage 10 格 + spawn 5 格 → 平均 9.5）；方案也没有时用 spawn 的距离
     const farExt = [11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((y) => ({ x: 31, y }));
     room = rcl6(10600, { ext: [], planExt: farExt });
     spawnMgr.run(room);
@@ -13674,7 +12921,6 @@ console.log('== core hauler 按 CARRY 定编：C* = max(模型 + storage 补给,
     spawnMgr.run(room);
     m = modelOf();
     assert(m.extFrom === 'spawn' && m.dBase === 5, '方案里也没有 extension：按 spawn 算（得 ' + JSON.stringify([m.extFrom, m.dBase]) + '）');
-    // (11) 没有任何运量信号（没有源容器/link/storage，只有地上的掉落）：不写模型，身体满配（旧行为）
     resetWorld(10620);
     const bare = makeRoom('W33S7', { rcl: 3, energy: 0, cap: 800, ctrl: { x: 34, y: 24 }, owner: 'me', drops: [] });
     bare._sources = [makeSource(bare, 31, 12, 'cb0'), makeSource(bare, 14, 6, 'cb1')];
@@ -13684,21 +12930,17 @@ console.log('== core hauler 按 CARRY 定编：C* = max(模型 + storage 补给,
     spawnMgr.run(bare);
     assert(!Memory.rooms.W33S7.haulModel && spawnMgr.coreHaulerCarry(bare, Memory.rooms.W33S7).parts === fullOf(800),
         '没有源容器/link/storage：不写 haulModel，身体满配（得 ' + JSON.stringify(Memory.rooms.W33S7.haulModel) + '）');
-    // (12) 零收入的第 1 只 hauler（vital）：方案身体 6C3M = 450 直接买得起，不再从 16C8M 缩到现有能量
     room = hub(10630, { spend: 6, energy: 500 });
     spawnMgr.run(room);
     const vitalBorn = Object.values(world.creeps).find((c) => c.memory.role === 'hauler');
     const vitalLog = (Memory.rooms.W33S7.spawnLog || []).find((entry) => entry.key === 'core:hauler:0');
     assert(vitalBorn && utils.bodyPartCount(vitalBorn.body, 'carry') === sz.minBodyCarry[7] && vitalLog && vitalLog.scaled === false && vitalLog.cost === 450,
         '一只 hauler 都没有、能量 500：第 1 只按方案 6C3M（450）孵、不缩身（得 ' + JSON.stringify(vitalLog) + ' ' + (vitalBorn ? vitalBorn.body.map((p) => p.type[0]).join('') : '无') + '）');
-    // (13) 换代门槛：方案 4 CARRY 时在岗 3C 不换（差 1 个），2C（零收入缩身）照换；8C 对 6C 不换（< 25%）、10C 对 6C 换
     const imp = (have, want, ttl) => typeof spawnMgr.bodyImproves === 'function' && spawnMgr.bodyImproves({ body: bodyWithCarry(have).map((type) => ({ type })), ticksToLive: ttl }, bodyWithCarry(want), 'hauler');
     assert(!imp(3, 4, 200) && imp(2, 4, 200) && !imp(6, 7, 100) && imp(6, 10, 300),
         'hauler 换代至少大 max(2, 25%) 个 CARRY（得 3→4 ' + imp(3, 4, 200) + '、2→4 ' + imp(2, 4, 200) + '、6→7 ' + imp(6, 7, 100) + '、6→10 ' + imp(6, 10, 300) + '）');
 
-    // ---- B. 实测（sizing.mode 'measured'，默认）：haulStats 的送出/tick × 每趟忙碌 tick ÷ (50 × 0.75)；不足一个窗口时满配一半兜底 ----
     sz.mode = 'measured';
-    // 每次喂一个 flush：本房 hauler 桶的累计计数加上这段的增量，stats.t = 上一 tick（flush 在 tick 末）
     const feed = (room, ticks, d) => {
         world.time += ticks;
         const stats = Memory.haulStats;
@@ -13710,39 +12952,31 @@ console.log('== core hauler 按 CARRY 定编：C* = max(模型 + storage 补给,
     };
     const seedStats = () => { Memory.haulStats = { v: 1, since: 9000, t: Game.time - 1, rooms: { W33S7: { hauler: { t: 5000, idle: 1000, out: 50000, churn: 0, dep: 100 } } } }; };
     const lastDecision = () => ((Memory.rooms.W33S7.haulCtl || {}).decisions || []).slice(-1)[0] || {};
-    // (B1) 没有实测（haulStats 只有一个基线）：每只不低于满配一半（旧规则）——RCL4 满配 17 → 9
     room = cpScene(10700, near4);
     seedStats();
     spawnMgr.run(room);
     m = modelOf();
     assert(m.mode === 'fallback' && m.perBody === Math.ceil(fullOf(1300) / 2) && lastDecision().reason === 'init', '实测不足一个窗口：满配一半 ' + Math.ceil(fullOf(1300) / 2) + ' 兜底（得 ' + JSON.stringify(m) + '）');
-    // (B2) 900 tick、1800 hauler-tick：送出 20/tick、每趟忙碌 30 tick → 实测 20 × 30 ÷ 37.5 = 16 CARRY → 2 只 × 8；兜底 → 实测是定编模式变化，立即重算
     m = feed(room, 900, { t: 1800, idle: 0, out: 18000, churn: 0, dep: 60 });
     assert(m.mode === 'measured' && m.measured === 16 && (m.meas || {}).flow === 20 && (m.meas || {}).trip === 30 && m.perBody === 8 && lastDecision().reason === 'regime' && lastDecision().prev === 9,
         '实测满一个窗口：C* = 实测 16（模型只要 2 × 4），每只 8 < 旧下限 9（得 ' + JSON.stringify(m) + ' ' + JSON.stringify(lastDecision()) + '）');
-    // (B3) 送出掉到 12/tick：想缩到 6，但离上次改动不到 1500 tick——不缩，记 held
     m = feed(room, 900, { t: 1800, idle: 0, out: 10800, churn: 0, dep: 60 });
     assert(m.want === 6 && m.perBody === 8 && ((Memory.rooms.W33S7.haulCtl || {}).held || {}).want === 6, '送出降了：1500 tick 内不缩（想 6、仍 8）（得 ' + JSON.stringify(m) + '）');
-    // (B4) 再过 900 tick（离上次改动 1800）：缩到 6
     m = feed(room, 900, { t: 1800, idle: 0, out: 10800, churn: 0, dep: 60 });
     assert(m.perBody === 6 && lastDecision().reason === 'shrink', '满 1500 tick 且小 ≥ 2 CARRY：缩到 6（得 ' + JSON.stringify(m) + ' ' + JSON.stringify(lastDecision()) + '）');
-    // (B5) 送出涨到 40/tick：立即变大
     m = feed(room, 900, { t: 1800, idle: 0, out: 36000, churn: 0, dep: 60 });
     assert(m.perBody === 13 && lastDecision().reason === 'grow', '送出涨了：立即变大到 13（得 ' + JSON.stringify(m) + ' ' + JSON.stringify(lastDecision()) + '）');
-    // (B6) haulStats 换版本（v2、since 重置、计数从 0 起）：只重定基线，不混算两份计数，已有的估计保留——不退回满配一半
     Memory.haulStats = { v: 2, since: Game.time, t: Game.time - 1, rooms: { W33S7: { hauler: { t: 60, idle: 10, out: 600, churn: 0, dep: 2 } } } };
     world.time += 30;
     spawnMgr.run(room);
     m = modelOf();
     assert(m.mode === 'measured' && m.perBody === 13 && ((Memory.rooms.W33S7.haulCtl || {}).base || {}).v === 2, 'haulStats 换版本：重定基线、估计保留（得 ' + JSON.stringify(m) + '）');
-    // (B7) 计数变小（同版本被清过）：跳过这段，不把负差分算进去
     const before = JSON.stringify((Memory.rooms.W33S7.haulCtl || {}).meas);
     Memory.haulStats.rooms.W33S7.hauler.out = 100;
     Memory.haulStats.t = Game.time + 29;
     world.time += 30;
     spawnMgr.run(room);
     assert((Memory.rooms.W33S7.haulCtl || {}).resets === 1 && JSON.stringify((Memory.rooms.W33S7.haulCtl || {}).meas) === before, '负差分：跳过、记 resets（得 ' + JSON.stringify(Memory.rooms.W33S7.haulCtl) + '）');
-    // (B8) hub 房实测：送出 6/tick、每趟忙碌 22 → 6 × 22 ÷ 37.5 ≈ 3.5 CARRY → 每只按 RCL7 的 minBodyCarry 6（旧代码 16）
     room = hub(10800, { spend: 6 });
     seedStats();
     spawnMgr.run(room);
@@ -13750,7 +12984,6 @@ console.log('== core hauler 按 CARRY 定编：C* = max(模型 + storage 补给,
     m = feed(room, 900, { t: 1800, idle: 1100, out: 5400, churn: 0, dep: 700 / 22 });
     assert(m.mode === 'measured' && Math.abs(m.measured - 3.5) < 0.11 && m.perBody === sz.minBodyCarry[7] && m.heads === 2,
         'hub 房实测 6/tick：2 只 × ' + sz.minBodyCarry[7] + ' CARRY（得 ' + JSON.stringify(m) + '）');
-    // (B9) 容量不到援建线（aid.untilCapacity 1300）的小房：有实测也按满配一半（援建 hauler 混在同一个桶里）
     room = cpScene(10900, Object.assign({}, near4, { cap: 1250 }));
     seedStats();
     spawnMgr.run(room);
@@ -13763,7 +12996,6 @@ console.log('== hauler 往返常数：取货/投递与移动同 tick（7faced5�
 {
     const rc = config.hauling;
     assert(rc.turnBuffer === 1 && rc.deliveryStopTicks === 1.1, '周转 turnBuffer 1、每停 deliveryStopTicks 1.1（得 ' + rc.turnBuffer + ' / ' + rc.deliveryStopTicks + '）');
-    // RCL4 两源容器房、路 6 格：往返 2 × 6 + 1 = 13（旧 14）；在途 20 × 13 ÷ 50 = 5.2 CARRY，停靠 1.1 × 花费 5 ÷ 50 × 每只 CARRY，÷ 0.8
     resetWorld(11000);
     const rcRoom = makeRoom('W33S7', { rcl: 4, energy: 0, cap: 1300, ctrl: { x: 34, y: 24 }, owner: 'me' });
     rcRoom._sources = [makeSource(rcRoom, 31, 12, 'rc0'), makeSource(rcRoom, 14, 6, 'rc1')];
@@ -13781,9 +13013,6 @@ console.log('== hauler 往返常数：取货/投递与移动同 tick（7faced5�
 }
 
 console.log('\n== 外矿运输饱和：取满 / 投递的那一 tick 就起步、掉落 + 容器同 tick 取、同 tick 取货记账、按量预留 ==');
-// 外矿场景：母房 W33S7（RCL5，容量 1800），外矿 W33S6 一个源 rhs0，矿位 (12,10) 上有容器 rhc0，路程 40、路已铺完。
-// engineLike：transfer / withdraw / pickup 只记调用、不改 store——真引擎里 store 下一 tick 才变（mock 是立即变、还不查射程），
-// 同一 tick 内的判断必须用 tick 开始时的数值，所以按"调用了什么、带多少量、往哪走"断言
 const rhWorld = (time, opts = {}) => {
     resetWorld(time);
     const home = makeRoom('W33S7', Object.assign({ rcl: 5, energy: 1300, cap: 1800, owner: 'me', ctrl: { x: 34, y: 24 } }, opts.home || {}));
@@ -13833,13 +13062,11 @@ const rhCore = (room, name, energy, x, y) => {
     return c;
 };
 const callsOf = (c, a) => (c.calls || []).filter((x) => x.a === a);
-// 10-18：去外矿改为直奔矿位（与进房后的目标一致，防止出口两侧路线互相抵消来回弹），回家仍走房间中心；这里只判朝哪个房走
 const headingRoom = (c, roomName) => (c.moveCalls || []).some((m) => m.target && m.target.roomName === roomName);
 const headingSpot = (c, roomName, x, y) => (c.moveCalls || []).some((m) => m.target && m.target.roomName === roomName && m.target.x === x && m.target.y === y);
 const rhStat = (key) => ((Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaul) || {})[key] || 0;
 const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || { ac: 0, acm: 0 };
 {
-    // 1) 取满当 tick 起步：容器 1500 够装满 200 空位 → withdraw 显式 200 + 同 tick 朝卸货房走（旧代码取完站一拍，下一 tick 才动）
     const { remoteRoom, container } = rhWorld(7810);
     const h = rhCreep(remoteRoom, 'rh.take', 4, { state: 'collect' }, 12, 11, 0);
     ROLES.remoteHauler.run(h);
@@ -13849,7 +13076,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
     assert(rhAct().ac === 1 && rhAct().acm === 1, '遥测 remoteHaulAct：结束停靠的动作 tick 1、其中同 tick 起步 1（得 ' + JSON.stringify(rhAct()) + '）');
 }
 {
-    // 2) 容器只有 150（装不满 200）、矿工在采 10/tick（一趟往返的进账远大于 150）：只取货、原地等（不提前走、不挪位），也不算"结束停靠"
     const { remoteRoom } = rhWorld(7820, { containerEnergy: 150 });
     rhMiner(remoteRoom, 'rh.m150', 5, 12, 10);
     const h = rhCreep(remoteRoom, 'rh.part', 4, { state: 'collect' }, 12, 11, 0);
@@ -13858,7 +13084,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
         '装不满：取 150 接着等（得 ' + JSON.stringify(h.calls) + ' 移动 ' + h.moveCalls.length + '）');
 }
 {
-    // 2b) 10-18：外矿房里离容器远、去取货的寻路限定本房（maxRooms 1）——路线不许穿回母房绕路（W38S5 东侧口袋在出口两侧对穿来回弹）
     const { remoteRoom } = rhWorld(7825);
     const h = rhCreep(remoteRoom, 'rh.far', 4, { state: 'collect' }, 40, 30, 0);
     ROLES.remoteHauler.run(h);
@@ -13866,7 +13091,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
     assert(mv && mv.opts && mv.opts.maxRooms === 1, '房内取货寻路 maxRooms 1（得 ' + JSON.stringify(h.moveCalls) + '）');
 }
 {
-    // 3) 掉落 + 容器同 tick：掉落 120 装不满 200 空位，容器补 80——引擎先结算 withdraw 再结算 pickup，withdraw 必须显式只取 80
     const { remoteRoom, container } = rhWorld(7830);
     const pile = makeDropped(remoteRoom, 13, 11, 120);
     const h = rhCreep(remoteRoom, 'rh.combo', 4, { state: 'collect' }, 12, 11, 0);
@@ -13879,7 +13103,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
         '救回掉落的遥测只算掉落那部分（before 含同 tick withdraw 的 80，得 ' + JSON.stringify(h.memory.remotePickupPending) + '）');
 }
 {
-    // 4) 掉落一堆就够装满：只 pickup，同 tick 起步
     const { remoteRoom } = rhWorld(7840);
     makeDropped(remoteRoom, 13, 11, 500);
     const h = rhCreep(remoteRoom, 'rh.pile', 4, { state: 'collect' }, 12, 11, 0);
@@ -13887,7 +13110,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
     assert(callsOf(h, 'pickup').length === 1 && callsOf(h, 'withdraw').length === 0 && headingRoom(h, 'W33S7'), '掉落够装满：只 pickup 并同 tick 起步');
 }
 {
-    // 5) 容器不相邻、脚边有一小堆掉落：顺手捡起来的同一 tick 朝容器走（不是捡完站一拍）
     const { remoteRoom, container } = rhWorld(7850);
     makeDropped(remoteRoom, 15, 13, 30);
     const h = rhCreep(remoteRoom, 'rh.walk', 4, { state: 'collect' }, 14, 13, 0);
@@ -13895,7 +13117,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
     assert(callsOf(h, 'pickup').length === 1 && headingTo(h, container), '脚边掉落顺手捡、同 tick 朝容器走');
 }
 {
-    // 6) 两只 hauler 贴着同一个 250 能量的容器：A 先跑取 200 起步；B 按"同 tick 已被取走"的账只拿 50、不当自己取满了起步
     const { remoteRoom } = rhWorld(7860, { containerEnergy: 250 });
     rhMiner(remoteRoom, 'rh.miner', 5, 12, 10);
     const a = rhCreep(remoteRoom, 'rh.A', 4, { state: 'collect' }, 11, 11, 0);
@@ -13909,7 +13130,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
         'B 只拿剩下的 50、不起步（得 ' + JSON.stringify(wb) + ' state=' + b.memory.state + '）');
 }
 {
-    // 7) 投递 + 起步：贴着 extension A 投 50，当 tick 朝 4 格外的 B 走（排除刚投的 A——tick 开始时它还显示有空位）；broker 同 tick 扣掉 A 的缺口
     const { home } = rhWorld(7870);
     const extA = makeStructure(home, C.STRUCTURE_EXTENSION, 25, 21, { energy: 0, capacity: 50 });
     const extB = makeStructure(home, C.STRUCTURE_EXTENSION, 29, 21, { energy: 0, capacity: 50 });
@@ -13921,7 +13141,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
     assert(t.length === 1 && t[0].id === extA.id && t[0].amount === 50 && headingTo(h, extB), '投完 A 当 tick 朝 B 起步（transfer ' + JSON.stringify(t) + '）');
     assert(poolA && poolA.backlog === 0, 'broker 同 tick 扣掉 A 的缺口，本房 hauler 后跑时不再把它当目标（得 ' + (poolA && poolA.backlog) + '）');
     assert(rhStat('extStops') === 1 && rhAct().ac === 1 && rhAct().acm === 1, '遥测 extStops / remoteHaulAct（得 ' + JSON.stringify([Memory.rooms.W33S7.remoteHaul, rhAct()]) + '）');
-    // 投完这格、下一站就贴着（一个位置能贴着好几格 extension）：下一 tick 直接投，这一 tick 不用动，也不算"结束停靠"
     const w2 = rhWorld(7875);
     makeStructure(w2.home, C.STRUCTURE_EXTENSION, 25, 21, { energy: 0, capacity: 50 });
     makeStructure(w2.home, C.STRUCTURE_EXTENSION, 26, 22, { energy: 0, capacity: 50 });
@@ -13931,7 +13150,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
     assert(callsOf(h2, 'transfer').length === 1 && h2.moveCalls.length === 0 && rhAct().ac === 0, '下一站贴着：投完原地、不计结束停靠（得 ' + JSON.stringify(rhAct()) + '）');
 }
 {
-    // 8) 投空 + 起步回外矿：最后 50 投进 A，当 tick 转回取货、清掉卸货房并朝外矿走（旧代码投完站一拍）
     const { home } = rhWorld(7880);
     makeStructure(home, C.STRUCTURE_EXTENSION, 25, 21, { energy: 0, capacity: 50 });
     const h = rhCreep(home, 'rh.empty', 6, { state: 'deliver', dropRoom: 'W33S7' }, 26, 21, 50);
@@ -13940,7 +13158,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
     assert(callsOf(h, 'transfer').length === 1 && headingRoom(h, 'W33S6') && h.memory.state === 'collect' && !h.memory.dropRoom && rhStat('trips') === 1,
         '投空的那一 tick 就转回取货并朝外矿起步（state=' + h.memory.state + ' dropRoom=' + h.memory.dropRoom + '）');
     assert(headingSpot(h, 'W33S6', 12, 10), '去程目标是矿位 (12,10)，不是房间中心 range 20（得 ' + JSON.stringify((h.moveCalls || []).map((m) => m.target)) + '）');
-    // 这次投递在结算时落空（别的 creep 同 tick 先把那格灌满）：下一 tick 还在己方房里揣着货——转回投递，不把货带回外矿
     world.time++;
     h.moveCalls.length = 0;
     h.calls.length = 0;
@@ -13951,7 +13168,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
         '投递落空：下一 tick 按真实 store 接着投（calls ' + JSON.stringify(h.calls) + '）');
 }
 {
-    // 9) 外矿停用中：投空后不朝外矿起步（下一 tick run() 转 retreat）
     const { home } = rhWorld(7890);
     makeStructure(home, C.STRUCTURE_EXTENSION, 25, 21, { energy: 0, capacity: 50 });
     Memory.rooms.W33S7.remotes.W33S6.suspendedUntil = Game.time + 100;
@@ -13961,7 +13177,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
     assert(callsOf(h, 'transfer').length === 1 && !headingRoom(h, 'W33S6'), '外矿停用：投空后不往外矿走');
 }
 {
-    // 10) 按量预留：最近的 extension A 已被本房 hauler 租下（它身上的货够填满 A）→ 外矿 hauler 去下一格 B，不去抢
     const { home } = rhWorld(7900);
     const extA = makeStructure(home, C.STRUCTURE_EXTENSION, 27, 21, { energy: 0, capacity: 50 });
     const extB = makeStructure(home, C.STRUCTURE_EXTENSION, 29, 23, { energy: 0, capacity: 50 });
@@ -13974,7 +13189,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
         '最近的 A 已被本房 hauler 预留：外矿 hauler 去 B（移动 ' + JSON.stringify(h.moveCalls.map((m) => m.target)) + '）');
 }
 {
-    // 11) 顺路投递的挑选：相邻、有空位、没被别人预留、不是主目标、本 tick 没投过的 spawn/ext
     const { home } = rhWorld(7910);
     const near1 = makeStructure(home, C.STRUCTURE_EXTENSION, 25, 22, { energy: 0, capacity: 50 });
     const near2 = makeStructure(home, C.STRUCTURE_EXTENSION, 25, 20, { energy: 0, capacity: 50 });
@@ -13989,7 +13203,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
     assert(ROLES.remoteHauler.driveByTarget(h, home, near2, new Set()) === null, '主目标本身不算顺路');
 }
 {
-    // 12) homeTarget 的 exclude：刚投过的那格在 tick 开始时还显示有空位，挑下一站时跳过它（courier 也用这份层级）
     const { home } = rhWorld(7920);
     const extA = makeStructure(home, C.STRUCTURE_EXTENSION, 25, 21, { energy: 0, capacity: 50 });
     const extB = makeStructure(home, C.STRUCTURE_EXTENSION, 29, 21, { energy: 0, capacity: 50 });
@@ -14000,7 +13213,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
 }
 
 {
-    // 13) 回程修路照走、容器工地站着建：带 WORK 的维护型 hauler 在外矿房里投递状态
     const { remoteRoom } = rhWorld(7930);
     remoteRoom.createConstructionSite(12, 13, C.STRUCTURE_ROAD);
     const h = rhCreep(remoteRoom, 'rh.road', 4, { state: 'deliver' }, 12, 12, 200, null, ['work']);
@@ -14017,14 +13229,12 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
 }
 
 {
-    // 14) 站在矿位（容器格）上等货：容器空、矿工在路上——让到相邻空格（不是矿位），把位置留给矿工（线上 W32S1：4 只 hauler 零交付）
     const { remoteRoom } = rhWorld(7940, { containerEnergy: 0 });
     const h = rhCreep(remoteRoom, 'rh.spot', 20, { state: 'collect' }, 12, 10, 0);
     ROLES.remoteHauler.run(h);
     const step = h.moveCalls[0] && h.moveCalls[0].target;
     assert(step && !(step.x === 12 && step.y === 10) && Math.max(Math.abs(step.x - 12), Math.abs(step.y - 10)) === 1 &&
         rhStat('stepOff') === 1 && h.memory.spotYield === Game.time, '站在矿位上：让到相邻格（得 ' + JSON.stringify(step) + '）');
-    // 源 (11,10) 贴着矿位：源那一格不可走（不在 LOOK_STRUCTURES 里），挑格时必须排除；把上面一排三格占上，头一个候选就是源那格
     const w2 = rhWorld(7945, { containerEnergy: 0 });
     rhMiner(w2.remoteRoom, 'rh.blk1', 5, 11, 9);
     rhMiner(w2.remoteRoom, 'rh.blk2', 5, 12, 9);
@@ -14035,7 +13245,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
     assert(step2 && !(step2.x === 11 && step2.y === 10) && !(step2.x === 12 && step2.y === 10), '让位不挑源所在的格（得 ' + JSON.stringify(step2) + '）');
 }
 {
-    // 15) 站在矿位上、容器有 100 装不满：同 tick 取货 + 让开，而且不挪到矿工站着的那格
     const { remoteRoom } = rhWorld(7950, { containerEnergy: 100 });
     rhMiner(remoteRoom, 'rh.mwait', 5, 11, 11);
     const h = rhCreep(remoteRoom, 'rh.spot2', 20, { state: 'collect' }, 12, 10, 0);
@@ -14045,7 +13254,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
         '取 100 的同时让开矿位、不挤矿工那格（得 ' + JSON.stringify(step) + '）');
 }
 {
-    // 16) 容器丢了、没货可取：等货点贴着矿位（1 格内），不是矿位本身（旧代码 2 格内就原地站着，站在矿位上也算"到了"）
     const { remoteRoom, container } = rhWorld(7960, { containerEnergy: 0 });
     container.destroy();
     const h = rhCreep(remoteRoom, 'rh.wait1', 20, { state: 'collect' }, 14, 10, 0);
@@ -14054,7 +13262,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
     assert(move && move.target.x === 12 && move.target.y === 10 && move.opts.range === 1, '等货点：走到矿位 1 格内（得 ' + JSON.stringify(move) + '）');
 }
 {
-    // 17) 让过矿位的 hauler 之后装满出发：记 yieldLoad（私服断言靠它证明矿工进了矿位、容器有了进账）
     const { remoteRoom } = rhWorld(7970, { containerEnergy: 1500 });
     const h = rhCreep(remoteRoom, 'rh.yield', 4, { state: 'collect', spotYield: 7940 }, 12, 11, 0);
     ROLES.remoteHauler.run(h);
@@ -14063,8 +13270,6 @@ const rhAct = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteHaulAct) || 
 
 console.log('\n== 外矿运输饱和：取不满时按"等 vs 走"决定（进账 × 往返 ≤ 载货就带货先走）==');
 {
-    // 18) 矿工 2 WORK（4/tick）、路程 40 铺好路：一趟往返约 90 tick，进账 × 往返 ≈ 360 ≤ 载货 400 → 带着 400/1000 当 tick 起步
-    //     （等满还要 150 tick，吞吐更低）
     const { remoteRoom } = rhWorld(7980, { containerEnergy: 400 });
     rhMiner(remoteRoom, 'rh.m2', 2, 12, 10);
     const h = rhCreep(remoteRoom, 'rh.early', 20, { state: 'collect' }, 12, 11, 0);
@@ -14074,7 +13279,6 @@ console.log('\n== 外矿运输饱和：取不满时按"等 vs 走"决定（进�
         '等的收益低于走：带着 400/1000 当 tick 起步（withdraw ' + JSON.stringify(w) + ' 遥测 partialDepart ' + rhStat('partialDepart') + '）');
 }
 {
-    // 19) 矿工 5 WORK（10/tick）：进账 × 往返 ≈ 900 > 400 → 留下来等满
     const { remoteRoom } = rhWorld(7990, { containerEnergy: 400 });
     rhMiner(remoteRoom, 'rh.m5', 5, 12, 10);
     const h = rhCreep(remoteRoom, 'rh.stay', 20, { state: 'collect' }, 12, 11, 0);
@@ -14083,7 +13287,6 @@ console.log('\n== 外矿运输饱和：取不满时按"等 vs 走"决定（进�
         '进账高：取了 400 接着等（不起步、不挪位）');
 }
 {
-    // 20) 没有矿工（进账 0，干等也白等）：装到 1/4 车就走；不到 1/4 车接着等（不为几十能量专程跑）
     const { remoteRoom } = rhWorld(8000, { containerEnergy: 300 });
     const h = rhCreep(remoteRoom, 'rh.nominer', 20, { state: 'collect' }, 12, 11, 0);
     ROLES.remoteHauler.run(h);
@@ -14094,7 +13297,6 @@ console.log('\n== 外矿运输饱和：取不满时按"等 vs 走"决定（进�
     assert(h2.memory.state === 'collect' && !headingRoom(h2, 'W33S7'), '没矿工、只有 200/1000（< 1/4）：接着等');
 }
 {
-    // 21) 容器丢了（维护 hauler 在救掉落、建容器）：不提前走，装满才走
     const { remoteRoom, container } = rhWorld(8020, { containerEnergy: 0 });
     container.destroy();
     makeDropped(remoteRoom, 12, 11, 300);
@@ -14107,8 +13309,6 @@ console.log('\n== 外矿运输饱和：寿命的最后一趟（卸空时寿命�
 const rhTtl = () => (Memory.rooms.W33S7 && Memory.rooms.W33S7.remoteTtl) || {};
 const rhSetDistance = (d) => { Memory.rooms.W33S7.remotes.W33S6.sources[0].distance = d; };
 {
-    // 22) 卸空时寿命 100 < 去 80 + 回 80 + 余量 20、槽位替补已在计划里（寿命已进孵化提前量 9 部件 × 3 + 80 + 20 = 127）：
-    //     标 retired、走向 spawn 回收，不再出发；寿命 300：照常当 tick 回外矿
     const { home, spawn } = rhWorld(8100);
     rhSetDistance(80);
     makeStructure(home, C.STRUCTURE_EXTENSION, 25, 21, { energy: 0, capacity: 50 });
@@ -14133,7 +13333,6 @@ const rhSetDistance = (d) => { Memory.rooms.W33S7.remotes.W33S6.sources[0].dista
     assert(!young.memory.retired && headingRoom(young, 'W33S6'), '寿命 300 够一趟：不退役，当 tick 回外矿');
 }
 {
-    // 23) 寿命不够、但替补不在计划里（没有槽位）且外矿容器放不下这段空档（1990/2000，矿工 10/tick × 80 tick）：最后一趟照跑，不退役
     const { home, remoteRoom } = rhWorld(8120, { containerEnergy: 1990 });
     rhSetDistance(80);
     rhMiner(remoteRoom, 'rh.mfull', 5, 12, 10);
@@ -14142,7 +13341,6 @@ const rhSetDistance = (d) => { Memory.rooms.W33S7.remotes.W33S6.sources[0].dista
     taskBroker.beginTick();
     ROLES.remoteHauler.run(h);
     assert(!h.memory.retired && headingRoom(h, 'W33S6') && rhTtl().keep === 1, '替补没着落、容器快满：最后一趟照跑（remoteTtl.keep）');
-    // 容器有空（1000/2000 放得下 800）：同样条件就退役
     const w2 = rhWorld(8130, { containerEnergy: 1000 });
     rhSetDistance(80);
     rhMiner(w2.remoteRoom, 'rh.mhalf', 5, 12, 10);
@@ -14153,14 +13351,12 @@ const rhSetDistance = (d) => { Memory.rooms.W33S7.remotes.W33S6.sources[0].dista
     assert(h2.memory.retired && rhTtl().retire === 1, '容器放得下这段空档：退役回收');
 }
 {
-    // 24) 在容器旁揣着 400、寿命 70、回程 60（路程 60 铺好路）：70 ≤ 60 + 10 → 带着 400 当 tick 出发（容器空、矿工在采也不等）
     const { remoteRoom } = rhWorld(8140, { containerEnergy: 0 });
     rhSetDistance(60);
     rhMiner(remoteRoom, 'rh.mttl', 5, 12, 10);
     const h = rhCreep(remoteRoom, 'rh.last', 20, { state: 'collect' }, 12, 11, 400, 70);
     ROLES.remoteHauler.run(h);
     assert(h.memory.state === 'deliver' && headingRoom(h, 'W33S7') && rhTtl().depart === 1, '寿命只够回程：带着 400 出发（remoteTtl.depart）');
-    // 空手、寿命 65：回收（再等只会死在路上）
     const w2 = rhWorld(8150, { containerEnergy: 0 });
     rhSetDistance(60);
     const h2 = rhCreep(w2.remoteRoom, 'rh.last2', 20, { state: 'collect' }, 12, 11, 0, 65);
@@ -14168,14 +13364,12 @@ const rhSetDistance = (d) => { Memory.rooms.W33S7.remotes.W33S6.sources[0].dista
     assert(h2.memory.retired && rhTtl().retire === 1, '空手、寿命只够回程：回收');
 }
 {
-    // 25) 寿命 40 < 回程 60（任何己方房都到不了）还揣着 300：倒进容器留给下一只（老死在路上的 tombstone 没人捡），然后回收
     const { remoteRoom, container } = rhWorld(8160, { containerEnergy: 100 });
     rhSetDistance(60);
     const h = rhCreep(remoteRoom, 'rh.dump', 20, { state: 'collect' }, 12, 11, 300, 40);
     ROLES.remoteHauler.run(h);
     const t = callsOf(h, 'transfer');
     assert(t.length === 1 && t[0].id === container.id && t[0].amount === 300 && h.memory.retired && rhTtl().dump === 1, '寿命到不了家：300 倒回容器、标退役');
-    // 容器丢了：落在矿位旁（下一只 hauler 3 格内捡得到）
     const w2 = rhWorld(8170, { containerEnergy: 0 });
     rhSetDistance(60);
     w2.container.destroy();
@@ -14184,7 +13378,6 @@ const rhSetDistance = (d) => { Memory.rooms.W33S7.remotes.W33S6.sources[0].dista
     assert(h2.actions.includes('drop') && h2.memory.retired, '容器丢了：货落在矿位旁');
 }
 {
-    // 26) 实测腿长：出发时记起点，进卸货房记回程；卸空起步记去程起点，贴到矿位记去程——之后按实测腿长算 cycle
     const { home, remoteRoom } = rhWorld(8180);
     makeStructure(home, C.STRUCTURE_EXTENSION, 25, 21, { energy: 0, capacity: 50 });
     const h = rhCreep(home, 'rh.leg', 6, { state: 'deliver', dropRoom: 'W33S7', leg: 'back', legAt: Game.time - 52 }, 26, 21, 50);
@@ -14199,11 +13392,9 @@ const rhSetDistance = (d) => { Memory.rooms.W33S7.remotes.W33S6.sources[0].dista
     h.store[C.RESOURCE_ENERGY] = 0;
     h.moveCalls.length = 0;
     ROLES.remoteHauler.run(h);
-    // 贴到矿位的这一 tick 容器 1500 够装满：同 tick 取满出发，回程的计时又开始了
     assert(legs.out === 45 && legs.outN === 1 && h.memory.leg === 'back' && h.memory.legAt === Game.time, '贴到矿位记去程 45 tick（legs ' + JSON.stringify(legs) + '）');
-    // cycle 用实测腿长：路程 40 按估算是 40 + 40 + 20 = 100，实测 45 + 52 + 20 = 117 → 寿命 110 不够
     const w2 = rhWorld(8190);
-    remoteMod.getRemote('W33S7', 'W33S6').sources[0].legs = { room: 'W33S7', back: 52, backN: 3, out: 45, outN: 3 };   // 先让 remote 做完记录归一化
+    remoteMod.getRemote('W33S7', 'W33S6').sources[0].legs = { room: 'W33S7', back: 52, backN: 3, out: 45, outN: 3 };
     makeStructure(w2.home, C.STRUCTURE_EXTENSION, 25, 21, { energy: 0, capacity: 50 });
     const h2 = rhCreep(w2.home, 'rh.leg2', 6, { state: 'deliver', dropRoom: 'W33S7', slotKey: 'remoteHauler:W33S6:rhs0:0' }, 26, 21, 50, 110);
     taskBroker.beginTick();
@@ -14211,8 +13402,6 @@ const rhSetDistance = (d) => { Memory.rooms.W33S7.remotes.W33S6.sources[0].dista
     assert(h2.memory.retired && rhTtl().last && rhTtl().last.cycle === 117, 'cycle 按实测腿长 45 + 52 + 20 = 117（得 ' + JSON.stringify(rhTtl().last) + '）');
 }
 {
-    // 27) 外矿停用 1000 tick（打不过要等入侵者到期）：空载在家不挂机，回收；停用 100 tick、寿命 1000：照旧在家等；
-    //     停用 200 + 路程 40 ≥ 寿命 230：重开也跑不完一趟，回收
     const w = rhWorld(8200);
     Memory.rooms.W33S7.remotes.W33S6.suspendedUntil = Game.time + 1000;
     Memory.rooms.W33S7.remotes.W33S6.suspendReason = 'hostileCreep';
@@ -14231,8 +13420,6 @@ const rhSetDistance = (d) => { Memory.rooms.W33S7.remotes.W33S6.sources[0].dista
     assert(h3.memory.retired, '停用 200 + 路程 40 ≥ 寿命 230：回收');
 }
 {
-    // 27b) 停用期间在家挂机的 tick 不算去程腿长：作废计时，别把"停用 150 tick"当成路程记进 EMA
-    //      （旧代码：离群过滤是 4 × 路程 + 100，正常路程下拦不住，cycle 虚高后还能跑两趟的 hauler 被判退役）
     const w = rhWorld(8240);
     rhSetDistance(40);
     Memory.rooms.W33S7.remotes.W33S6.suspendedUntil = Game.time + 150;
@@ -14248,7 +13435,6 @@ const rhSetDistance = (d) => { Memory.rooms.W33S7.remotes.W33S6.sources[0].dista
     assert(!legs || !(legs.out > 0), '解除停用后贴到矿位：不记这段被中断的去程（legs ' + JSON.stringify(legs) + '）');
 }
 {
-    // 28) 卸空的另一个入口：上一 tick 投空、这一 tick 才从 deliver 翻回 collect（没走 afterEmpty）——同样做寿命检查
     const { home } = rhWorld(8230);
     rhSetDistance(80);
     const h = rhCreep(home, 'rh.flip', 6, { state: 'deliver', dropRoom: 'W33S7', slotKey: 'remoteHauler:W33S6:rhs0:0' }, 26, 21, 0, 100);
@@ -14258,7 +13444,6 @@ const rhSetDistance = (d) => { Memory.rooms.W33S7.remotes.W33S6.sources[0].dista
 
 console.log('\n== 外矿运输编制：投递停靠按卸货房实测（remoteStop EMA，夹 [1,10]，没数据按 10）、周转 2，槽位/补差/换代吞吐同一个函数 ==');
 {
-    // 29) remote.deliveryStops：没数据 / 样本不够按回退 10；够了用 EMA、夹在 [1, 10]
     resetWorld(8300);
     Memory.rooms.W33S9 = {};
     assert(remoteMod.deliveryStops('W33S9') === config.remote.deliveryStopTicks, '没有实测：按回退值 ' + config.remote.deliveryStopTicks);
@@ -14270,7 +13455,6 @@ console.log('\n== 外矿运输编制：投递停靠按卸货房实测（remoteSt
     assert(remoteMod.deliveryStops('W33S9') === 1, '实测 0.3：夹到 1');
     Memory.rooms.W33S9.remoteStop = { ema: 25, n: 5 };
     assert(remoteMod.deliveryStops('W33S9') === 10, '实测 25（卡在没目标的等待）：夹到 10');
-    // 30) 编制：距离 30、10/tick——没数据 ceil(10 × (60 + 2 + 10) / 45) = 16（旧 +4 周转是 17）；实测 2 → ceil(10 × 64 / 45) = 15；槽位同一个数
     Memory.rooms.W33S9.remoteStop = { ema: 2, n: 5 };
     const src = { energyCapacity: 3000, roadComplete: true };
     const need = remoteMod.requiredCarryFor(src, 30, 'W33S8');
@@ -14279,7 +13463,6 @@ console.log('\n== 外矿运输编制：投递停靠按卸货房实测（remoteSt
     assert(need === 16 && needMeasured === 15 && slotCarry === 15, '需求：没数据 16、实测停靠 2 时 15，槽位合计同为 15（得 ' + [need, needMeasured, slotCarry].join('/') + '）');
 }
 {
-    // 31) remoteHauler 记停靠：进卸货房那一 tick 记起点与到锚点（spawn）的格数，卸空时 停靠 = 用时 − 格数，EMA 进 Memory.rooms[卸货房].remoteStop
     const { home } = rhWorld(8310);
     makeStructure(home, C.STRUCTURE_EXTENSION, 25, 21, { energy: 0, capacity: 50 });
     const h = rhCreep(home, 'rh.stop', 6, { state: 'deliver', dropRoom: 'W33S7' }, 26, 21, 50);
@@ -14287,7 +13470,6 @@ console.log('\n== 外矿运输编制：投递停靠按卸货房实测（remoteSt
     ROLES.remoteHauler.run(h);
     const rec = Memory.rooms.W33S7.remoteStop;
     assert(rec && rec.n === 1 && rec.ema === 0 && rec.last === 0 && h.memory.stopAt == null, '进房当 tick 就卸空：停靠 0（得 ' + JSON.stringify(rec) + '）');
-    // 第二趟：进房 12 tick 前、到锚点 3 格 → 停靠 9，EMA 0 × 0.8 + 9 × 0.2 = 1.8
     world.time++;
     h.calls.length = 0;
     h.memory.state = 'deliver';
@@ -14297,7 +13479,6 @@ console.log('\n== 外矿运输编制：投递停靠按卸货房实测（remoteSt
     taskBroker.beginTick();
     ROLES.remoteHauler.run(h);
     assert(rec.n === 2 && rec.last === 9 && rec.ema === 1.8, '第二趟停靠 9、EMA 1.8（得 ' + JSON.stringify(rec) + '）');
-    // getDemands 按卸货房的停靠算编制，并把用的值记在源上（haulStops）
     rec.n = 5;
     Memory.rooms.W33S7.remotes.W33S6.sources[0].containerId = 'rhc0';
     remoteMod.getDemands(home);
@@ -14308,7 +13489,6 @@ console.log('\n== 外矿运输编制：投递停靠按卸货房实测（remoteSt
 
 console.log('\n== feeder / courier：取满 / 投空的那一 tick 就起步（同 tick 取送 + 移动）==');
 {
-    // 32) feeder：贴着 storage 取满（显式数量），当 tick 朝控制器容器走；贴着容器投空，当 tick 回 storage
     resetWorld(8400);
     const r = makeRoom('W33S7', { rcl: 4, energy: 1300, cap: 1300, owner: 'me', ctrl: { x: 34, y: 24 } });
     makeSpawn(r, 23, 21);
@@ -14327,12 +13507,10 @@ console.log('\n== feeder / courier：取满 / 投空的那一 tick 就起步（�
     ROLES.feeder.run(f);
     const t = callsOf(f, 'transfer');
     assert(t.length === 1 && t[0].id === ctrl.id && t[0].amount === 200 && headingTo(f, storage), 'feeder 投空当 tick 回 storage（transfer ' + JSON.stringify(t) + '）');
-    // 容器只剩 50 空位：投 50、手里还有 150——不往回走（下一 tick 容器满了在旁边等）
     f.calls.length = 0; f.moveCalls.length = 0;
     ctrl.store[C.RESOURCE_ENERGY] = 1950;
     ROLES.feeder.run(f);
     assert(callsOf(f, 'transfer')[0] && callsOf(f, 'transfer')[0].amount === 50 && !headingTo(f, storage), '容器只剩 50 空位：投 50、不回 storage');
-    // 离容器 5 格：先走过去，不隔空投（mock 的 transfer 不查射程）
     f.calls.length = 0; f.moveCalls.length = 0;
     ctrl.store[C.RESOURCE_ENERGY] = 500;
     f.pos = new RoomPosition(27, 25, 'W33S7');
@@ -14340,7 +13518,6 @@ console.log('\n== feeder / courier：取满 / 投空的那一 tick 就起步（�
     assert(callsOf(f, 'transfer').length === 0 && headingTo(f, ctrl), '不在射程内：先走到容器旁');
 }
 {
-    // 33) courier：母房贴着 storage 取满，当 tick 朝弱房走；弱房贴着 spawn 投空，当 tick 回母房；没投空就同 tick 朝下一站（排除刚投的）走
     resetWorld(8410);
     const home = makeRoom('W33S7', { rcl: 5, energy: 1800, cap: 1800, owner: 'me' });
     makeSpawn(home, 23, 21);
@@ -14368,26 +13545,22 @@ console.log('\n== feeder / courier：取满 / 投空的那一 tick 就起步（�
     c.calls.length = 0; c.moveCalls.length = 0;
     c.store[C.RESOURCE_ENERGY] = 40;
     world.time++;
-    taskBroker.beginTick();   // 下一 tick：池子按真实 store 刷新（engineLike 没改 spawn 的 store，spawn 仍缺 50）
+    taskBroker.beginTick();
     ROLES.courier.run(c);
     assert(callsOf(c, 'transfer').length === 1 && headingRoom(c, 'W33S7'), 'courier 投空当 tick 回母房');
 }
 
 console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉落 / ruin 里的非能量资源）由 hauler 主动收进 terminal·storage ==');
 {
-    // 线上 2026-09-12 W35S7 的真实现场：入侵者的 tombstone 落在 (12,5)，store 是 GO 95 / KO 17 / ZH 23 / UH 11，
-    // 250 tick 的 tombstone 寿命里没有任何 creep 认领，衰减成同格的四堆掉落后又每 tick −1 全丢光
     let base = 30000;
     const setup = (opts = {}) => {
-        resetWorld(base += 100);   // 每个场景一段独立的 tick：resetWorld 不清 utils 的 tick 缓存，同 tick 重置会串场景
+        resetWorld(base += 100);
         const room = makeRoom('W35S7', { rcl: 6, energy: opts.energy == null ? 1300 : opts.energy, cap: 1300, ctrl: { x: 40, y: 25 } });
         makeSpawn(room, 38, 22);
         if (opts.storage !== false) {
             room.storage = makeStructure(room, C.STRUCTURE_STORAGE, 38, 20, { energy: 5000, capacity: 1000000 });
         }
         if (opts.terminal) {
-            // terminalFull：terminal 已经装满（线上 300k 的 terminal 塞满矿物时打捞要退回 storage）；
-            // terminalFree：只剩这么点空位，用来测"部分装下"
             const used = opts.terminalFull ? 300000 : (opts.terminalFree != null ? 300000 - opts.terminalFree : 0);
             room.terminal = makeStructure(room, C.STRUCTURE_TERMINAL, 37, 20, { energy: used, capacity: 300000 });
         }
@@ -14399,7 +13572,6 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     };
     const step = (creep) => { world.time++; taskBroker.beginTick(); creep.actions.length = 0; creep.moveCalls.length = 0; ROLES.hauler.run(creep); };
 
-    // --- 走过去、把同一堆的四种资源都收完，再一次卸进 storage ---
     let { room, hauler } = setup();
     const tomb = makeTombstone(room, 12, 5, 0, { GO: 95, KO: 17, ZH: 23, UH: 11 });
     step(hauler);
@@ -14422,12 +13594,11 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
         '四种化合物全部进 storage（得 ' + JSON.stringify(pickTypes(room.storage.store)) + '）');
     assert(nonEnergyTotal(hauler.store) === 0, '卸完车上不留矿物，容量还给能量运输');
 
-    // --- 同一格的几堆掉落合起来算一堆：分开算每堆都够不着门槛 ---
     ({ room, hauler } = setup());
     const d1 = makeDropped(room, 12, 5, 20, 'GO');
     const d2 = makeDropped(room, 12, 5, 17, 'KO');
     makeDropped(room, 12, 5, 23, 'ZH');
-    hauler.pos = new RoomPosition(12, 8, 'W35S7');   // 3 格：门槛 30 + 2×3 = 36，单堆最大 23 够不着，三堆合起来 60 才够
+    hauler.pos = new RoomPosition(12, 8, 'W35S7');
     step(hauler);
     assert(headingTo(hauler, d1) || headingTo(hauler, d2), '同格三堆掉落（20+17+23=60）合并后过门槛，hauler 起步');
     hauler.pos = new RoomPosition(12, 6, 'W35S7');
@@ -14435,7 +13606,6 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     assert(hauler.store.GO === 20 && hauler.store.KO === 17 && hauler.store.ZH === 23,
         '掉落按自己的资源类型进车，不会变成能量（车上 ' + JSON.stringify(pickTypes(hauler.store)) + '）');
 
-    // --- ruin 里的矿物同样收 ---
     ({ room, hauler } = setup());
     const ruin = makeRuin(room, 12, 5, 0, { O: 500 });
     step(hauler);
@@ -14446,7 +13616,6 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     step(hauler);
     assert(hauler.memory.salvage && headingTo(hauler, room.storage), '装满后保留认领（别的 hauler 不重复跑），先去卸货');
 
-    // --- terminal 优先于 storage（矿物的正经去处），terminal 满了退回 storage ---
     ({ room, hauler } = setup({ terminal: true }));
     hauler.store.GO = 60;
     step(hauler);
@@ -14456,8 +13625,6 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     step(hauler);
     assert(room.storage.store.GO === 60 && !room.terminal.store.GO, 'terminal 放不下时退回 storage');
 
-    // --- terminal 只剩一点空位：这趟只进得去那么多，剩下的留在车上，下一 tick 改走 storage ---
-    //     （引擎 transfer 不带 amount 时自己夹紧并返回 OK，所以是"进一半"，不是整笔失败）
     ({ room, hauler } = setup({ terminal: true, terminalFree: 50 }));
     hauler.store.GO = 140;
     step(hauler);
@@ -14467,7 +13634,6 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     assert(room.storage.store.GO === 90 && !hauler.store.GO,
         'terminal 满了之后剩下的 90 改走 storage（得 ' + JSON.stringify(pickTypes(room.storage.store)) + '）');
 
-    // --- 不该去捡的三种情况 ---
     ({ room, hauler } = setup());
     makeTombstone(room, 12, 5, 0, { GO: 20 });
     step(hauler);
@@ -14481,7 +13647,6 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     step(hauler);
     assert(!hauler.memory.salvage && nonEnergyTotal(hauler.store) === 0, '没有 terminal·storage 可卸时不去捡（捡了只能扔）');
 
-    // --- 接单时明确退出补满模式（否则 memory.fill 残留、haulFill 遥测的 start 等不到 left/drop）---
     ({ room, hauler } = setup());
     makeTombstone(room, 12, 5, 0, { GO: 95, KO: 17, ZH: 23, UH: 11 });
     hauler.memory.fill = 'some-source-container';
@@ -14490,12 +13655,11 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     assert(Memory.rooms.W35S7.haulFill && Memory.rooms.W35S7.haulFill.drop === 1,
         '遥测记一次放弃补满（得 ' + JSON.stringify(Memory.rooms.W35S7.haulFill) + '）');
 
-    // --- 半路上房间变急：空车的回去干活，装了货的把这趟跑完 ---
     ({ room, hauler } = setup());
     makeTombstone(room, 12, 5, 0, { GO: 95, KO: 17, ZH: 23, UH: 11 });
     step(hauler);
     assert(hauler.memory.salvage, '不急的时候先认领');
-    room.energyAvailable = 100;                       // spawn·ext 见底
+    room.energyAvailable = 100;
     step(hauler);
     assert(!hauler.memory.salvage, '空车走到半路房间变急：放掉认领回去运能量');
     ({ room, hauler } = setup());
@@ -14508,7 +13672,6 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     assert(hauler.memory.salvage && hauler.store.KO === 17 && nonEnergyTotal(partial.store) === 0,
         '车上已有货：房间变急也把这堆收完，不半途而废（车上 ' + JSON.stringify(pickTypes(hauler.store)) + '）');
 
-    // --- 进打捞前退出 broker：残留租约会被卡住检测当"目标不可达"，6 tick 屏蔽该目标 150 tick（对全房 hauler 生效）---
     ({ room, hauler } = setup());
     makeTombstone(room, 12, 5, 0, { GO: 95, KO: 17, ZH: 23, UH: 11 });
     hauler.memory.brokerTask = { kind: 'collect', id: 'some-source-container:collect', until: Game.time + 5 };
@@ -14516,17 +13679,14 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     assert(hauler.memory.salvage && !hauler.memory.brokerTask,
         '接下打捞单时放掉 broker 租约（残留租约会让 task_broker 把那个源容器屏蔽 150 tick）');
 
-    // --- urgent 时连 claim 都不写：否则"接单 → dropFill → 又放手"每 tick 空转，把补满粘性一起清掉 ---
     ({ room, hauler } = setup({ energy: 100 }));
     makeTombstone(room, 12, 5, 0, { GO: 95, KO: 17, ZH: 23, UH: 11 });
     hauler.memory.fill = 'some-source-container';
     step(hauler); step(hauler); step(hauler);
     assert(!hauler.memory.salvage, 'urgent 房里连续 3 tick 都不写打捞认领');
-    // 关键：不是"写了又删"。写了就会顺手 dropFill，每 tick 刷一次 drop 遥测、把补满粘性清干净
     assert(!Memory.rooms.W35S7.haulFill || !Memory.rooms.W35S7.haulFill.drop,
         'urgent 时不会每 tick 记一次"放弃补满"（得 ' + JSON.stringify(Memory.rooms.W35S7.haulFill) + '）');
 
-    // --- 配置项的 0 是合法值，不能被 Number(x) || 默认 吞掉 ---
     ({ room, hauler } = setup());
     makeDropped(room, 12, 5, 1, 'GO');
     step(hauler);
@@ -14540,43 +13700,37 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     config.salvage.minAmount = savedMin;
     config.salvage.perTile = savedPer;
 
-    // --- 能量永远不走打捞路径：走了就绕过 broker 的会计（consume/setProjected），直接进 storage ---
     ({ room, hauler } = setup());
-    makeDropped(room, 12, 5, 3000);                       // 3000 能量掉落
-    const energyTomb = makeTombstone(room, 13, 6, 800);   // 纯能量 tombstone
+    makeDropped(room, 12, 5, 3000);
+    const energyTomb = makeTombstone(room, 13, 6, 800);
     step(hauler);
     assert(!hauler.memory.salvage, '能量掉落与纯能量 tombstone 都不是打捞目标（能量归 broker 管）');
     assert(!hauler.actions.includes('pickup') || hauler.store[RESOURCE_ENERGY] > 0, '能量要么不碰，要么走正常取货路径');
-    // 纯能量 tombstone 尤其危险：若误判成目标，firstNonEnergyType 返回 null、也没有掉落可捡，
-    // salvagePickup 会每 tick 返回 true 却什么都不做，hauler 一直挂到 timeout
     assert(nonEnergyTotal(energyTomb.store) === 0 && energyTomb.store[RESOURCE_ENERGY] === 800, '纯能量 tombstone 原封不动');
 
-    // --- 送货途中的 hauler 不会被矿物拉走 ---
     ({ room, hauler } = setup());
     makeTombstone(room, 12, 5, 0, { GO: 95, KO: 17, ZH: 23, UH: 11 });
     hauler.store[RESOURCE_ENERGY] = 120;
     step(hauler);
     assert(!hauler.memory.salvage, '车上有能量（正在送货）：不接打捞单');
 
-    // --- withdraw 必须按剩余空位要量：引擎在 amount > emptySpace 时整笔 ERR_FULL，不是 clamp ---
     ({ room, hauler } = setup());
     const bigPile = makeRuin(room, 12, 5, 0, { O: 500 });
     hauler.pos = new RoomPosition(12, 6, 'W35S7');
     step(hauler);
     assert(hauler.store.O === 150, '空车装满 150');
-    hauler.store.O = 100;                                  // 腾出 50 空位（模拟卸掉一部分后回来）
+    hauler.store.O = 100;
     step(hauler);
     assert(hauler.store.O === 150 && bigPile.store.O === 300,
         '车上已有 100 时只要 50（按整车容量要 150 会被引擎整笔 ERR_FULL，一点都搬不到；得 ' + hauler.store.O + '）');
 
-    // --- 距离门槛：maxRange 之外不去，门槛按 minAmount + perTile × 路程 涨 ---
     ({ room, hauler } = setup());
     hauler.pos = new RoomPosition(2, 2, 'W35S7');
-    makeTombstone(room, 45, 45, 0, { GO: 400 });           // 切比雪夫 43 > maxRange 40
+    makeTombstone(room, 45, 45, 0, { GO: 400 });
     step(hauler);
     assert(!hauler.memory.salvage, 'maxRange 之外的堆不专程去（哪怕量很大）');
     ({ room, hauler } = setup());
-    hauler.pos = new RoomPosition(12, 25, 'W35S7');        // 到 (12,5) 是 20 格：门槛 30 + 2×20 = 70
+    hauler.pos = new RoomPosition(12, 25, 'W35S7');
     const midPile = makeTombstone(room, 12, 5, 0, { GO: 60 });
     step(hauler);
     assert(!hauler.memory.salvage, '20 格外 60 单位：过了 minAmount 但没过距离加价（30 + 2×20 = 70）');
@@ -14584,7 +13738,6 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     step(hauler);
     assert(hauler.memory.salvage, '同样 20 格、80 单位：过了加价后的门槛');
 
-    // --- 没有卸货口时车上的矿物要扔掉，否则永远占着容量（编制里还算一只）---
     ({ room, hauler } = setup({ storage: false }));
     hauler.store.GO = 60;
     step(hauler);
@@ -14592,8 +13745,6 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
         '没有 terminal/storage：车上的矿物扔掉，把容量还给能量运输');
     assert(Memory.rooms.W35S7.haulSalvage && Memory.rooms.W35S7.haulSalvage.n > 0, '扔掉也记遥测');
 
-    // --- 退出 broker 要连本 tick 的认领一起放掉：只删 memory.brokerTask 的话，runtime.claimed 里还占着，
-    //     别的 hauler 这一 tick 仍以为那个缺口有人管（ensureTick 要到下一 tick 才按 memory 重建）---
     ({ room, hauler } = setup());
     makeTombstone(room, 12, 5, 0, { GO: 95, KO: 17, ZH: 23, UH: 11 });
     hauler.memory.brokerTask = { kind: 'collect', id: 'salv-lease:collect', until: Game.time + 5 };
@@ -14604,15 +13755,13 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     assert(released && released.id === 'salv-lease:collect' && released.name === hauler.name,
         '退出 broker 时调 releaseClaim 放掉本 tick 的认领（得 ' + JSON.stringify(released) + '）');
 
-    // --- 卸货路径同样要退出 broker（与接单路径同一个卡住检测问题）---
     ({ room, hauler } = setup());
     hauler.store.GO = 60;
-    hauler.pos = new RoomPosition(30, 30, 'W35S7');        // 离 storage 远，要走过去、一路不动
+    hauler.pos = new RoomPosition(30, 30, 'W35S7');
     hauler.memory.brokerTask = { kind: 'collect', id: 'some-source-container:collect', until: Game.time + 5 };
     step(hauler);
     assert(!hauler.memory.brokerTask, '卸矿物途中也放掉 broker 租约');
 
-    // --- 一堆只派一只 ---
     ({ room, hauler } = setup());
     makeTombstone(room, 12, 5, 0, { GO: 95, KO: 17, ZH: 23, UH: 11 });
     const second = makeCreep(room, 'salv.2', ['carry', 'carry', 'carry', 'move'], { home: 'W35S7', role: 'hauler' });
@@ -14622,7 +13771,6 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     step(second);
     assert(hauler.memory.salvage && !second.memory.salvage, '同一堆只认领一次，第二只不跟着跑（跑到时东西已在别人车上）');
 
-    // --- 认领会过期：目标衰减光 / 路被挡死时不永久挂着 ---
     ({ room, hauler } = setup());
     const decaying = makeTombstone(room, 12, 5, 0, { GO: 95 });
     step(hauler);
@@ -14630,7 +13778,6 @@ console.log('== 打捞：入侵者阵亡掉的化合物（tombstone / 同格掉�
     decaying.store.GO = 0;
     step(hauler);
     assert(!hauler.memory.salvage, '目标被别人收走 / 衰减光：立刻放掉认领');
-    // 房里还有别的堆时同样要放掉这一堆的认领（这条分支单独走一遍：认领的没了、salvageTargets 却不空）
     ({ room, hauler } = setup());
     const goneSoon = makeTombstone(room, 12, 5, 0, { GO: 95 });
     makeTombstone(room, 20, 25, 0, { KO: 90 });
@@ -14656,11 +13803,9 @@ console.log('== 出生口袋：spawn 旁被墙/extension 围死的格不当出�
     const pkMem = Memory.rooms.W33S7;
     pk.energyCapacityAvailable = 2300;
     pk.energyAvailable = 2300;
-    // W31S4 同形：spawn (23,21) 正上方 (23,20) 的其余 7 个邻格全是障碍（extension + 第二只 spawn 的位置换成 extension）
     const pkSpawn = makeSpawn(pk, 23, 21);
     pkSpawn.name = 'PkSpawn';
     for (const [x, y] of [[22, 19], [23, 19], [24, 19], [22, 20], [24, 20], [22, 21]]) makeStructure(pk, C.STRUCTURE_EXTENSION, x, y, { capacity: 50, energy: 50 });
-    // 最后一格用 extension 工地封住：工地按建成后的障碍算（提前避开，不等它建成才发现）
     pk.createConstructionSite(24, 21, C.STRUCTURE_EXTENSION);
     world.time++;
     const pkDirs = spawnMgr.spawnDirections(pkSpawn);
@@ -14668,7 +13813,6 @@ console.log('== 出生口袋：spawn 旁被墙/extension 围死的格不当出�
         '正上方 (23,20) 是口袋：出生方向去掉 TOP，保留下方（得 ' + JSON.stringify(pkDirs) + '）');
     const pkLog = pkMem.spawnPocket && pkMem.spawnPocket.PkSpawn;
     assert(pkLog && pkLog.pockets.includes(C.TOP) && pkLog.pockets.length === 1, '遥测 spawnPocket 记下口袋方向（得 ' + JSON.stringify(pkLog) + '）');
-    // 真实孵化路径：spawnCreep 收到的 directions 不含口袋方向
     const pkOpts = [];
     const pkOrig = pkSpawn.spawnCreep;
     pkSpawn.spawnCreep = function (body, name, o) { pkOpts.push(o); return pkOrig.call(this, body, name, o); };
@@ -14676,16 +13820,13 @@ console.log('== 出生口袋：spawn 旁被墙/extension 围死的格不当出�
     spawnMgr.run(pk);
     assert(pkOpts.length >= 1 && pkOpts.every((o) => Array.isArray(o.directions) && !o.directions.includes(C.TOP) && o.memory),
         'spawn.run 孵化时带上 directions（不含 TOP）且保留 memory（得 ' + JSON.stringify(pkOpts.map((o) => o.directions)) + '）');
-    // 开口的 spawn：不限制方向（行为与引擎默认一致）
     const opSpawn = makeSpawn(pk, 30, 30);
     opSpawn.name = 'OpenSpawn';
     assert(spawnMgr.spawnDirections(opSpawn) === null, '四周开阔的 spawn 不限制出生方向');
-    // 拆掉一格 extension：口袋解除
     const pkExt = pk._structs.find((s) => s.structureType === C.STRUCTURE_EXTENSION && s.pos.x === 23 && s.pos.y === 19);
     pkExt.destroy();
     world.time++;
     assert(spawnMgr.spawnDirections(pkSpawn) === null, '(23,19) 拆掉后 (23,20) 连着房间：不再限制（得 ' + JSON.stringify(spawnMgr.spawnDirections(pkSpawn)) + '）');
-    // 源/矿是障碍：(30,29) 唯一的出口是正上方的源（或矿），从源格"连通"出去的不算开口
     for (const [x, y] of [[29, 28], [31, 28], [29, 29], [31, 29], [29, 30], [31, 30]]) makeStructure(pk, C.STRUCTURE_EXTENSION, x, y, { capacity: 50, energy: 50 });
     const pkSources = pk._sources;
     pk._sources = [];
@@ -14703,7 +13844,6 @@ console.log('== 出生口袋：spawn 旁被墙/extension 围死的格不当出�
     assert(Array.isArray(minDirs) && !minDirs.includes(C.TOP), '矿同样是障碍（得 ' + JSON.stringify(minDirs) + '）');
     pk._mineral = savedMineral;
 
-    // 私服夹具（spawn.stallFallback）用一只未知角色、没有 MOVE 的 creep 堵出生格：整个 loop 跳过它、不报错、不挪它
     const parked = makeCreep(pk, 'pk.parked', ['carry'], { home: 'W33S7', role: 'parked' });
     parked.pos = new RoomPosition(23, 22, 'W33S7');
     world.creeps[parked.name] = parked;
@@ -14722,7 +13862,6 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
     const spawnExit = require('../src/spawn_exit');
     const retireMod = require('../src/retire');
     const pocketCfg = config.spawnPocket;
-    // W34S7 同形：Spawn21 (27,34)、Spawn23 (26,34)；(26,33) 的邻格是墙 (25,32)(26,32)(27,32)(27,33)、extension (25,33)(25,34)、两只 spawn——真口袋
     const ex = demoRoom(30200, 7);
     const exMem = Memory.rooms.W33S7;
     const sp21 = makeSpawn(ex, 27, 34);
@@ -14730,7 +13869,6 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
     const sp23 = makeSpawn(ex, 26, 34);
     sp23.name = 'Spawn23';
     for (const [x, y] of [[25, 32], [26, 32], [27, 32], [27, 33]]) makeStructure(ex, C.STRUCTURE_WALL, x, y, { hits: 1000000, hitsMax: 300000000 });
-    // Spawn21 其余邻格：TOP_RIGHT (28,33)、BOTTOM_RIGHT (28,35)、BOTTOM_LEFT (26,35) 是 extension——线上只剩 RIGHT、BOTTOM 两个出口
     const exExts = {};
     for (const [x, y] of [[25, 33], [25, 34], [28, 33], [28, 35], [26, 35]]) exExts[x + ',' + y] = makeStructure(ex, C.STRUCTURE_EXTENSION, x, y, { capacity: 100, energy: 100 });
     world.time++;
@@ -14746,8 +13884,8 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
         return c;
     };
     const unplace = (c) => { delete world.creeps[c.name]; delete Memory.creeps[c.name]; };
-    const operator = place('ex.operator', ['carry', 'carry', 'move'], 27, 35, { role: 'operator' });   // 枢纽站位就是 BOTTOM 出口
-    const builder = place('ex.builder', ['work', 'carry', 'move'], 28, 34, { role: 'builder' });     // 停在 RIGHT 出口
+    const operator = place('ex.operator', ['carry', 'carry', 'move'], 27, 35, { role: 'operator' });
+    const builder = place('ex.builder', ['work', 'carry', 'move'], 28, 34, { role: 'builder' });
     const setCalls = [];
     const stalled = (name, remainingTime, directions) => ({ name, needTime: 9, remainingTime, directions,
         setDirections(dirs) { setCalls.push(dirs.slice()); this.directions = dirs.slice(); return C.OK; } });
@@ -14756,7 +13894,6 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
     world.time++;
     spawnMgr.releaseStalledSpawns(ex, exMem, [sp21, sp23]);
     assert(!builder.memory.vacate && !operator.memory.vacate && !exMem.spawnStall, '还在倒计时（remainingTime 3）：不打扰任何人');
-    // remainingTime 1：这一 tick 末就要出生，出口全被己方 creep 占着 → 让 RIGHT 上的 builder 让路（按方向顺序取第一只能动的）
     sp21.spawning.remainingTime = 1;
     world.time++;
     spawnMgr.releaseStalledSpawns(ex, exMem, [sp21, sp23]);
@@ -14771,7 +13908,6 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
     world.time++;
     spawnMgr.releaseStalledSpawns(ex, exMem, [sp21, sp23]);
     assert(exMem.spawnStallLog.vacate.n === 1, '有效标记还在：不重复请求');
-    // creep 侧：main.loop 里先让路、不跑角色；去处不贴着任何 spawn、不是口袋、没有 creep
     builder.moveCalls.length = 0; builder.actions.length = 0;
     Memory.errors = [];
     main.loop();
@@ -14782,7 +13918,6 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
     assert((Memory.errors || []).length === 0, 'loop 不报错（得 ' + JSON.stringify((Memory.errors || []).slice(0, 2)) + '）');
     assert(exMem.spawnStallLog.vacate.moved === 1 && exMem.spawnStallLog.vacate.last && exMem.spawnStallLog.vacate.last.to.x === 29,
         '遥测记下让路的移动（得 ' + JSON.stringify(exMem.spawnStallLog.vacate) + '）');
-    // 走开了：出生没完成前原地等（不跑角色，不走回出口）；出口空了不再请求别人让路
     builder.pos = new RoomPosition(29, 33, 'W33S7');
     sp21.spawning.remainingTime = 0;
     builder.moveCalls.length = 0; builder.actions.length = 0;
@@ -14791,7 +13926,6 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
     assert(spawnExit.runVacate(builder) === true && builder.moveCalls.length === 0, '离开后等出生完成：接管但不动');
     assert(!operator.memory.vacate && exMem.spawnStallLog.vacate.n === 1, 'RIGHT 已空：不再要 operator 让路');
     assert(exMem.spawnStall.Spawn21.since === Game.time, '这一 tick 才算第一次出生失败');
-    // 出生：生在 RIGHT (28,34)，遥测 born 记下不是口袋；标记撤掉，builder 回岗
     sp21.spawning = null;
     const newborn = place('ex.miner', ['work', 'work', 'move'], 28, 34, { role: 'harvester' });
     world.time++;
@@ -14806,7 +13940,6 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
     assert(spawnExit.runVacate(builder) === false && !builder.memory.vacate, '出生完成：撤掉让路标记、交还角色');
     unplace(newborn);
 
-    // operator 堵 BOTTOM、RIGHT 被没有 MOVE 的 creep 占着：让 operator 让路，等出生前不回站位
     const parked = place('ex.parked', ['carry'], 28, 34, { role: 'parked' });
     builder.pos = new RoomPosition(30, 30, 'W33S7');
     sp21.spawning = stalled('ex.miner2', 1, [C.RIGHT, C.BOTTOM]);
@@ -14827,7 +13960,6 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
         spawnMgr.releaseStalledSpawns(ex, exMem, [sp21, sp23]);
         assert(spawnExit.runVacate(operator) === true && operator.moveCalls.length === 0, '出生前 operator 不回站位（第 ' + (i + 1) + ' tick）');
     }
-    // 疲劳中的 creep：标记照打，本 tick 不动、也不跑角色
     sp21.spawning = null;
     world.time++;
     spawnMgr.releaseStalledSpawns(ex, exMem, [sp21, sp23]);
@@ -14840,14 +13972,12 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
     operator.moveCalls.length = 0;
     assert(operator.memory.vacate && spawnExit.runVacate(operator) === true && operator.moveCalls.length === 0, '疲劳中：标记照打，等疲劳清零再走');
     operator.fatigue = 0;
-    // 标记过期：撤掉、交还角色
     world.time += pocketCfg.vacateHoldTicks + 1;
     assert(spawnExit.runVacate(operator) === false && !operator.memory.vacate, 'until 过期：撤标记');
     sp21.spawning = null;
     world.time++;
     spawnMgr.releaseStalledSpawns(ex, exMem, [sp21, sp23]);
 
-    // 两个出口都被没有 MOVE 的 creep 占着：记 cannotVacate（每只 spawning 一次）；stallTicks 后兜底——口袋方向永远不放
     operator.body = [{ type: 'carry' }];
     delete exMem.spawnStallLog;
     setCalls.length = 0;
@@ -14859,9 +13989,7 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
     assert(!operator.memory.vacate && !parked.memory.vacate, '没有 MOVE 的不打让路标记');
     assert(setCalls.length === 0 && exLog.noRelease && exLog.noRelease.name === 'ex.miner4' && JSON.stringify(exLog.noRelease.from) === JSON.stringify([C.RIGHT, C.BOTTOM]),
         '唯一没放的方向是口袋 TOP_LEFT：不调 setDirections、记 noRelease（线上旧代码放开全部 8 个方向、孵进口袋）（得 ' + JSON.stringify([setCalls, exLog]) + '）');
-    // 拆掉 BOTTOM_RIGHT 的 extension：(28,35) 成了可走的非口袋格 → 兜底只加它，不加口袋
     exExts['28,35'].destroy();
-    // 让路的去处跳过贴着 spawn 的空格：(28,35) 现在空着、离 (28,34) 一步，但它是 Spawn21 的出口
     const exProbe = place('ex.probe', ['carry', 'move'], 28, 34, { role: 'builder' });
     const exTarget = spawnExit.vacateTarget(exProbe, ex);
     assert(exTarget && !(exTarget.x === 28 && exTarget.y === 35) && exTarget.x === 29 && exTarget.y === 33,
@@ -14876,7 +14004,6 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
         '遥测 n/waited/from/to（得 ' + JSON.stringify(exMem.spawnStallLog) + '）');
     for (let i = 0; i < 3; i++) { world.time++; spawnMgr.releaseStalledSpawns(ex, exMem, [sp21, sp23]); }
     assert(setCalls.length === 1, '同一只只兜底一次');
-    // 本来就是全方向（没有口袋限制）还生不出来：不调 setDirections，记 surrounded
     sp21.spawning = null;
     world.time++;
     spawnMgr.releaseStalledSpawns(ex, exMem, [sp21, sp23]);
@@ -14885,7 +14012,6 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
     assert(setCalls.length === 1 && exMem.spawnStallLog.surrounded && exMem.spawnStallLog.surrounded.name === 'ex.surrounded',
         '没限制方向还生不出来：不调 setDirections、记 surrounded（得 ' + JSON.stringify(exMem.spawnStallLog) + '）');
     sp21.spawning = null;
-    // 出口有空格（不是被 creep 堵住）：不打扰任何人
     operator.body = [{ type: 'carry' }, { type: 'move' }];
     unplace(parked);
     sp21.spawning = stalled('ex.free', 1, [C.RIGHT, C.BOTTOM]);
@@ -14896,9 +14022,8 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
     world.time++;
     spawnMgr.releaseStalledSpawns(ex, exMem, [sp21, sp23]);
 
-    // 困在口袋里的 creep（旧兜底孵进去的）：每 trappedScanInterval tick（按房错峰）标记，贴着的 spawn 当场回收、编制立刻出替补
     const trappedMiner = place('ex.trapped', ['work', 'work', 'work', 'carry', 'move'], 26, 33, { role: 'harvester', sourceIdx: 0 });
-    builder.pos = new RoomPosition(28, 34, 'W33S7');   // 普通出口上的 creep 不算困住
+    builder.pos = new RoomPosition(28, 34, 'W33S7');
     const scanEvery = pocketCfg.trappedScanInterval;
     while (utils.isRoomPhaseTick('W33S7', scanEvery)) world.time++;
     spawnExit.markPocketTrapped(ex, exMem, [sp21, sp23]);
@@ -14925,13 +14050,10 @@ console.log('== 出生口被己方 creep 堵住：让路而不是往口袋里孵
     assert(trapLog && trapLog.n === 1 && trapLog.name === 'ex.trapped' && trapLog.recycled === 1 && trapLog.code === C.OK && trapLog.x === 26 && trapLog.y === 33,
         '遥测 spawnStallLog.trapped 记下标记与回收（得 ' + JSON.stringify(trapLog) + '）');
     assert((Memory.errors || []).length === 0, 'loop 不报错（得 ' + JSON.stringify((Memory.errors || []).slice(0, 2)) + '）');
-    // 口袋被拆开、它自己走出去了：撤标记交还角色
     trappedMiner.pos = new RoomPosition(30, 30, 'W33S7');
     assert(retireMod.retirePocketTrapped(trappedMiner) === false && !trappedMiner.memory.pocketTrapped, '已不在那格：撤标记');
     for (const c of [operator, builder, trappedMiner]) unplace(c);
 
-    // 只因工地才围成的"口袋"：(27,32) 的墙换成 extension 工地——出生方向仍按建成后算（引擎把障碍工地当占用），
-    // 但站在 (26,33) 盖这些工地的 builder 踩着工地走得出去，连续扫描也不能标记回收（复审 2026-10-08：旧代码第一轮扫描就回收了它）
     const wall2732 = ex._structs.findIndex((st) => st.structureType === C.STRUCTURE_WALL && st.pos.x === 27 && st.pos.y === 32);
     ex._structs.splice(wall2732, 1);
     assert(ex.createConstructionSite(27, 32, C.STRUCTURE_EXTENSION) === C.OK, '夹具：(27,32) 放 extension 工地');
@@ -14960,14 +14082,13 @@ console.log('== 升级者卡死看门狗：离控制器远、原地不动的升�
     const wdCfg = require('../src/config').upgrading;
     wd.energyCapacityAvailable = 5600;
     wd.energyAvailable = 5600;
-    // W31S4 同形：link 供能（storage 在 spawn 旁、离控制器远，没有 storage 站位）、storage 2.5k（吃紧档）、ctrl link 796/800 没人喝
     const wdSpawn = makeSpawn(wd, 23, 21);
     for (const [x, y] of [[22, 19], [23, 19], [24, 19], [22, 20], [24, 20], [22, 21], [24, 21]]) makeStructure(wd, C.STRUCTURE_EXTENSION, x, y, { capacity: 100, energy: 100 });
     makeStructure(wd, C.STRUCTURE_STORAGE, 23, 23, { energy: 2500, capacity: 1000000 });
     const wdLink = makeStructure(wd, C.STRUCTURE_LINK, wdPlan.links.ctrl.x, wdPlan.links.ctrl.y, { energy: 796, capacity: 800 });
     wdMem.upgradeSupply = { ema: 1, extra: 0, at: -1, changedAt: -1, low: true };
     const wdUp = makeCreep(wd, 'wd.up', [].concat(Array(12).fill('work'), Array(6).fill('carry'), ['move']), { home: 'W33S7', role: 'upgrader' });
-    wdUp.pos = new RoomPosition(23, 20, 'W33S7');   // 出生口袋：mock 的 moveTo 不挪位置，等同于走不出去
+    wdUp.pos = new RoomPosition(23, 20, 'W33S7');
     world.creeps[wdUp.name] = wdUp;
     world.time++;
     ROLES.upgrader.run(wdUp);
@@ -14988,7 +14109,6 @@ console.log('== 升级者卡死看门狗：离控制器远、原地不动的升�
         '原地不动 ' + wdCfg.stuckRetireTicks + ' tick：退役，编制计数排除它（遥测 ' + JSON.stringify(wdMem.upgraderStuck) + '）');
     assert(wdUp.actions.includes('recycled') && wdSpawn.actions.some((a) => a.action === 'recycleCreep' && a.target === 'wd.up'),
         '贴着 spawn：当场回收（动作 ' + wdUp.actions.join(',') + '）');
-    // 编制：卡死的升级者退役后底线升级者立刻出替补（旧代码它一直占着唯一名额，两只 spawn 空闲也不补）
     wd._sources.forEach((src, i) => { world.creeps['wdh' + i] = makeCreep(wd, 'wdh' + i, utils.makeBody('staticHarvester', 5600), { home: 'W33S7', role: 'harvester', sourceIdx: i, sourceId: src.id, staticMiner: true }); });
     world.creeps['wd.hauler'] = makeCreep(wd, 'wd.hauler', utils.makeBody('hauler', 1300), { home: 'W33S7', role: 'hauler' });
     world.time++;
@@ -14998,7 +14118,6 @@ console.log('== 升级者卡死看门狗：离控制器远、原地不动的升�
     for (let i = 0; i < 5 && !wdHasNew(); i++) { world.time++; wd.energyAvailable = 5600; spawnMgr.run(wd); }
     assert(wdHasNew(), '卡死的升级者退役后孵出替补升级者');
 
-    // 不误判：在站位上（控制器 3 格内）不动、或一直在走的升级者都不触发
     const okUp = makeCreep(wd, 'wd.ok', utils.makeBody('upgrader', 2300, { maxWork: 20 }), { home: 'W33S7', role: 'upgrader' });
     okUp.pos = new RoomPosition(wdLink.pos.x - 1, wdLink.pos.y, 'W33S7');
     world.creeps[okUp.name] = okUp;
@@ -15008,13 +14127,12 @@ console.log('== 升级者卡死看门狗：离控制器远、原地不动的升�
     for (let i = 0; i < wdCfg.stuckRetireTicks + 5; i++) {
         world.time++;
         okUp.store[C.RESOURCE_ENERGY] = 0;
-        walker.pos = new RoomPosition(10 + (i % 2), 30, 'W33S7');   // 每 tick 都挪了一格
+        walker.pos = new RoomPosition(10 + (i % 2), 30, 'W33S7');
         ROLES.upgrader.run(okUp);
         ROLES.upgrader.run(walker);
     }
     assert(!okUp.memory.stuckRetiring && !okUp.memory.upStuck, '控制器 3 格内不动的升级者不算卡死');
     assert(!walker.memory.stuckRetiring, '一直在移动的升级者不算卡死');
-    // 有疲劳（重身体在路上）不计时
     const tired = makeCreep(wd, 'wd.tired', utils.makeBody('upgrader', 5600, { maxWork: 47 }), { home: 'W33S7', role: 'upgrader' });
     tired.pos = new RoomPosition(12, 32, 'W33S7');
     tired.fatigue = 40;
@@ -15022,10 +14140,8 @@ console.log('== 升级者卡死看门狗：离控制器远、原地不动的升�
     for (let i = 0; i < wdCfg.stuckRetireTicks + 5; i++) { world.time++; ROLES.upgrader.run(tired); }
     assert(!tired.memory.stuckRetiring && !tired.memory.upStuck, '有疲劳（在走、只是慢）不计时');
 
-    // 退避：控制器真的够不着时，孵 → 卡死 → 退役 → 再孵没有尽头。连续 stuckBackoffAfter 次退役之间控制器零进度 → stuckBackoffTicks 内不再退役
     for (const name of ['wd.ok', 'wd.walk', 'wd.tired']) delete world.creeps[name];
     delete wdMem.upgraderStuck;
-    // 真实引擎：没人升级时降级时间（绝对 tick）不变、ticksToDowngrade 每 tick 减 1；mock 里它是常数，换成按降级时间算
     let wdDowngradeAt = world.time + 20000;
     Object.defineProperty(wd.controller, 'ticksToDowngrade', { get: () => wdDowngradeAt - world.time, set: () => {}, configurable: true });
     let wdSeq = 0;
@@ -15052,7 +14168,6 @@ console.log('== 升级者卡死看门狗：离控制器远、原地不动的升�
     const boHeld = stuckOne();
     assert(!boHeld.memory.stuckRetiring && !utils.isRetiring(boHeld.memory) && wdMem.upgraderStuck.held === 1 && wdMem.upgraderStuck.retire === boRetiresBefore,
         '退避期间卡住的升级者不退役（留着、编制不出替补），记 held（遥测 ' + JSON.stringify(wdMem.upgraderStuck) + '）');
-    // 退避到期：再退役一次（仍零进度 → 立刻又退避，一个退避期最多一圈）
     world.time = wdMem.upgraderStuck.backoffUntil;
     world.creeps[boHeld.name] = boHeld;
     boHeld.actions.length = 0;
@@ -15060,13 +14175,11 @@ console.log('== 升级者卡死看门狗：离控制器远、原地不动的升�
     delete world.creeps[boHeld.name];
     assert(boHeld.memory.stuckRetiring && wdMem.upgraderStuck.backoffs === 2 && wdMem.upgraderStuck.backoffUntil === world.time + wdCfg.stuckBackoffTicks,
         '退避到期后卡着的那只立刻退役，仍零进度就再退避（遥测 ' + JSON.stringify(wdMem.upgraderStuck) + '）');
-    // 两次退役之间控制器有进度：从 1 重新数，不退避
     world.time += wdCfg.stuckBackoffTicks + 1;
     wd.controller.progress = (Number(wd.controller.progress) || 0) + 500;
     const boProgress = stuckOne();
     assert(boProgress.memory.stuckRetiring && wdMem.upgraderStuck.streak === 1 && wdMem.upgraderStuck.backoffs === 2,
         '两次退役之间控制器有进度：计数从 1 重新开始（遥测 ' + JSON.stringify(wdMem.upgraderStuck) + '）');
-    // RCL8 progress 恒为 0：降级时间被推后也算进度
     stuckOne();
     const boMark = wdMem.upgraderStuck.mark;
     assert(wdMem.upgraderStuck.streak === 2, '前提：没有进度时计数照常累加（得 ' + wdMem.upgraderStuck.streak + '）');
@@ -15083,14 +14196,12 @@ console.log('== 升级者按可持续供给定身体与编制：不跟着瞬时�
     sp.energyCapacityAvailable = 5600;
     sp.energyAvailable = 5600;
     makeSpawn(sp, 23, 21);
-    // link 供能（storage 离控制器远）、storage 2500 吃紧
     const spStorage = makeStructure(sp, C.STRUCTURE_STORAGE, 23, 24, { energy: 2500, capacity: 1000000 });
     makeStructure(sp, C.STRUCTURE_LINK, spPlan.links.ctrl.x, spPlan.links.ctrl.y, { energy: 796, capacity: 800 });
     makeStructure(sp, C.STRUCTURE_LINK, spPlan.links.src0.x, spPlan.links.src0.y, { energy: 500, capacity: 800 });
     makeStructure(sp, C.STRUCTURE_LINK, spPlan.links.src1.x, spPlan.links.src1.y, { energy: 500, capacity: 800 });
     world.time++;
     assert(utils.upgraderSupplyWork(sp, spMem) === 20, '可持续供给：2 源 20/tick、storage 在 lowExitAbove 以下 → 20 WORK（得 ' + utils.upgraderSupplyWork(sp, spMem) + '）');
-    // 没有竞争需求：瞬时限流放开（Infinity），旧代码按满容量孵 W47
     spMem.state = Object.assign(spMem.state || {}, { builderBacklog: 0 });
     world.time += require('../src/config').upgrading.competeHoldTicks + 1;
     const spFree = spawnMgr.upgraderBody(sp, spMem, 5600);
@@ -15098,12 +14209,10 @@ console.log('== 升级者按可持续供给定身体与编制：不跟着瞬时�
         '限流放开时身体仍按供给 W20（≤ 2350，富余预算按模板补 CARRY），不是 W47C2M1=4850（得 W' + workParts(spFree) + ' 成本 ' + utils.bodyCost(spFree) + '）');
     assert(spMem.upgradeSupply.sizeCap && spMem.upgradeSupply.sizeCap.cap === 20 && spMem.upgradeSupply.sizeCap.would === 47,
         '遥测 sizeCap：容量能出 W47、被供给封顶到 W20（得 ' + JSON.stringify(spMem.upgradeSupply.sizeCap) + '）');
-    // 有竞争需求：瞬时限流 W12，身体不跟着缩（多出的 WORK 由 roles/upgrader 按 duty 降频）
     spMem.state.builderBacklog = 5;
     world.time++;
     const spHeld = spawnMgr.upgraderBody(sp, spMem, 5600);
     assert(utils.upgraderWorkCap(sp, spMem) === 12 && workParts(spHeld) === 20, '限流 W12 时身体仍是 W20：两种状态同一个身体，不再换代来回翻（得 W' + workParts(spHeld) + '）');
-    // storage 攒起来：封顶按富余抬高（4 万 → 20 + 30000/1500 = 40），富到一定程度就是满身体
     spStorage.store[C.RESOURCE_ENERGY] = 40000;
     world.time++;
     assert(utils.upgraderSupplyWork(sp, spMem) === 40 && workParts(spawnMgr.upgraderBody(sp, spMem, 5600)) === 40, 'storage 4 万：供给 40 WORK → W40（得 ' + utils.upgraderSupplyWork(sp, spMem) + '）');
@@ -15115,14 +14224,12 @@ console.log('== 升级者按可持续供给定身体与编制：不跟着瞬时�
     sp.controller.level = 7;
     spStorage.store[C.RESOURCE_ENERGY] = 2500;
     world.time++;
-    // 编制：限流放开时旧 capCount = Infinity，EMA 满（ctrl link 满着）就加员；按供给 20 ÷ W20 封顶为底线 1
     spMem.state.builderBacklog = 0;
     spMem.upgradeSupply = Object.assign(spMem.upgradeSupply, { ema: 1, extra: 1, at: -1, changedAt: -1, competeAt: null });
     world.time++;
     const spTarget = spawnMgr.upgraderTarget(sp, spMem);
     assert(utils.upgraderWorkCap(sp, spMem) === Infinity && spTarget === 1 && spMem.upgradeSupply.capCount === 1,
         '限流放开、link 满着：升级者目标按供给封顶为 1，不按 extra 加到 maxUpgraders（得 ' + spTarget + ' capCount ' + spMem.upgradeSupply.capCount + '）');
-    // 换代：在岗 W12 → 方案 W20 差距不到一半，等自然换代；W4 的小身体照常换
     const spW12 = makeCreep(sp, 'sp.w12', utils.makeBody('upgrader', 1350, { maxWork: 12 }), { home: 'W33S7', role: 'upgrader' }, { ticksToLive: 300 });
     const spW4 = makeCreep(sp, 'sp.w4', utils.makeBody('upgrader', 550, { maxWork: 4 }), { home: 'W33S7', role: 'upgrader' }, { ticksToLive: 300 });
     assert(workParts(spW12.body) === 12 && !spawnMgr.bodyImproves(spW12, spFree, 'upgrader'), '在岗 W12、方案 W20：不提前换代');
@@ -15140,14 +14247,12 @@ console.log('== 升级者在编 WORK 闸：在编 WORK 已够可持续供给就�
     gt._sources.forEach((src, i) => { world.creeps['gth' + i] = makeCreep(gt, 'gth' + i, utils.makeBody('staticHarvester', 1300), { home: 'W33S7', role: 'harvester', sourceIdx: i, sourceId: src.id, staticMiner: true }); });
     for (let i = 0; i < 4; i++) world.creeps['gtha' + i] = makeCreep(gt, 'gtha' + i, utils.makeBody('hauler', 1300), { home: 'W33S7', role: 'hauler' });
     world.creeps.gtb = makeCreep(gt, 'gtb', utils.makeBody('builder', 1300), { home: 'W33S7', role: 'builder' });
-    // RCL4 底线 2 只升级者（每只 W11）；在岗的是一只 W25 的旧大身体（RCL 降过 / 容量缩过之前孵的）——人头 1 < 2，但 WORK 25 ≥ 供给 20
     world.creeps.gtUp = makeCreep(gt, 'gtUp', [].concat(Array(25).fill('work'), ['carry', 'carry', 'move']), { home: 'W33S7', role: 'upgrader' });
     world.time++;
     spawnMgr.run(gt);
     const gtNew = Object.values(world.creeps).filter((c) => c.memory.role === 'upgrader' && c.name !== 'gtUp');
     assert(gtMem.demand.targets.upgrader === 2 && gtNew.length === 0 && gtMem.upgradeSupply.workGate && gtMem.upgradeSupply.workGate.planned === 25 && gtMem.upgradeSupply.workGate.cap === 20,
         '人头 1 < 目标 2，但在编 25 WORK ≥ 供给 20：不再出升级者请求（新孵 ' + gtNew.length + '，闸 ' + JSON.stringify(gtMem.upgradeSupply.workGate) + '）');
-    // 旧大身体快到期（进了替补提前量）：不再算在编，替补照常出
     world.creeps.gtUp.ticksToLive = 20;
     for (let i = 0; i < 4 && !Object.values(world.creeps).some((c) => c.memory.role === 'upgrader' && c.name !== 'gtUp'); i++) { world.time++; gt.energyAvailable = 1300; spawnMgr.run(gt); }
     assert(Object.values(world.creeps).some((c) => c.memory.role === 'upgrader' && c.name !== 'gtUp'), '在编大身体进了替补提前量：替补照常孵');
@@ -15163,16 +14268,15 @@ function pickTypes(store) {
     return out;
 }
 
-
 console.log('== CPU：orderCreeps 只给能接任务的角色竞价，顺序与分数不变 ==');
 {
     resetWorld(60001);
     const ocRoom = makeRoom('W33S7', { rcl: 4, energy: 300, cap: 800, ctrl: { x: 34, y: 24 } });
     ocRoom._sources = [makeSource(ocRoom, 14, 6, 'ocS0'), makeSource(ocRoom, 31, 12, 'ocS1')];
     const ocSpawn = makeSpawn(ocRoom, 23, 21);
-    ocSpawn.store[C.RESOURCE_ENERGY] = 100;   // spawn 缺能 → 投递任务
+    ocSpawn.store[C.RESOURCE_ENERGY] = 100;
     makeStructure(ocRoom, C.STRUCTURE_EXTENSION, 25, 22, { capacity: 50, energy: 0 });
-    makeStructure(ocRoom, C.STRUCTURE_CONTAINER, 15, 7, { capacity: 2000, energy: 900 });   // 源容器 → 取货任务
+    makeStructure(ocRoom, C.STRUCTURE_CONTAINER, 15, 7, { capacity: 2000, energy: 900 });
     ocRoom.createConstructionSite(27, 27, C.STRUCTURE_ROAD);
     Memory.rooms.W33S7 = {};
     const ocSpecs = [
@@ -15203,7 +14307,6 @@ console.log('== CPU：orderCreeps 只给能接任务的角色竞价，顺序与�
     const pool = taskBroker.pooledTasks(ocRoom);
     assert(pool.length >= 4 && ['deliver', 'collect', 'harvest', 'upgrade', 'build'].every((kind) => pool.some((t) => t.kind === kind)),
         '前提：任务池里投递/取货/采集/升级/建造都有（得 ' + pool.map((t) => t.kind).join(',') + '）');
-    // 参照（旧 bestTask 的语义）：本 tick 没有认领、没有屏蔽，候选 = 有认领容量的任务（按量任务看 availableFor > 0），分数取 scoreTask 最大
     const amount = { deliver: true, collect: true };
     let sameScores = true;
     const detail = [];
@@ -15227,7 +14330,6 @@ console.log('== CPU：orderCreeps 只给能接任务的角色竞价，顺序与�
     const sorted = ocCreeps.map((c, index) => ({ name: c.name, score: scores[c.name], index }))
         .sort((a, b) => b.score - a.score || a.index - b.index).map((e) => e.name);
     assert(order.join(',') === sorted.join(','), '执行顺序 = 按分数降序、同分保持原序（得 ' + order.join(',') + '）');
-    // 便宜在哪：不能接任务的角色不再逐个任务扫身体；能接的每次 bestTask 只扫一遍兼容性（以前每个任务 2 次）
     for (const name of Object.keys(scans)) scans[name] = 0;
     world.time++;
     taskBroker.orderCreeps(ocCreeps.slice());
@@ -15287,7 +14389,6 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     mk('sh.operator', 'operator', ['carry', 'carry', 'move']);
     mk('sh.rhEmpty', 'remoteHauler', ['carry', 'carry', 'move'], { memory: { remoteRoom: 'W33S6' } });
     mk('sh.rhLoaded', 'remoteHauler', ['carry', 'carry', 'move'], { energy: 100, memory: { remoteRoom: 'W33S6' } });
-    // 角色本身换成空操作：这里只看分发（谁被执行、谁被跳），位置/能量不变 → 第二 tick 起都是"空闲"
     const roleNames = ['harvester', 'hauler', 'upgrader', 'defender', 'remoteMiner', 'scout', 'reserver', 'operator', 'remoteHauler'];
     const savedRuns = {};
     for (const r of roleNames) { savedRuns[r] = ROLES[r].run; ROLES[r].run = () => {}; }
@@ -15303,15 +14404,15 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
         return ran.slice();
     };
     try {
-        tick(10000, 5);   // 健康、CPU 低：全体执行，记下 lastState
+        tick(10000, 5);
         cpuShed.digest();
-        const healthy = tick(10000, 1000);   // bucket 健康但 CPU 超上限：旧护栏（harvester/hauler/upgrader 照跑，分数 ≥ 20 照跑）
+        const healthy = tick(10000, 1000);
         const healthyShed = cpuShed.digest();
         assert(healthy.includes('sh.scout') && healthy.includes('sh.operator') && healthy.includes('sh.reserver') && healthy.includes('sh.rhEmpty'),
             'bucket 健康时行为不变：scout/operator/reserver/空车外矿运输工照跑（得 ' + healthy.join(',') + '）');
         assert(healthyShed.skip === 0 && healthyShed.low === 0 && healthyShed.crit === 0, 'bucket 健康时不进降载、不记降载跳过（得 ' + JSON.stringify(healthyShed) + '）');
 
-        const cheap = tick(300, 5);   // 紧急但 CPU 远低于上限：谁都不跳
+        const cheap = tick(300, 5);
         assert(cheap.length === Object.keys(world.creeps).length, '紧急模式下 CPU 没超上限时一只都不跳（得 ' + cheap.length + '/' + Object.keys(world.creeps).length + '）');
 
         const crit1 = tick(300, 1000);
@@ -15342,7 +14443,6 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
         assert(skippedCpu >= 1 || (Memory.taskBroker && Memory.taskBroker.rooms && Memory.taskBroker.rooms.W33S7 && Memory.taskBroker.rooms.W33S7.skippedCpu >= 1),
             'broker 遥测的 skippedCpu 也记下降载跳过');
 
-        // 越过上限后不再逐只重问 getUsed（tick 内只增不减）：非抽样 tick、紧急 + 超上限，数一下分发循环里读了几次
         {
             let reads = 0;
             let counting = false;
@@ -15359,14 +14459,12 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
                 main.loop();
                 const skipped = cpuShed.digest().skip;
                 assert(skipped >= 4, '前提：这一 tick 跳了好几只（得 ' + skipped + '）');
-                // 第一只可跳单位读一次就越线；另外只有 broker 每 tick 一次的 cpuHeadroom 与循环收尾的 cpuLap（旧代码每跳一只读一次）
                 assert(reads <= 3 && reads < skipped, '越线之后不再逐只读 getUsed（跳了 ' + skipped + ' 只，分发循环里读了 ' + reads + ' 次）');
             } finally {
                 taskBroker.orderCreeps = savedOrder;
                 taskBroker.flush = savedFlushFn;
             }
         }
-        // 分发的阶段级计时：每 cpuProfile.dispatchEvery tick（相位 15）才量，按 order/retire/start/run/finish 拆开进 Memory.stats.cpuDispatch
         {
             const dispEvery = require('../src/config').cpuProfile.dispatchEvery;
             assert(dispEvery === 30, 'cpuProfile.dispatchEvery 默认 30（每条 stats 一个阶段样本）');
@@ -15378,7 +14476,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
             taskBroker.flush = function () { counting = false; return savedFlushFn.apply(this, arguments); };
             const sampleTick = (want, bucket) => {
                 while (world.time % 30 !== 0) world.time++;
-                main.sampleStats();   // 清空窗口
+                main.sampleStats();
                 let clock = 0;
                 world.time++;
                 while (world.time % 30 !== want) world.time++;
@@ -15395,7 +14493,6 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
                 return { disp: entry.cpuDispatch || {}, roles: entry.cpuRoles || {}, sampled: entry.cpuSampled, reads: used, ran: ranCount };
             };
             try {
-                // 1) 阶段抽样 tick（%30 == 15）：五段都记到
                 let got = sampleTick(15, 10000);
                 assert(Array.isArray(got.sampled) && got.sampled[0] === 1 && got.sampled[1] === 1, 'stats 记窗口内抽样 tick 数 cpuSampled [角色, 阶段]（得 ' + JSON.stringify(got.sampled) + '）');
                 const dispReads = got.reads;
@@ -15403,14 +14500,12 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
                 assert(['order', 'retire', 'start', 'run', 'finish'].every((key) => got.disp[key] > 0),
                     'cpuDispatch 记下 order/retire/start/run/finish 五段（得 ' + JSON.stringify(got.disp) + '）');
                 assert(Object.keys(got.roles).length > 0 && Object.values(got.roles).every((value) => value >= 0), 'cpuRoles 照常（得 ' + JSON.stringify(got.roles) + '）');
-                // 2) 只是角色抽样 tick（%5 == 0、%30 != 15）：不量阶段，每只跑的 creep 只读 2 次（2026-10-13 复审：阶段链是 4 次）
                 got = sampleTick(10, 10000);
                 assert(Object.keys(got.disp).length === 0, '非阶段抽样 tick 不记 cpuDispatch（得 ' + JSON.stringify(got.disp) + '）');
                 assert(Array.isArray(got.sampled) && got.sampled[0] === 1 && got.sampled[1] === 0, '非阶段抽样 tick：cpuSampled [1, 0]（得 ' + JSON.stringify(got.sampled) + '）');
                 assert(Object.keys(got.roles).length > 0, '角色计时照量（得 ' + JSON.stringify(got.roles) + '）');
                 assert(got.ran > 0 && got.ran === dispRan && dispReads - got.reads >= 2 * got.ran,
                     '角色抽样 tick 每只省下 2 次读数（跑了 ' + got.ran + ' 只，阶段 tick 读 ' + dispReads + ' 次、角色 tick 读 ' + got.reads + ' 次）');
-                // 3) 降载中的阶段抽样 tick：不量（每次读数都是从 creep 那里抢的）
                 got = sampleTick(15, 300);
                 assert(Object.keys(got.disp).length === 0, '降载中不量分发阶段（得 ' + JSON.stringify(got.disp) + '）');
             } finally {
@@ -15418,7 +14513,6 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
                 taskBroker.flush = savedFlushFn;
             }
         }
-        // 强制降载（控制台/私服）：bucket 满也生效，cap 覆盖；过期自动清掉
         Memory.cpuShedForce = { mode: 'critical', cap: 0, until: world.time + 2 };
         const forced = tick(10000, 5);
         assert(!forced.includes('sh.scout') && forced.includes('sh.harv0'), 'Memory.cpuShedForce 强制紧急 + cap 0：CPU 再低也跳可跳单位、矿工照跑（得 ' + forced.join(',') + '）');
@@ -15426,7 +14520,6 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
         tick(10000, 5);
         assert(Memory.cpuShedForce === undefined, '强制到期后自动删除');
 
-        // tickLimit 硬停：bucket≈0 时 tickLimit == limit，永不跳的单位也能把 tick 推过它，引擎随即掐掉整个 tick
         const endReserve = shedCfg.endReserve;
         assert(endReserve >= 22 && shedCfg.hardStopArm > 0, 'endReserve 至少盖住 move.end ~15 + 序列化 ~7（得 ' + endReserve + '）');
         let endTicks = 0;
@@ -15435,7 +14528,6 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
         const savedFlush = taskBroker.flush;
         movement.endTick = function () { endTicks++; return savedEndTick.apply(this, arguments); };
         taskBroker.flush = function () { flushes++; return savedFlush.apply(this, arguments); };
-        // getUsed 随已开跑的 creep 数上涨：100 起，每只 5（循环前 roomStart 等读数也落在 100）
         const stepTick = (bucket, tickLimit, base, per) => {
             world.time++;
             ran = [];
@@ -15450,19 +14542,17 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
             endTicks = 0; flushes = 0;
             const hard = stepTick(0, 150, 100, 5);
             const line = 150 - endReserve;
-            const expectRan = Math.floor((line - 100) / 5) + 1;   // used ≤ line 时还能再开跑一只
+            const expectRan = Math.floor((line - 100) / 5) + 1;
             assert(hard.length === expectRan, 'bucket 0、tickLimit 150：越过 tickLimit − endReserve 后一只都不再跑（跑了 ' + hard.length + '，应 ' + expectRan + '）');
             assert(['sh.harv0', 'sh.harv1'].every((name) => hard.includes(name)) && !hard.includes('sh.scout'), '硬停只砍尾巴：排在前面的矿工跑了、排在最后的 scout 没跑（得 ' + hard.join(',') + '）');
             assert(endTicks === 1 && flushes === 1, '硬停的 tick 照常跑 movement.endTick 与 broker flush（endTick ' + endTicks + '、flush ' + flushes + '）');
             assert(Memory.cpuHardStop && Memory.cpuHardStop.n === hardBefore + 1 && Memory.cpuHardStop.at === world.time && Memory.cpuHardStop.cut === total - expectRan,
                 'Memory.cpuHardStop 记下次数/tick/没跑的数量（得 ' + JSON.stringify(Memory.cpuHardStop) + '）');
-            // 永不跳的单位也停：用量一开始就过线，矿工也不跑
             const none = stepTick(0, 150, 200, 0);
             assert(none.length === 0, '开跑前就过线：永不跳的矿工/defender 也不跑（得 ' + none.join(',') + '）');
             const hardStat = cpuShed.digest();
             assert(hardStat.hard === 2 && hardStat.cut === (total - expectRan) + total && hardStat.hardEnd === 2,
                 'stats.shed 带硬停遥测：硬停 tick 数、没跑的 creep 数、收尾跑完的次数（得 ' + JSON.stringify(hardStat) + '）');
-            // bucket 健康（tickLimit 500）：离线很远，不 armed、不逐只读 getUsed，行为不变
             const relaxed = stepTick(10000, 500, 60, 1);
             assert(relaxed.length === total, 'tickLimit 500 时一只都不少（得 ' + relaxed.length + '/' + total + '）');
             Game.cpu = Object.assign({}, savedCpu, { limit: 150, bucket: 10000, tickLimit: 500, getUsed: () => 60 });
@@ -15471,7 +14561,6 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
             assert(cpuShed.begin().armed === true, 'tickLimit 150：armed');
             Game.cpu = Object.assign({}, savedCpu, { limit: 150, bucket: 10000, getUsed: () => 60 });
             assert(cpuShed.begin().hardStop === null, '没有 tickLimit（模拟器/单测）不硬停');
-            // 私服验证用的强制线：stopUntil 之前生效
             assert(cpuShed.hardStopLine({ tickLimit: 9000 }, { stop: 0, stopUntil: 10 }, 9) === 0 && cpuShed.hardStopLine({ tickLimit: 9000 }, { stop: 0, stopUntil: 10 }, 10) === 9000 - endReserve,
                 'Memory.cpuShedForce.stop 在 stopUntil 之前覆盖硬停线');
             cpuShed.digest();
@@ -15499,7 +14588,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
         suspendReason: 'foreignReservation:Invader', sources: [] } } } };
     assert(rem.isSuspended('W37S7', 'W36S7') === true && rem.canClearReservation('W37S7', 'W36S7') === false,
         'core 在、预定未到期：停着且不派削预定 reserver（零孵化）');
-    Memory.rooms.W37S7.remotes.W36S7.suspendedUntil = Game.time - 1;   // 等价于时间走过崩塌 tick
+    Memory.rooms.W37S7.remotes.W36S7.suspendedUntil = Game.time - 1;
     assert(rem.isSuspended('W37S7', 'W36S7') === false, '停用到期（core 崩塌）后自动恢复，现有逻辑接手派 creep');
     Memory.rooms = savedRooms; Memory.pvpThreat = savedThreat;
 }
@@ -15534,7 +14623,6 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     Memory.pvpThreat = { W38S5: { until: Game.time + 50, user: 'Jumpp' } };
     assert(wb.getDemands(home5).length === 0, '目标房有玩家威胁：不孵');
     Memory.pvpThreat = {};
-    // 角色：坐标上是有主建筑 → 不拆、记 blocked；是无主墙 → dismantle；有武装敌人 → 撤
     const mkRoom = (structures, hostiles) => ({ name: 'W38S5', controller: { my: false },
         find: (type) => (type === FIND_HOSTILE_CREEPS ? hostiles : []),
         lookForAt: (kind, x, y) => structures.filter((st) => st.pos.x === x && st.pos.y === y) });
@@ -15559,7 +14647,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     assert(JSON.stringify(rem.remoteWhitelist('W37S5')) === '[]', '墙没拆：W37S5 不开 W38S4/W38S5');
     c = mkCreep(mkRoom([], []));
     const savedPF = global.PathFinder;
-    global.PathFinder = undefined;   // markDone 里量步数失败只记 measureError，不影响完成
+    global.PathFinder = undefined;
     assert(role.run(c) === 'done' && wb.isDone('W38S5:38:18'), '坐标上已无墙：记完成');
     global.PathFinder = savedPF;
     assert(wb.getDemands(home5).length === 0 && wb.getDemands(home7).length === 0, '拆完不再孵拆机');
@@ -15661,7 +14749,6 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     remoteMod.applyAvoidHolds('W31S8', holds);
     assert(holds.W31S9.suspendedUntil === 0 && !holds.W31S9.avoidHold, '回避到期：暂停自动撤掉');
 
-    // 被封路的 creep：W30S9 回 W31S8 只能穿 W30S8（回避中）→ 去最近能安全到的己方房 W31S6
     config.pvp = Object.assign({}, savedPvp, { tempAvoid: { W30S8: { until: T + 50000 } } });
     const savedMap = Game.map, savedTime = world.time, savedSpawns2 = Game.spawns;
     world.time = T + 300;
@@ -15761,32 +14848,26 @@ console.log('== terminal 补能（2026-10-13，移植 overmind-absorb e4cae2f）
         'terminal 与 storage 同在第 4 层但权重更低、只给 hauler（得 tier=' + probe.fill.tier + ' w=' + probe.fill.weight + '）');
     assert(probe.fill.backlog === indCfg.terminalTarget, '补到 terminalTarget 为止（得 ' + probe.fill.backlog + '）');
     assert(Memory.rooms.W35S7.terminalFill && Memory.rooms.W35S7.terminalFill.want === indCfg.terminalTarget, '遥测 Memory.rooms[房].terminalFill（得 ' + JSON.stringify(Memory.rooms.W35S7.terminalFill) + '）');
-    // 空载 hauler 没有源容器可取：从 storage 取出来送 terminal（hauler.consumerFallback 把 terminal 缺口当消费者需求）
     const tfHauler = world.creeps.tfHa0;
     tfHauler.pos = new RoomPosition(22, 20, 'W35S7');
     tfHauler.store[C.RESOURCE_ENERGY] = 0;
     ROLES.hauler.run(tfHauler);
     assert(tfStorage.store[C.RESOURCE_ENERGY] < 200000 && tfHauler.store[C.RESOURCE_ENERGY] > 0, '空载 hauler 从富余 storage 取货去补 terminal（storage ' + tfStorage.store[C.RESOURCE_ENERGY] + '，手上 ' + tfHauler.store[C.RESOURCE_ENERGY] + '）');
-    // 已经补了一部分：只补差额
     tfTerminal.store[C.RESOURCE_ENERGY] = indCfg.terminalTarget - 4000;
     probe = terminalTask();
     assert(probe.fill && probe.fill.backlog === 4000, '只补到目标的差额（得 ' + (probe.fill && probe.fill.backlog) + '）');
     tfTerminal.store[C.RESOURCE_ENERGY] = indCfg.terminalTarget;
     assert(!terminalTask().fill, '到了目标水位就不再补');
-    // storage 刚过门槛一点：补完不让 storage 跌回门槛之下
     tfTerminal.store[C.RESOURCE_ENERGY] = 0;
     tfStorage.store[C.RESOURCE_ENERGY] = indCfg.terminalFillStorageAbove + 3000;
     probe = terminalTask();
     assert(probe.fill && probe.fill.backlog === 3000, 'storage 只比门槛多 3000 ⇒ 最多补 3000（得 ' + (probe.fill && probe.fill.backlog) + '）');
-    // storage 富余（≥ storageFeedAbove）但低于补能门槛：线上大多数房的形态，一点都不补
     tfStorage.store[C.RESOURCE_ENERGY] = Math.max(SF_RICH, indCfg.terminalFillStorageAbove - 1);
     assert(!terminalTask().fill && Memory.rooms.W35S7.storageRich.on === true, 'storage 富余但低于 terminalFillStorageAbove ⇒ 不补');
-    // storage 饥饿：不补（storageRich 滞回关）
     tfStorage.store[C.RESOURCE_ENERGY] = 0;
     assert(!terminalTask().fill && Memory.rooms.W35S7.storageRich.on === false, 'storage 0 ⇒ 不给 terminal 补能');
     tfStorage.store[C.RESOURCE_ENERGY] = 200000;
     assert(terminalTask().fill, 'storage 回到 20 万 ⇒ 重新补');
-    // 敌方 terminal（被占房的遗留）不补
     tfTerminal.my = false;
     assert(!terminalTask().fill, '不是自己的 terminal 不补');
     tfTerminal.my = true;
@@ -15795,15 +14876,12 @@ console.log('== terminal 补能（2026-10-13，移植 overmind-absorb e4cae2f）
 
 console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40）：方案的 ctrl 容器仍是消费者，storage 兜底照样喂它 ==');
 {
-    // 随机地形把源放在控制器旁：方案 ctrl 容器 (33,23) 离控制器 1 格、离源 (33,22) 也 1 格。
-    // 旧 srcIsPlanned 的"源旁 1 格"兜底把它认成源容器 ⇒ consumerTasks/deliverFilter 滤掉、storage 兜底预算 0，hauler 整局 park
     resetWorld(6850);
     const cbRoom = makeRoom('W41N40', { rcl: 4, energy: 300, cap: 300, ctrl: { x: 34, y: 24 }, owner: 'me' });
     cbRoom._sources = [makeSource(cbRoom, 14, 6, 'cb0'), makeSource(cbRoom, 33, 22, 'cb1')];
     const cbStorage = makeStructure(cbRoom, C.STRUCTURE_STORAGE, 26, 24, { energy: 2600, capacity: 1000000 });
     cbRoom.storage = cbStorage;
     const cbSrc0 = makeStructure(cbRoom, C.STRUCTURE_CONTAINER, 14, 7, { my: false, energy: 0, capacity: 2000 });
-    // ctrl 容器先建（FIND_STRUCTURES 里排在 src1 前面）：旧的 broker 溢出判定取"源旁第一个容器"会取到它
     const cbCtrl = makeStructure(cbRoom, C.STRUCTURE_CONTAINER, 33, 23, { my: false, energy: 0, capacity: 2000 });
     const cbSrc1 = makeStructure(cbRoom, C.STRUCTURE_CONTAINER, 32, 21, { my: false, energy: 0, capacity: 2000 });
     const cbPlan = { anchor: { x: 26, y: 24 }, storage: { x: 26, y: 24 }, spawns: [], ext: [], roads: {}, links: {},
@@ -15814,7 +14892,6 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     const srcIsPlanned = require('roles_hauler').srcIsPlanned;
     assert(srcIsPlanned(cbRoom, cbSrc1) && srcIsPlanned(cbRoom, cbSrc0), '方案的源容器仍是源容器');
     assert(!srcIsPlanned(cbRoom, cbCtrl), '方案的控制器容器贴着源也不是源容器');
-    // 方案里没写 ctrl 时，源旁 1 格的容器照旧按源容器算（老房的兜底不变）
     const cbCtrlSpot = cbPlan.containers.ctrl;
     delete cbPlan.containers.ctrl;
     assert(srcIsPlanned(cbRoom, cbCtrl), '方案里没有 ctrl 位时源旁容器仍按源容器兜底');
@@ -15830,12 +14907,11 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
         '空载 hauler 从 storage 取出底线以上的能量去喂控制器容器（storage ' + cbStorage.store[C.RESOURCE_ENERGY] + '，手上 ' + cbHauler.store[C.RESOURCE_ENERGY] + '，动作 ' + cbHauler.actions.join(',') + '）');
     assert((Memory.rooms.W41N40.storageConsumerFallback || 0) > 0, '记 storageConsumerFallback 遥测（得 ' + Memory.rooms.W41N40.storageConsumerFallback + '）');
     const cbCarried = cbHauler.store[C.RESOURCE_ENERGY];
-    cbHauler.pos = new RoomPosition(34, 23, 'W41N40');   // 走到控制器容器旁
+    cbHauler.pos = new RoomPosition(34, 23, 'W41N40');
     cbTick();
     assert(cbCtrl.store[C.RESOURCE_ENERGY] === cbCarried && cbHauler.store[C.RESOURCE_ENERGY] === 0,
         '揣着的 storage 货送进贴着源的控制器容器（容器 ' + cbCtrl.store[C.RESOURCE_ENERGY] + '，手上 ' + cbHauler.store[C.RESOURCE_ENERGY] + '）');
     assert(cbSrc1.store[C.RESOURCE_ENERGY] === 0, '没有误送进源容器');
-    // broker 的溢出判定按方案的源容器：满着的控制器容器不是源在溢出
     cbCtrl.store[C.RESOURCE_ENERGY] = 2000;
     world.time++;
     taskBroker.beginTick();
@@ -15903,7 +14979,6 @@ console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：
     assert(term.planTransfer([mkTRoom('W35S7', 260000, cfg.feeReserve + 100), poor], cfg) === null, 'terminal 只剩留给市场的传送费 ⇒ 不发');
     assert(term.planTransfer([rich], cfg) === null, '只有一个 terminal ⇒ 不发');
     assert(term.planTransfer([rich, poor], cfg, () => false) === null, '发送方 storageRich 滞回关着 ⇒ 不发');
-    // CPU 闸：cpu_shed 降载 / 硬停 / bucket 低于 minBucket 都不做
     const savedCpu = Game.cpu;
     Game.cpu = Object.assign({}, savedCpu, { bucket: 10000 });
     assert(term.cpuAllows(cfg, { active: false }) === true, 'bucket 健康 ⇒ 做');
@@ -15911,7 +14986,6 @@ console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：
     assert(term.cpuAllows(cfg, { active: false, stopped: true }) === false, '硬停过的 tick ⇒ 不做');
     Game.cpu = Object.assign({}, savedCpu, { bucket: cfg.minBucket - 1 });
     assert(term.cpuAllows(cfg, { active: false }) === false, 'bucket < minBucket ⇒ 不做');
-    // run：真实走一遍（Game.rooms 里两个 terminal 房）
     Game.cpu = Object.assign({}, savedCpu, { bucket: 10000 });
     world.time = Math.ceil(world.time / cfg.interval) * cfg.interval;
     const savedRooms = Game.rooms;
@@ -15958,7 +15032,6 @@ console.log('== 矿物调剂（2026-10-13，移植 overmind-absorb 019c5b1）：
     assert(mp && mp.resource === 'O' && mp.from.name === 'W31S6' && mp.to.name === 'W33S7',
         '有 O 余量的房把 O 调给缺 O 的有 lab 房（得 ' + JSON.stringify(mp && { r: mp.resource, f: mp.from.name, t: mp.to.name, a: mp.amount }) + '）');
     assert(mp.amount >= cfg.mineralWant && mp.amount <= cfg.mineralMaxSend && 9000 - mp.amount >= cfg.mineralKeep, '一笔在 [mineralWant, mineralMaxSend] 内，发送方仍留 mineralKeep（得 ' + mp.amount + '）');
-    // 下面几条的对照房刻意不带 lab 或什么矿都没有：否则它自己那种矿就构成另一笔合法调剂，测不到想测的那道闸
     assert(term.planMineralTransfer([donor, mkRoom('W34S7', 20000, {}, 2)], cfg) === null, '不到 mineralLabs 个 lab 的房不算缺口（调过去只是躺着）');
     assert(term.planMineralTransfer([mkRoom('W35S7', 20000, { O: cfg.mineralKeep + cfg.mineralWant }), mkRoom('W33S7', 20000, {}, 3)], cfg) === null,
         '发送方只有 keep + want ⇒ 不调出去');
@@ -15968,7 +15041,6 @@ console.log('== 矿物调剂（2026-10-13，移植 overmind-absorb 019c5b1）：
     const busy = mkRoom('W31S6', 20000, { O: 9000 });
     busy.terminal.cooldown = 5;
     assert(term.planMineralTransfer([busy, mkRoom('W33S7', 20000, {}, 3)], cfg) === null, '发送方 terminal 冷却中 ⇒ 不调');
-    // run：能量没得调时才做矿物，一轮一笔，遥测 Memory.terminalNetwork.mineral
     const savedRooms = Game.rooms;
     const savedMarket = Game.market;
     Game.market = { calcTransactionCost: (amount) => Math.ceil(amount * 0.1) };
@@ -15982,7 +15054,6 @@ console.log('== 矿物调剂（2026-10-13，移植 overmind-absorb 019c5b1）：
         'run：没有能量要调 ⇒ 发一笔 O（得 ' + JSON.stringify(rec) + '）');
     assert(Memory.terminalNetwork.mineral && Memory.terminalNetwork.mineral.sent === 1 && Memory.terminalNetwork.mineral.last.resource === 'O' && !Memory.terminalNetwork.last,
         '遥测记在 terminalNetwork.mineral，不覆盖能量那笔的 last（得 ' + JSON.stringify(Memory.terminalNetwork) + '）');
-    // 市场：缺口房缺着的基础矿不卖
     const holds = term.mineralHolds([d2, l2], cfg);
     assert(holds.has('O') && holds.has('X') && !holds.has('XZH2O'), 'mineralHolds：有 lab 的房缺着的基础矿（得 ' + JSON.stringify([...holds]) + '）');
     const mcfg = mk.settings();
@@ -16018,13 +15089,11 @@ console.log('== 终端网络的接收端：storage 不富余时 hauler 把 termi
     ROLES.hauler.run(tdHauler);
     assert(tdTerminal.store[C.RESOURCE_ENERGY] < 20000 && tdHauler.store[C.RESOURCE_ENERGY] > 0 && Memory.rooms.W31S6.terminalDrain && Memory.rooms.W31S6.terminalDrain.n === 1,
         '空载 hauler 从 terminal 取能量并记 terminalDrain（terminal ' + tdTerminal.store[C.RESOURCE_ENERGY] + '，遥测 ' + JSON.stringify(Memory.rooms.W31S6.terminalDrain) + '）');
-    // storage 富余：不取（不然补能搬进去、取货又搬出来）
     tdStorage.store[C.RESOURCE_ENERGY] = 200000;
     world.time++;
     taskBroker.beginTick();
     tdTasks = taskBroker.roomTasks(tdRoom);
     assert(!tdTasks.some((t) => t.kind === 'collect' && t.target === tdTerminal), 'storage 富余 ⇒ 不从 terminal 取');
-    // 2026-10-13 复审：富余滞回还开着，但 storage 用到 terminalDrainStorageBelow 以下 ⇒ terminal 里补进去的能量没有消费方，取回来、只留 feeReserve
     const tdCfg = require('../src/config');
     const tdKeep = tdCfg.terminalNetwork.feeReserve;
     tdTerminal.store[C.RESOURCE_ENERGY] = 30000;
@@ -16055,7 +15124,6 @@ console.log('== 终端网络的接收端：storage 不富余时 hauler 把 termi
     taskBroker.beginTick();
     tdTasks = taskBroker.roomTasks(tdRoom);
     assert(!tdTasks.some((t) => t.kind === 'collect' && t.target === tdTerminal), 'terminal 只剩 feeReserve ⇒ 不再取');
-    // storage 用光（滞回退出）：重新取
     tdStorage.store[C.RESOURCE_ENERGY] = 0;
     world.time++;
     taskBroker.beginTick();
@@ -16097,7 +15165,6 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     assert(mk.pickBuyOrder(orders, room, entry, cfg, 2) === null, '买单价低于底线 ⇒ 不卖');
     const broke = mkMRoom('W33S7', 1, { L: 10000 });
     assert(mk.pickBuyOrder(orders, broke, entry, cfg, 0.1) === null, 'terminal 付不起传送能量 ⇒ 不卖');
-    // getHistory：从没成交过时引擎返回空对象而不是数组（engine game/market.js：history[资源] || {}）
     Memory.market = {};
     Game.market = { getHistory: () => ({}), calcTransactionCost: (a) => Math.ceil(a * 0.1) };
     let threw = null;
@@ -16108,7 +15175,6 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     Game.market = { getHistory: () => { historyCalls++; return [{ avgPrice: 2 }, { avgPrice: 4 }]; }, calcTransactionCost: (a) => Math.ceil(a * 0.1) };
     Memory.market = {};
     assert(mk.recentAvgPrice('L', cfg) === 3 && mk.recentAvgPrice('L', cfg) === 3 && historyCalls === 1, '有成交史时取近期均价并缓存（调用 ' + historyCalls + ' 次）');
-    // run：真实走一遍
     const deals = [];
     let orderCalls = 0;
     Game.market = {
@@ -16127,7 +15193,6 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         'run 成交一单并记 Memory.market.last（得 ' + JSON.stringify(rec) + '）');
     assert(Memory.market.deals === 1 && Memory.market.sold === rec.amount && orderCalls === 1, '累计成交、同一资源一轮只查一次 getAllOrders（得 ' + JSON.stringify({ deals: Memory.market.deals, orderCalls }) + '）');
     assert(term.usedThisTick('W33S7'), '市场用过的 terminal 本 tick 终端网络不再用');
-    // 闸门：不在 interval / 降载中 / bucket 低 / storage 不富余 都不卖
     world.time++;
     assert(mk.run({ active: false }) === null, '不在 interval 的 tick 不做');
     world.time += cfg.interval - 1;
@@ -16140,7 +15205,6 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     Game.rooms = { W31S6: starving };
     orderCalls = 0;
     assert(mk.run({ active: false }) === null && deals.length === 1 && orderCalls === 0, 'storage 不富余（storageRich 关）的房不卖、也不查单');
-    // maxScans：很多种资源都没有合适买单时，一轮最多查 maxScans 次
     const many = {};
     ['K', 'U', 'O', 'Z', 'X', 'H'].forEach((r) => { many[r] = 9000; });
     Game.rooms = { W33S7: mkMRoom('W33S7', 5000, many) };
@@ -16194,7 +15258,6 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         getRoomLinearDistance: (a, b) => { const p = (n) => /^W(\d+)S(\d+)$/.exec(n).slice(1).map(Number); const [ax, ay] = p(a), [bx, by] = p(b); return Math.max(Math.abs(ax - bx), Math.abs(ay - by)); },
         findRoute: (a, b, opts) => {
             routeCalls.push(b);
-            // W33S7 → W34S6(SK) → W34S5 → W35S5? 用一条经过 SK 的直线与一条绕路：回调挡掉 SK 时绕路 3 跳
             if (b === 'W30S7') return [{ room: 'W32S7' }, { room: 'W31S7' }, { room: 'W30S7' }];
             if (b === 'W35S5') return opts.routeCallback('W34S6') === Infinity ? -2 : [{ room: 'W34S6' }, { room: 'W35S5' }];
             return -2;
@@ -16247,20 +15310,17 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     Game.cpu.bucket = 9000;
     const st = (o) => Object.assign({ getUsedCapacity: (r) => (r ? Number(o[r] || 0) : 0), getFreeCapacity: () => 100000 }, o);
     const mkRoom = (name, term, stor) => ({ name, controller: { my: true, level: 7 }, terminal: { my: true, cooldown: 0, store: st(term) }, storage: { my: true, store: st(stor || {}) }, find: () => [] });
-    // 卖：ZH2O 留 5 万、日上限 2000；中间产物不卖；silicon 全卖
     const sell = mk.sellable(mkRoom('W34S7', { ZH2O: 300000, GH: 500, silicon: 800, energy: 5000 }), cfg, null);
     const zh = sell.find((e) => e.resource === 'ZH2O');
     assert(zh && zh.amount === 2000 && !sell.find((e) => e.resource === 'GH') && sell.find((e) => e.resource === 'silicon').amount === 800,
         'ZH2O 每日最多 2000、GH 永不卖、silicon 全卖（得 ' + JSON.stringify(sell) + '）');
     mk.ledger().sold.ZH2O = 2000;
     assert(!mk.sellable(mkRoom('W34S7', { ZH2O: 300000 }), cfg, null).length, 'ZH2O 当日卖满 2000 就停');
-    // 卖单价带：均价 100、band 0.15 ⇒ 买单 < 85 不卖；单笔 ≤ 50k credits
     const room = mkRoom('W34S7', { energy: 50000 });
     const orders = [{ id: 'o1', type: 'buy', resourceType: 'X', amount: 5000, price: 80, roomName: 'W1N1' }, { id: 'o2', type: 'buy', resourceType: 'X', amount: 5000, price: 90, roomName: 'W1N1' }];
     Game.market = { calcTransactionCost: () => 10 };
     const pk = mk.pickBuyOrder(orders, room, { resource: 'X', amount: 5000 }, cfg, 85);
     assert(pk && pk.order.id === 'o2' && pk.amount === 5000, '价带内取最高（卖不按 credits 截量，按日量/maxDeal）（得 ' + (pk && pk.order.id + ' ' + pk.amount) + '）');
-    // 买：credits 低于 2M 不买；买 Z 补到 3000，价格 ≤ 均价×1.15
     let deals = [];
     const sells = { Z: [{ id: 's1', type: 'sell', resourceType: 'Z', amount: 10000, price: 60, roomName: 'W1N1' }, { id: 's2', type: 'sell', resourceType: 'Z', amount: 10000, price: 50, roomName: 'W1N1' }], energy: [], X: [] };
     Game.market = { credits: 1999999, calcTransactionCost: () => 100, getAllOrders: (f) => sells[f.resourceType] || [], deal: (id, n, r) => { deals.push([id, n, r]); return OK; },
@@ -16272,7 +15332,6 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     const b = mk.tryBuy(cfg, Game.market, () => 0);
     assert(b && b.resource === 'Z' && deals[0][0] === 's2' && deals[0][1] === 1000, '买 Z、取价带内最便宜、单笔按 50k credits 截到 1000（得 ' + JSON.stringify(deals) + '）');
     assert(Memory.market.ledger.buyCredits === 50000, '账本记买入 credits（得 ' + Memory.market.ledger.buyCredits + '）');
-    // 买能量：到手单价含传送费 ≤ 15；计入日上限
     deals = [];
     Memory.market = {};
     sells.energy = [{ id: 'e1', type: 'sell', resourceType: 'energy', amount: 20000, price: 5.5, roomName: 'W1N1' }];
@@ -16283,7 +15342,6 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     Game.market.calcTransactionCost = (n) => Math.ceil(n * 0.7);
     Memory.market = {};
     assert(mk.tryBuyEnergy(cfg, Game.market, () => 0) === null, '传送费太高（到手 > 15）不买');
-    // 自挂单：先挂 labs 的买单，再挂 ZH2O 卖单；费计入日额度；到期撤单退额度
     {
         Memory.market = {};
         const ocfg = mk.settings();
@@ -16300,7 +15358,6 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         const zs = created.find((o) => o.resourceType === 'ZH2O');
         assert(zs && zs.type === 'sell' && zs.roomName === 'W34S7' && zs.totalAmount === 2000 && zs.price === 2500 && Memory.market.ledger.sellFees === 250000, 'ZH2O 自挂卖单（当日 2000、均价、卖单费记 sellFees）（得 ' + JSON.stringify(zs) + '）');
         assert(created.filter((o) => o.resourceType === 'Z').length === 1, '同房同资源只挂一张');
-        // 认领 id、部分成交、到期撤单
         Game.market.orders = { oid1: { id: 'oid1', type: 'buy', resourceType: 'Z', roomName: 'W32S4', remainingAmount: 400 } };
         mk.syncOrders(ocfg, Game.market);
         const zk = Memory.market.orders['buy:W32S4:Z'];
@@ -16315,7 +15372,6 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         mk.runOwnOrders(ocfg, Game.market);
         assert(created.length === n, 'credits < 2M 不挂单');
     }
-    // 2026-10-15 巡检：X 均价 ~440 时单笔 5 万上限只够 113 个 < minDeal 500，自挂买单以前永远挂不出
     {
         Memory.market = {};
         const ocfg = mk.settings();
@@ -16331,7 +15387,6 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         mk.runOwnOrders(ocfg, Game.market);
         assert(!created.find((o) => o.resourceType === 'X'), 'X 均价 600 ⇒ 5 万只够 83 < minBuyAmount 100，不挂');
     }
-    // 2026-10-15 巡检：K 矿强开（大脑停用、冻结指令 enabled:false）
     {
         const mm = ROLES.mineralMiner;
         const plan = { version: 1, enabled: false, count: 0, reason: 'energy', mineralType: 'K' };
@@ -16340,7 +15395,6 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         assert(mm.forced({ name: 'W37S5' }, plan) === plan, '不在 force 名单（W37S5）不动');
         assert(config.minerals.force.W31S6 && config.minerals.force.W37S7 && !config.minerals.force.W37S5, 'K 只开 W31S6/W33S8/W37S7');
     }
-    // 2026-10-15 巡检：W33S7 storage 的 L 由空闲 hauler 搬进 terminal（到 8000）
     {
         const hl = ROLES.hauler;
         const stx = (o, free) => Object.assign({ getUsedCapacity: () => 0, getFreeCapacity: () => free }, o);
@@ -16363,7 +15417,6 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         assert(hl.unstashPull(far, r, { urgent: false }, plan) === true && plan.move === stor, '不在 storage 旁先走过去');
         assert(config.terminalNetwork.terminalFeeReserve.W33S7 === 1000, 'W33S7 terminal 留 1000 能量付 L 调剂的传送费');
     }
-    // labs 闸
     const labRoom = mkRoom('W32S4', {}, { energy: 25000 });
     assert(ind.labsAllowed(labRoom) === true && ind.labsAllowed(mkRoom('W33S7', {}, { energy: 90000 })) === false, 'labs 只在 labRooms、storage ≥ 2 万时开');
     assert(ind.labsAllowed(mkRoom('W32S4', {}, { energy: 15000 })) === false, 'storage < 2 万关');
