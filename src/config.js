@@ -532,6 +532,7 @@ module.exports = {
                 boost: { soldCreditsAbove: 1000000, dailyBuyCredits: 4000000, holdIfFalling: { hours: 24, spentAbove: 1500000 } },
                 creditFloor: 5000000,
                 perRoomDailyCredits: 500000,
+                actualStopCredits: 4000000,
                 preferSenders: ['W29S3'],
             },
         },

@@ -15715,6 +15715,39 @@ console.log('== 10-18 14:07：单房能量日额度 = 已成交 + 待成交承�
     Memory.market = savedMem; world.time = savedTime; Game.market = savedGM; Game.rooms = savedRooms;
 }
 
+console.log('== 10-18 14:17：全帐号当天买能量实际花费（成交 + 手续费，不算未成交承诺）到 400 万：撤掉所有开着的能量买单、当天不再挂 ==');
+{
+    const mk = require('market');
+    const savedMem = Memory.market, savedGM = Game.market, savedRooms = Game.rooms, savedCfg = config.market;
+    config.market = structuredClone(liveMarketCfg);
+    config.market.ownOrders.energy.actualStopCredits = 4000000;
+    const day = Math.floor(Date.now() / 86400000);
+    const cancelled = [], created = [];
+    const openOrders = () => ({
+        a: { id: 'a', type: 'buy', resourceType: 'energy', roomName: 'W31S6', price: 45, remainingAmount: 5000 },
+        b: { id: 'b', type: 'buy', resourceType: 'energy', roomName: 'W37S5', price: 43.2, remainingAmount: 1157 },
+        c: { id: 'c', type: 'buy', resourceType: 'energy', roomName: 'W35S7', price: 45, remainingAmount: 0 },
+        x: { id: 'x', type: 'buy', resourceType: 'X', roomName: 'W32S4', price: 300, remainingAmount: 100 } });
+    Game.market = { credits: 30000000, orders: openOrders(), getHistory: () => [{ avgPrice: 40 }], getAllOrders: () => [], createOrder: (o) => (created.push(o), OK), cancelOrder: (id) => (cancelled.push(id), OK) };
+    Game.rooms = { W31S6: { name: 'W31S6', terminal: { my: true, store: { energy: 0, getFreeCapacity: () => 300000 } }, storage: { store: { energy: 0 } } } };
+    Memory.market = { ledger: { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 9000000, energyBuyByRoom: {}, energySpent: 3500000, energyFees: 200000, deals: 0 }, orders: {} };
+    const e = mk.settings().ownOrders.energy;
+    assert(e.actualStopCredits === 4000000, 'config：实际花费护栏 400 万');
+    assert(mk.energyStopCheck(e, Game.market) === false && cancelled.length === 0, '实际 370 万（承诺额 900 万不算）：不撤');
+    const led = Memory.market.ledger;
+    assert(mk.energyActual(led, 1000 * 45, 0) === 3745000 && mk.energyActual(led, 0, 2250) === 3747250, '成交和手续费分别累计进实际花费');
+    led.energySpent = 3800000;
+    assert(mk.energyStopCheck(e, Game.market) === true, '实际 400 万：触发');
+    assert(cancelled.sort().join() === 'a,b', '撤掉所有还开着的能量买单（新单旧单都撤，已吃满的和别的资源不动）（得 ' + cancelled.join() + '）');
+    const log = Memory.market.daily[new Date().toISOString().slice(0, 10)].energyStop;
+    assert(log && log.actual >= 4000000 && log.cancelled === 2 && led.energyStopped, '记日志到 Memory.market.daily[UTC 日].energyStop');
+    cancelled.length = 0;
+    Game.market.orders = openOrders();
+    mk.runOwnOrders(mk.settings(), Game.market);
+    assert(!created.some((o) => o.resourceType === 'energy') && !cancelled.includes('a') && !cancelled.includes('b'), '当天不再挂能量单、不重复撤（得 ' + JSON.stringify([created.map((o) => o.resourceType), cancelled]) + '）');
+    config.market = savedCfg; Memory.market = savedMem; Game.market = savedGM; Game.rooms = savedRooms;
+}
+
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');
 {
     resetWorld(6900);
