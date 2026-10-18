@@ -307,6 +307,10 @@ module.exports.loop = function () {
                 const now = Game.cpu.getUsed();
                 const roleName = creep.memory.role;
                 cpuProf.role[roleName] = (cpuProf.role[roleName] || 0) + (now - mark);
+                const homeName = creep.memory.home;
+                if (homeName) cpuProf.home[homeName] = (cpuProf.home[homeName] || 0) + (now - mark);
+                const remoteName = creep.memory.remoteRoom;
+                if (remoteName) cpuProf.remote[remoteName] = (cpuProf.remote[remoteName] || 0) + (now - mark);
                 if (sampleDisp) cpuProf.disp.run = (cpuProf.disp.run || 0) + (now - mark);
                 mark = now;
             }
@@ -486,9 +490,12 @@ function sampleStats() {
             diag.memAt = Game.time;
         }
     } catch (e) {  }
+    try { foldCpuLedger(); } catch (e) { logErr('cpuLedger', e); }
     cpuProf.mod = {};
     cpuProf.room = {};
     cpuProf.role = {};
+    cpuProf.home = {};
+    cpuProf.remote = {};
     cpuProf.disp = {};
     cpuProf.dispTicks = 0;
     cpuProf.roleTicks = 0;
@@ -543,7 +550,17 @@ function gcProbeKeys() {
 const ROLE_SAMPLE_EVERY = Math.max(1, Math.floor(Number((config.cpuProfile || {}).sampleEvery) || 5));
 const DISPATCH_EVERY = Math.max(1, Math.floor(Number((config.cpuProfile || {}).dispatchEvery) || 30));
 const DISPATCH_PHASE = Math.floor(DISPATCH_EVERY / 2 / ROLE_SAMPLE_EVERY) * ROLE_SAMPLE_EVERY;
-const cpuProf = { mod: {}, room: {}, role: {}, disp: {}, ticks: 0, roleTicks: 0, dispTicks: 0 };
+const cpuProf = { mod: {}, room: {}, role: {}, disp: {}, home: {}, remote: {}, ticks: 0, roleTicks: 0, dispTicks: 0 };
+function foldCpuLedger() {
+    const led = Memory.cpuLedger || (Memory.cpuLedger = { since: Game.time, sinceMs: Date.now(), ticks: 0, roleTicks: 0, room: {}, home: {}, remote: {} });
+    const add = (into, from) => { for (const k of Object.keys(from)) into[k] = Math.round(((into[k] || 0) + from[k]) * 1000) / 1000; };
+    add(led.room, cpuProf.room);
+    add(led.home, cpuProf.home);
+    add(led.remote, cpuProf.remote);
+    led.ticks += cpuProf.ticks;
+    led.roleTicks += cpuProf.roleTicks;
+    led.at = Game.time;
+}
 let cpuMark = 0;
 function cpuStart() { cpuMark = Game.cpu.getUsed(); }
 function cpuLap(bucket, label) {

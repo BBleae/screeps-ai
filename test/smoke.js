@@ -1220,6 +1220,8 @@ assert((Memory.errors || []).length === 0, '无运行时错误: ' + JSON.stringi
         'stats 带 cpuBy / cpuRooms / cpuRoles 三张 CPU 表');
     assert(stat && stat.cpuSpawn && typeof stat.cpuSpawn === 'object' && stat.cpuDispatch && typeof stat.cpuDispatch === 'object',
         'stats 另带 cpuSpawn / cpuDispatch 两张阶段表（cpuBy 里最大的两块要能拆开看）');
+    assert(Memory.cpuLedger && Memory.cpuLedger.ticks > 0 && Memory.cpuLedger.room && Memory.cpuLedger.home && Memory.cpuLedger.remote,
+        '10-18：按房/按外矿的 CPU 累计账 Memory.cpuLedger（room=房间调度，home=母房 creep，remote=外矿 creep）');
     const srcOrder = stat && stat.cache && stat.cache.srcOrder;
     assert(Array.isArray(srcOrder) && srcOrder.length === 2 && srcOrder[0] >= srcOrder[1] && srcOrder[1] >= 0,
         'stats.cache.srcOrder 记下窗口内源顺序缓存的 [调用, 命中]（得 ' + JSON.stringify(srcOrder) + '）');
