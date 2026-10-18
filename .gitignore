@@ -13,18 +13,14 @@ private-server/
 tmp_scan.json
 logs/*
 !logs/optimizations.md
-# 外部大脑的缓存与生成物
 data/brain/
 data/report/
-# 玩家观察的原始快照与时间线
 data/observe/
-# RCL 基准的原始采样（几十 MB），报告归档在 docs/benchmarks/
 data/soak/rcl-bench-*/
 data/soak/rcl-fork-*/
 data/soak/haul-fork-*/
 data/validation/
 
-# 公开仓库：运行数据一律不入库
 data/
 backups/live.json
 backups/live_backup_*.json
