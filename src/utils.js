@@ -807,6 +807,26 @@ function towerFirstHold(room) {
     return hold;
 }
 
+function upgradeHold(room, mem) {
+    const cfg = (((config.upgrading || {}).hold) || {})[room && room.name];
+    if (!cfg || !room.controller || !room.controller.my) return null;
+    const m = mem || (Memory.rooms[room.name] || (Memory.rooms[room.name] = {}));
+    const key = typeof RESOURCE_ENERGY === 'undefined' ? 'energy' : RESOURCE_ENERGY;
+    const energy = Number((room.storage && room.storage.my !== false && room.storage.store && room.storage.store[key]) || 0);
+    const prev = m.upgradeHold;
+    const resumeAt = Number(cfg.resumeAt) || 10000;
+    const holdBelow = Math.min(resumeAt, Number(cfg.holdBelow) || resumeAt);
+    const on = (prev ? !!prev.on : true) ? energy < resumeAt : energy < holdBelow;
+    const table = typeof CONTROLLER_DOWNGRADE !== 'undefined' ? CONTROLLER_DOWNGRADE : {};
+    const full = Number(table[room.controller.level]) || 0;
+    const ttd = Number(room.controller.ticksToDowngrade);
+    const low = full * (Number(cfg.guardLow) || 0.5);
+    const high = full * (Number(cfg.guardHigh) || 0.9);
+    const guard = on && full > 0 && Number.isFinite(ttd) && (prev && prev.guard ? ttd < high : ttd < low);
+    if (!prev || prev.on !== on || prev.guard !== guard) m.upgradeHold = { on, guard, at: Game.time, energy, ttd };
+    return m.upgradeHold;
+}
+
 function conserveUpgradeAllowed(room) {
     const c = room && room.controller;
     if (!c || c.ticksToDowngrade == null) return true;
@@ -1011,6 +1031,7 @@ module.exports = {
     ownerDangerRooms,
     conserving,
     conserveUpgradeAllowed,
+    upgradeHold,
     towerFirstHold,
     towerFloorHold,
     spawnPausedByHostile,

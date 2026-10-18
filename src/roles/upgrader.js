@@ -384,6 +384,12 @@ function run(creep) {
         creep.memory.boostDone = true;
     }
     if (stuckWatchdog(creep, room, mem)) return;
+    const held = utils.upgradeHold(room, mem);
+    if (held && held.on && !held.guard) {
+        creep.memory.upgradeHoldRetire = Game.time;
+        retire.retireAtSpawn(creep);
+        return;
+    }
     const state = mem.state || {};
     const ctrl = room.controller;
     reportBudget(room, mem, upgradeDuty(room, mem));

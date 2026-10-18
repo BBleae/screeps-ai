@@ -1073,6 +1073,8 @@ function upgraderTarget(room, mem) {
     const roster = config.roster[room.controller.level] || {};
     const base = Math.max(0, Number(roster.upgrader || 0));
     if (!base) return 0;
+    const held = utils.upgradeHold(room, mem);
+    if (held && held.on) return held.guard ? 1 : 0;
     const settings = config.upgrading || {};
     const forceRich = (settings.forceRichUpgraders || []).indexOf(room.name) >= 0;
     const storageRich = forceRich || utils.storageRichState(room, mem, settings);
@@ -1326,7 +1328,9 @@ function upgraderBody(room, mem, budget) {
     }
     const rclMax = room.controller && room.controller.level >= 8 ? 15 : 50;
     const supplyWork = utils.upgraderSupplyWork(room, mem);
-    const maxWork = supplyWork == null ? rclMax : Math.min(rclMax, supplyWork);
+    const held = utils.upgradeHold(room, mem);
+    const holdWork = held && held.on ? Math.max(1, Number((((settings.hold || {})[room.name]) || {}).work) || 2) : Infinity;
+    const maxWork = Math.min(holdWork, supplyWork == null ? rclMax : Math.min(rclMax, supplyWork));
     if (supplyWork != null && mem && supplyWork < rclMax && Math.floor((allowance - 150) / 100) > supplyWork) {
         const track = mem.upgradeSupply || (mem.upgradeSupply = { ema: 0, extra: 0, at: -1, changedAt: -1 });
         const seen = track.sizeCap;
@@ -1850,7 +1854,8 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
     let upWork = upWorkCap == null ? 0 : plannedUpgraderWork(room);
     if (planned.upgrader === 0 && mem.upgradeBudget && mem.upgradeBudget.work) { mem.upgradeBudget.work = 0; mem.upgradeBudget.at = Game.time; }
     const upPerBody = upWorkCap == null ? 0 : bodyPartCount(upgraderBody(room, mem, cap), 'work');
-    const towerHoldUp = utils.towerFirstHold(room) && !(room.controller && room.controller.ticksToDowngrade < 5000);
+    const holdGuard = utils.upgradeHold(room, mem);
+    const towerHoldUp = utils.towerFirstHold(room) && !(room.controller && room.controller.ticksToDowngrade < 5000) && !(holdGuard && holdGuard.guard);
     if (towerHoldUp && planned.upgrader < targets.upgrader) {
         const track = mem.upgradeSupply || (mem.upgradeSupply = { ema: 0, extra: 0, at: -1, changedAt: -1 });
         track.towerHold = Game.time;

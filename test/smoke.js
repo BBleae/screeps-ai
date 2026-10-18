@@ -15509,6 +15509,38 @@ console.log('== 10-18 12:04 #6：unreachable 外矿不进预算和 staffed ==');
     assert(urStaff.staffed.indexOf('W99N95') >= 0, '冷却过期的照常参与预算');
 }
 
+console.log('== 10-18 12:04 #2：W31S5 降升级强度（storage <1 万只保不掉级，1 万恢复，6000 以下才重新进入） ==');
+{
+    resetWorld(6000);
+    const hadCD = typeof global.CONTROLLER_DOWNGRADE !== 'undefined';
+    const savedCD = global.CONTROLLER_DOWNGRADE;
+    global.CONTROLLER_DOWNGRADE = { 7: 150000, 8: 200000 };
+    const uhStore = { energy: 2000 };
+    const uhRoom = { name: 'W31S5', controller: { my: true, level: 7, ticksToDowngrade: 140000 }, storage: { my: true, store: uhStore } };
+    const uhMem = {};
+    let uh = utils.upgradeHold(uhRoom, uhMem);
+    assert(uh.on === true && uh.guard === false, 'storage 2000：降档，降级计时满不需要保级');
+    assert(spawnMgr.upgraderTarget(Object.assign({ energyCapacityAvailable: 5600 }, uhRoom), uhMem) === 0, '降档且计时充足：upgrader 目标 0');
+    uhRoom.controller.ticksToDowngrade = 74000;
+    uh = utils.upgradeHold(uhRoom, uhMem);
+    assert(uh.guard === true, '计时 < 一半：开保级');
+    assert(spawnMgr.upgraderTarget(Object.assign({ energyCapacityAvailable: 5600 }, uhRoom), uhMem) === 1, '保级：upgrader 目标 1');
+    const uhBody = spawnMgr.upgraderBody(Object.assign({ energyCapacityAvailable: 5600, find: () => [] }, uhRoom), uhMem, 5600);
+    assert(uhBody.filter((p) => p === 'work').length <= 2, '保级 upgrader 最多 2 WORK（得 ' + uhBody.join(',') + '）');
+    uhRoom.controller.ticksToDowngrade = 120000;
+    assert(utils.upgradeHold(uhRoom, uhMem).guard === true, '保级滞回：升到 0.8 仍保级');
+    uhRoom.controller.ticksToDowngrade = 136000;
+    assert(utils.upgradeHold(uhRoom, uhMem).guard === false, '升到 0.9 以上：保级结束');
+    uhStore.energy = 10000;
+    assert(utils.upgradeHold(uhRoom, uhMem).on === false, 'storage 1 万：恢复');
+    uhStore.energy = 7000;
+    assert(utils.upgradeHold(uhRoom, uhMem).on === false, '滞回：7000 仍保持恢复');
+    uhStore.energy = 5999;
+    assert(utils.upgradeHold(uhRoom, uhMem).on === true, '跌破 6000：重新降档');
+    assert(utils.upgradeHold({ name: 'W32S4', controller: { my: true, level: 7, ticksToDowngrade: 1 } }, {}) === null, '其它房不受影响');
+    if (hadCD) global.CONTROLLER_DOWNGRADE = savedCD; else delete global.CONTROLLER_DOWNGRADE;
+}
+
 console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：把能量从富裕的房瞬时送到饥饿的房，发送方要 storageRich，降载时不做 ==');
 {
     resetWorld(6900);
