@@ -1015,7 +1015,9 @@ def analyze_room(mon, room, history):
         upgrade_info = room.get('upgrade') if isinstance(room.get('upgrade'), dict) else {}
         capped_work = upgrade_info.get('cap') if isinstance(upgrade_info.get('cap'), (int, float)) else None
         capped_ok = capped_work is not None and capped_work > 0 and rate >= capped_work * THRESHOLDS['rate_regression_ratio']
-        if baseline > 0 and rate < baseline * THRESHOLDS['rate_regression_ratio'] and not capped_ok:
+        hold_info = room.get('upgradeHold') if isinstance(room.get('upgradeHold'), dict) else {}
+        held = bool(hold_info.get('on')) and not hold_info.get('guard')
+        if baseline > 0 and rate < baseline * THRESHOLDS['rate_regression_ratio'] and not capped_ok and not held:
             issues.append(issue(f'升级速率回退: {rate:.2f} prog/tick < 基线 {baseline:.2f} 的 80%', name))
 
     spawned = queue.get('spawned')

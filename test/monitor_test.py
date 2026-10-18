@@ -744,6 +744,24 @@ class AlertNoiseTest(unittest.TestCase):
         dropped = monitor.analyze_snapshot(low, history)
         self.assertTrue(any('升级速率回退' in text for text in dropped['issues']), '5/tick < 封顶 12 的 80% 仍要报')
 
+    def test_rate_regression_skips_rooms_on_upgrade_hold(self):
+        history = []
+        prog = 0
+        history.append({'mon': self._room(1000, 500, None, prog)})
+        tick = 1000
+        for _ in range(6):
+            tick += 100
+            prog += 10 * 100
+            history.append({'mon': self._room(tick, 500, None, prog)})
+        held = self._room(tick + 100, 500, None, prog + 300)
+        held['rooms'][0]['upgradeHold'] = {'on': True, 'guard': False}
+        entry = monitor.analyze_snapshot(held, history)
+        self.assertFalse(any('升级速率回退' in text for text in entry['issues']), 'upgradeHold 停升级时不报回退')
+        guarded = self._room(tick + 100, 500, None, prog + 300)
+        guarded['rooms'][0]['upgradeHold'] = {'on': True, 'guard': True}
+        dropped = monitor.analyze_snapshot(guarded, history)
+        self.assertTrue(any('升级速率回退' in text for text in dropped['issues']), '进了 guard 仍要报')
+
 
 class StatusLogTrimTest(unittest.TestCase):
     def _write(self, count, size, max_bytes, keep):
