@@ -427,7 +427,7 @@ module.exports = {
         receiveBelow: 20000,
         keep: 60000,
         minSend: 5000,
-        priorityReceivers: ['W33S7', 'W32S4', 'W33S8', 'W31S8', 'W35S7', 'W34S7', 'W31S5', 'W37S5'],
+        priorityReceivers: ['W33S7', 'W32S4', 'W33S8', 'W31S8', 'W35S7', 'W34S7', 'W31S5', 'W37S5', 'W37S7', 'W31S6'],
         starvingBelow: 10000,
         starvingUntil: { W31S8: 20000, W33S7: 25000, W32S4: 25000, W33S8: 25000 },
         starveMinSend: 2000,
