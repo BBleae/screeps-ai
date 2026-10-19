@@ -268,6 +268,12 @@ function noteRetireStreak(log, ctrl, settings) {
     }
 }
 
+function freshUnderHold(creep, room) {
+    const cfg = ((config.upgrading || {}).hold || {})[room.name] || {};
+    const keep = Number(cfg.retireMaxTtl);
+    return keep > 0 && creep.ticksToLive > keep;
+}
+
 function stuckWatchdog(creep, room, mem) {
     const memory = creep.memory;
     const settings = config.upgrading || {};
@@ -336,7 +342,7 @@ function run(creep) {
     }
     if (stuckWatchdog(creep, room, mem)) return;
     const held = utils.upgradeHold(room, mem);
-    if (held && held.on && !held.guard) {
+    if (held && held.on && !held.guard && !freshUnderHold(creep, room)) {
         creep.memory.upgradeHoldRetire = Game.time;
         retire.retireAtSpawn(creep);
         return;

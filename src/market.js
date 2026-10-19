@@ -124,6 +124,11 @@ function buyStopped(cfg, resource) {
     return cap != null && accountStock(resource) > Number(cap);
 }
 
+function buyCap(cfg, resource) {
+    const cap = Number(cfg.buy && cfg.buy.maxPrice && cfg.buy.maxPrice[resource]);
+    return cap > 0 ? cap : Infinity;
+}
+
 function keepFor(resource, cfg) {
     const k = cfg.keepBy && cfg.keepBy[resource];
     return k != null ? Number(k) : cfg.keep;
@@ -502,7 +507,7 @@ function tryBuy(cfg, market, countScan) {
             if (want < cfg.minDeal) continue;
             const avg = recentAvgPrice(res, cfg);
             if (avg == null) continue;
-            const ceil = avg * (1 + cfg.priceBand);
+            const ceil = Math.min(avg * (1 + cfg.priceBand), buyCap(cfg, res));
             countScan();
             let orders = [];
             try { orders = market.getAllOrders({ type: typeof ORDER_SELL !== 'undefined' ? ORDER_SELL : 'sell', resourceType: res }) || []; }
@@ -754,7 +759,7 @@ function syncOrders(cfg, market) {
             led.filled = (led.filled || 0) + filled;
         }
         o.left = left;
-        const expired = Game.time >= o.expires || (o.type === 'buy' && buyStopped(cfg, o.resource));
+        const expired = Game.time >= o.expires || (o.type === 'buy' && (buyStopped(cfg, o.resource) || o.price > buyCap(cfg, o.resource)));
         if (!x || left <= 0 || expired) {
             if (x && left > 0 && typeof market.cancelOrder === 'function') market.cancelOrder(o.id);
             if (o.type === 'buy' && left > 0) {
@@ -974,9 +979,10 @@ function runOwnOrders(cfg, market) {
                 const have = Number(room.terminal.store[res] || 0) + Number((room.storage && room.storage.store[res]) || 0);
                 const avg = recentAvgPrice(res, cfg);
                 if (avg == null) continue;
-                const amount = Math.min(Number(b.target || 3000) - have, Number(b.orderAmount) || Infinity, Math.floor(cfg.maxOrderCredits / avg));
+                const price = Math.min(avg, buyCap(cfg, res));
+                const amount = Math.min(Number(b.target || 3000) - have, Number(b.orderAmount) || Infinity, Math.floor(cfg.maxOrderCredits / price));
                 if (amount < Math.min(cfg.minDeal, Number(own.minBuyAmount) || cfg.minDeal)) continue;
-                const r = postOrder(cfg, market, 'buy', res, roomName, avg, amount);
+                const r = postOrder(cfg, market, 'buy', res, roomName, price, amount);
                 if (r) return r;
             }
         }
@@ -1282,4 +1288,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { accountStock, buyStopped, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
+module.exports = { accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };

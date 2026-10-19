@@ -69,15 +69,29 @@ function destinations(plan) {
 function stock(plan, sinks) {
     return sinks.reduce((sum, item) => sum + (item.target.store[plan.mineralType] || 0), 0);
 }
-function ready(room, plan) {
-    if (!room || !room.controller || !room.controller.my || room.controller.level < 6 || !plan || !plan.enabled) return false;
+function headroom(room, plan) {
+    if (!room || !room.controller || !room.controller.my || room.controller.level < 6 || !plan || !plan.enabled) return null;
     const mineral = object(plan.mineralId);
     const extractor = object(plan.extractorId);
-    if (!mineral || mineral.mineralAmount <= 0 || !active(extractor)) return false;
+    if (!mineral || mineral.mineralAmount <= 0 || !active(extractor)) return null;
     const sinks = destinations(plan);
+    if (!sinks.some(({ target }) => target.store.getFreeCapacity() > plan.reserveFree)) return null;
     const cap = Number((((require('config').minerals) || {}).maxStock || {})[room.name]);
-    const maxStock = cap > 0 ? cap : plan.maxStock;
-    return stock(plan, sinks) < maxStock && sinks.some(({ target }) => target.store.getFreeCapacity() > plan.reserveFree);
+    return { left: (cap > 0 ? cap : plan.maxStock) - stock(plan, sinks), mineral };
+}
+function ready(room, plan) {
+    const space = headroom(room, plan);
+    return !!space && space.left > 0;
+}
+function lifetimeYield(plan) {
+    const work = (plan.body || []).filter((part) => part === 'work').length;
+    const cooldown = typeof EXTRACTOR_COOLDOWN === 'number' ? EXTRACTOR_COOLDOWN : 5;
+    const life = typeof CREEP_LIFE_TIME === 'number' ? CREEP_LIFE_TIME : 1500;
+    return Math.floor(work * Math.max(0, life - 2 * (Number(plan.returnTicks) || 0)) / (cooldown + 1));
+}
+function spawnReady(room, plan) {
+    const space = headroom(room, plan);
+    return !!space && space.left >= Math.min(lifetimeYield(plan), space.mineral.mineralAmount);
 }
 function move(creep, path, revision, target, range) {
     if (creep.fatigue) return;
@@ -161,4 +175,4 @@ function run(creep) {
     const before = creep.store[type] || 0;
     if (creep.harvest(mineral) === OK) creep.memory.mineralIntent = { tick: Game.time, type, before, action: 'harvest' };
 }
-module.exports = { run, directive, ready, mineralOf, forced, drained, configPlan, frozenPlan, basePlan };
+module.exports = { run, directive, ready, spawnReady, mineralOf, forced, drained, configPlan, frozenPlan, basePlan };

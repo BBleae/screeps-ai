@@ -1056,7 +1056,7 @@ function mineralMinerTarget(room, mem) {
     if (utils.towerFloorHold(room)) return 0;
     const miner = require('roles_mineralMiner');
     const plan = miner.directive(room);
-    return plan && plan.count === 1 && miner.ready(room, plan) ? 1 : 0;
+    return plan && plan.count === 1 && miner.spawnReady(room, plan) ? 1 : 0;
 }
 
 function labTechTarget(room, mem) {

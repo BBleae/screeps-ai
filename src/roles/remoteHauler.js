@@ -396,6 +396,7 @@ function settleRoadBudget(creep) {
     const delivered = creep.memory.remoteRoadDelivery;
     if (delivered && delivered.at < Game.time) {
         if (delivered.at === Game.time - 1 && creep.store[RESOURCE_ENERGY] < delivered.before) {
+            if (typeof remote.noteDelivered === 'function') remote.noteDelivered(creep.memory.home, creep.memory.remoteRoom);
             const home = Memory.rooms && Memory.rooms[creep.memory.home];
             if (home && creep.memory.remoteRoadSpent > 0) {
                 const record = home.remoteRoadBudget || (home.remoteRoadBudget = { spent: 0, deliveredTrips: 0 });

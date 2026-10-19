@@ -217,6 +217,7 @@ module.exports = {
         roadTrailCooldown: 1500,
         roadYieldCooldown: 1500,
         roadSitesPerHome: 12,
+        roadWave: { routes: ['W38S7:W39S8:d239', 'W31S8:W31S9:de40', 'W34S7:W34S8:da2e', 'W33S3:W32S2:dcde', 'W32S4:W33S5:dba9', 'W38S7:W38S8:d388'], active: 1, minStorage: 5000 },
         dropRefreshTicks: 500,
         dropRicherMargin: 50000,
         dropHomeBelow: 10000,
@@ -369,7 +370,7 @@ module.exports = {
         storageFeedRate: 20,
         maxUpgradersRich: { 1: 1, 2: 4, 3: 4, 4: 4, 5: 3, 6: 3, 7: 3, 8: 1 },
         forceRichUpgraders: [],
-        hold: { W31S5: { resumeAt: 10000, holdBelow: 6000, guardLow: 0.5, guardHigh: 0.9, work: 2, smooth: 0.02 } },
+        hold: { W31S5: { resumeAt: 10000, holdBelow: 6000, guardLow: 0.5, guardHigh: 0.9, work: 2, smooth: 0.02, retireMaxTtl: 1400 } },
         storageFullAt: 30000,
         poorBelow: 10000,
         poorBudgetShare: 0.5,
@@ -408,6 +409,7 @@ module.exports = {
         boostGoal: 3000,
         labBoostStock: 1000,
         labEnergyTarget: 2000,
+        productHold: { OH: { on: 5000, off: 2000 } },
     },
     deposit: {
         enabled: true,
@@ -504,7 +506,7 @@ module.exports = {
         maxOrderCredits: 50000,
         dailyBuyCredits: 500000,
         buyShare: { cap: { Z: 0.4 }, reserve: { O: 0.2, X: 0.2 } },
-        buy: { resources: ['Z', 'O', 'X', 'U'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'], stopAbove: { U: 5000 } },
+        buy: { resources: ['Z', 'O', 'X', 'U'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'], stopAbove: { U: 5000 }, maxPrice: { Z: 60, U: 60 } },
         buyEnergy: {
             enabled: false,
             maxEffective: 15,

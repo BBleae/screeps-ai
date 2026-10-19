@@ -708,6 +708,8 @@ const liveMarketCfg = structuredClone(config.market);
 const liveHaulingCfg = structuredClone(config.hauling);
 const liveBrainCfg = structuredClone(config.brain);
 config.remote.assign = {};
+const liveRoadWave = config.remote.roadWave;
+delete config.remote.roadWave;
 const liveIndustry = { labRooms: config.industry.labRooms, boostTargets: config.industry.boostTargets, boostUpgraders: config.industry.boostUpgraders, labOpportunistic: config.industry.labOpportunistic };
 config.industry.labOpportunistic = true;
 delete config.industry.labRooms;
@@ -7200,7 +7202,9 @@ world.time += 1;
 const unrRoom = makeRoom('W31S6', { rcl: 0, energy: 0, cap: 0 });
 unrRoom._sources = [makeSource(unrRoom, 10, 10, 'unr0'), makeSource(unrRoom, 30, 30, 'unr1')];
 unrRemote.observe(unrHome, unrRoom);
-assert(unrRecord.unreachableCount === 0 && unrRecord.lastSeen === Game.time, '有 creep 看到该房：unreachableCount 清零（得 ' + JSON.stringify([unrRecord.unreachableCount, unrRecord.lastSeen, Game.time]) + '）');
+assert(unrRecord.unreachableCount === 5 && unrRecord.lastSeen === Game.time, '只是看到该房：unreachableCount 不清零（得 ' + JSON.stringify([unrRecord.unreachableCount, unrRecord.lastSeen, Game.time]) + '）');
+unrRemote.noteDelivered('W33S7', 'W31S6');
+assert(unrRecord.unreachableCount === 0, '成功送到一次：unreachableCount 清零（得 ' + unrRecord.unreachableCount + '）');
 
 console.log('== 核心角色缺编、满配买不起但能量 ≥ 一半容量：按当前能量缩小身体立刻孵，而不是干等 ==');
 resetWorld(6900);
@@ -16665,6 +16669,144 @@ console.log('== 10-19 12:50 A–E：孤儿能量单自动撤、名单内富房�
         assert(term.settings().mineralWantByResource.L === 3000, 'lab 房 L 目标 3000');
     }
     Game.rooms = savedRooms; Memory.market = savedMem; Game.market = savedGM;
+}
+
+console.log('== 10-19 13:14 第二批：hold 不收新生 upgrader、送到一次才清不可达、矿满不孵、OH 滞回、Z/U 买价封顶 60、修路第一波 ==');
+{
+    resetWorld(80000);
+    Memory.rooms = {};
+    const up = makeRoom('W31S5', { rcl: 7, energy: 300, cap: 300, owner: 'me' });
+    const savedHold = utils.upgradeHold;
+    const retireMod = require('../src/retire');
+    const savedRetire = retireMod.retireAtSpawn;
+    const retired = [];
+    utils.upgradeHold = () => ({ on: true, guard: false });
+    retireMod.retireAtSpawn = (creep) => retired.push(creep.name);
+    const fresh = makeCreep(up, 'upFresh', ['work', 'carry', 'move'], { home: 'W31S5', role: 'upgrader', boostDone: true }, { ticksToLive: 1450 });
+    const old = makeCreep(up, 'upOld', ['work', 'carry', 'move'], { home: 'W31S5', role: 'upgrader', boostDone: true }, { ticksToLive: 1300 });
+    for (const creep of [fresh, old]) { try { ROLES.upgrader.run(creep); } catch (error) { } }
+    utils.upgradeHold = savedHold;
+    retireMod.retireAtSpawn = savedRetire;
+    assert(!retired.includes('upFresh') && !fresh.memory.upgradeHoldRetire, 'hold 开着：TTL 1450 > 1400 的新生 upgrader 不回收（得 ' + JSON.stringify(retired) + '）');
+    assert(retired.includes('upOld'), 'hold 开着：TTL 1300 的照常回收');
+    assert(config.upgrading.hold.W31S5.retireMaxTtl === 1400, '配置 upgrading.hold.W31S5.retireMaxTtl = 1400');
+}
+{
+    resetWorld(81000);
+    Memory.rooms = {};
+    const mr = makeRoom('W31S4', { rcl: 7, energy: 300, cap: 300, owner: 'me' });
+    const term = makeStructure(mr, C.STRUCTURE_TERMINAL, 25, 22, { id: 'mmTerm', capacity: 300000, energy: 0, extraStore: { L: 50211 } });
+    makeStructure(mr, C.STRUCTURE_EXTRACTOR, 29, 9, { id: 'mmExt' });
+    const mineral = { id: 'mmMin', mineralAmount: 20000, mineralType: 'L', pos: new RoomPosition(29, 9, 'W31S4') };
+    world.byId.mmMin = mineral;
+    const miner = ROLES.mineralMiner;
+    const plan = { enabled: true, count: 1, mineralId: 'mmMin', extractorId: 'mmExt', mineralType: 'L', sinks: [{ id: 'mmTerm' }], reserveFree: 5000, maxStock: 50000,
+        returnTicks: 34, body: Array(21).fill('work').concat(Array(5).fill('carry'), Array(13).fill('move')) };
+    assert(!miner.ready(mr, plan) && !miner.spawnReady(mr, plan), 'L 50211 ≥ 5 万：不孵也不挖');
+    term.store.L = 46000;
+    assert(miner.ready(mr, plan) && !miner.spawnReady(mr, plan), 'L 4.6 万：差 4000 不够一只矿工一辈子的量，不孵（在岗的照挖）');
+    term.store.L = 44000;
+    assert(miner.spawnReady(mr, plan), 'L 4.4 万：余量够一辈子（约 5000），才孵');
+    term.store.L = 48000; mineral.mineralAmount = 1000;
+    assert(miner.spawnReady(mr, plan), '矿只剩 1000、余量 2000 ≥ 1000：可以孵');
+}
+{
+    resetWorld(82000);
+    Memory.rooms = {};
+    const ind = require('../src/industry');
+    const savedReactions = global.REACTIONS;
+    global.REACTIONS = { H: { O: 'OH', G: 'GH' }, O: { H: 'OH' }, G: { H: 'GH' }, GH: { OH: 'GH2O' }, OH: { GH: 'GH2O' }, GH2O: { X: 'XGH2O' }, X: { GH2O: 'XGH2O' } };
+    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic };
+    config.industry.boostTargets = ['XGH2O'];
+    config.industry.labOpportunistic = false;
+    const lr = makeRoom('W32S4', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
+    makeStructure(lr, C.STRUCTURE_STORAGE, 24, 22, { id: 'ohStore', capacity: 1000000, energy: 100000 });
+    const term = makeStructure(lr, C.STRUCTURE_TERMINAL, 25, 22, { id: 'ohTerm', capacity: 300000, energy: 20000, extraStore: { H: 40000, O: 3000, GH: 1000, X: 1200, OH: 9470 } });
+    const mkLab = (x, id, store) => makeStructure(lr, C.STRUCTURE_LAB, x, 21, { id, capacity: 5000, energy: 0, extraStore: store || {} });
+    mkLab(35, 'ohA', { O: 600 }); mkLab(36, 'ohB', { H: 600 }); mkLab(37, 'ohC', { OH: 300 });
+    Memory.rooms.W32S4 = { labRoles: { inputs: ['ohA', 'ohB'], outputs: ['ohC'], boost: null, at: 1 } };
+    const p1 = ind.labPlan(lr);
+    assert(p1 && p1.product === 'GH2O' && Memory.rooms.W32S4.productHold && Memory.rooms.W32S4.productHold.OH, 'terminal OH 9470 ≥ 5000：不再续做 OH，改做 GH2O（得 ' + (p1 && p1.product) + '）');
+    assert(p1.drains.some((d) => d.labId === 'ohA') && p1.drains.some((d) => d.labId === 'ohB'), '输入 lab 里的 O/H 要清出来换料');
+    world.time++;
+    term.store.OH = 3000;
+    assert(ind.labPlan(lr).product !== 'OH' && Memory.rooms.W32S4.productHold.OH, 'OH 3000（2000–5000 之间）：保持不做 OH');
+    world.time++;
+    term.store.OH = 1500;
+    const p3 = ind.labPlan(lr);
+    assert(!Memory.rooms.W32S4.productHold.OH && p3.product === 'OH', 'OH 1500 < 2000：放开，回到 OH（得 ' + p3.product + '）');
+    config.industry.boostTargets = savedInd.boostTargets;
+    config.industry.labOpportunistic = savedInd.labOpportunistic;
+    global.REACTIONS = savedReactions;
+}
+{
+    const mk = require('../src/market');
+    const live = liveMarketCfg;
+    assert(live.buy.maxPrice.Z === 60 && live.buy.maxPrice.U === 60 && live.buy.stopAbove.U === 5000, '线上配置：Z/U 买价封顶 60，U 停买线 5000 还在');
+    assert(mk.buyCap(live, 'Z') === 60 && mk.buyCap(live, 'O') === Infinity, 'buyCap：Z 60，没配的不封顶');
+    const savedMem = Memory.market;
+    const savedGM = Game.market;
+    const savedRooms = Game.rooms;
+    Game.rooms = {};
+    world.time++;
+    Memory.market = { orders: { 'buy:W32S4:Z': { id: 'oz', type: 'buy', resource: 'Z', room: 'W32S4', price: 70, amount: 500, left: 500, posted: 1, expires: Game.time + 100000 },
+        'buy:W32S4:X': { id: 'ox', type: 'buy', resource: 'X', room: 'W32S4', price: 70, amount: 500, left: 500, posted: 1, expires: Game.time + 100000 } } };
+    const cancelled = [];
+    const market = { credits: 1e6, orders: { oz: { id: 'oz', remainingAmount: 500 }, ox: { id: 'ox', remainingAmount: 500 } }, cancelOrder: (id) => (cancelled.push(id), 0) };
+    Game.market = market;
+    mk.syncOrders(live, market);
+    assert(cancelled.includes('oz') && !cancelled.includes('ox'), '已挂的 Z 买单价 70 > 60：撤；X 不封顶不撤（得 ' + JSON.stringify(cancelled) + '）');
+    Memory.market = savedMem; Game.market = savedGM; Game.rooms = savedRooms;
+}
+{
+    resetWorld(90000);
+    Memory.rooms = {};
+    const remoteMod = require('../src/remote');
+    config.remote.roadWave = liveRoadWave;
+    const home = makeRoom('W38S7', { rcl: 7, energy: 300, cap: 300, owner: 'me' });
+    const homeStore = makeStructure(home, C.STRUCTURE_STORAGE, 24, 22, { id: 'wvStore', capacity: 1000000, energy: 20000 });
+    const home2 = makeRoom('W31S8', { rcl: 7, energy: 300, cap: 300, owner: 'me' });
+    makeStructure(home2, C.STRUCTURE_STORAGE, 24, 22, { id: 'wvStore2', capacity: 1000000, energy: 20000 });
+    const transit = makeRoom('W38S8', { rcl: 0, my: false });
+    const far = makeRoom('W39S8', { rcl: 0, my: false });
+    const w31s9 = makeRoom('W31S9', { rcl: 0, my: false });
+    const src = (id, routeRoads, done) => ({ id, pos: { x: 1, y: 1 }, spot: { x: 2, y: 2 }, routeRoads, roadComplete: !!done });
+    Memory.rooms.W38S7 = { remotes: {
+        W39S8: { room: 'W39S8', enabled: true, sources: [src('aad239', { W38S7: '5.5', W38S8: '10.10;11.10;12.10', W39S8: '40.20;41.20' }), src('aad23b', { W39S8: '30.30;31.30;32.30' })] },
+        W38S8: { room: 'W38S8', enabled: true, sources: [src('bbd388', { W38S8: '20.20;21.20' })] },
+    } };
+    Memory.rooms.W31S8 = { remotes: { W31S9: { room: 'W31S9', enabled: true, sources: [src('ccde40', { W31S9: '7.7;8.7' })] } } };
+    const roadSites = (room) => Object.values(Game.constructionSites).filter((s) => s.structureType === C.STRUCTURE_ROAD && (!room || s.pos.roomName === room)).map((s) => s.pos.roomName + ':' + s.pos.x + '.' + s.pos.y).sort();
+    remoteMod.placeWaveRoads(home, Memory.rooms.W38S7.remotes);
+    remoteMod.placeWaveRoads(home2, Memory.rooms.W31S8.remotes);
+    assert(JSON.stringify(roadSites()) === JSON.stringify(['W38S8:10.10', 'W38S8:11.10', 'W38S8:12.10', 'W39S8:40.20', 'W39S8:41.20']),
+        '只开第一条 W38S7→W39S8 d239 的工地（不含母房段、不碰 d23b / d388 / 第二条）（得 ' + JSON.stringify(roadSites()) + '）');
+    assert(JSON.stringify(Memory.roadWave.active) === JSON.stringify(['W38S7:W39S8:d239']), '遥测 Memory.roadWave.active 只有第一条');
+    assert(Memory.rooms.W38S7.roadWave.placed === 5 && Memory.rooms.W38S7.roadWave.cost === 1500, '路费记进母房 roadWave（5 格 × 300）（得 ' + JSON.stringify(Memory.rooms.W38S7.roadWave) + '）');
+    world.time++;
+    Memory.rooms.W38S7.remotes.W39S8.sources[0].roadComplete = true;
+    remoteMod.placeWaveRoads(home2, Memory.rooms.W31S8.remotes);
+    assert(JSON.stringify(Memory.roadWave.active) === JSON.stringify(['W31S8:W31S9:de40']) && roadSites('W31S9').length === 2, '第一条修完：轮到第二条 W31S8→W31S9');
+    world.time++;
+    Memory.rooms.W31S8.remotes.W31S9.sources[0].roadComplete = true;
+    homeStore.store.energy = 4000;
+    remoteMod.placeWaveRoads(home, Memory.rooms.W38S7.remotes);
+    assert(Memory.roadWave.paused.includes('W38S7:W38S8:d388') && roadSites('W38S8').length === 3, 'W38S7 storage 4000 < 5000：第六条暂停，不放工地');
+    world.time++;
+    homeStore.store.energy = 20000;
+    const savedCap = config.remote.roadSitesPerHome;
+    config.remote.roadSitesPerHome = 6;
+    far.createConstructionSite(30, 30, C.STRUCTURE_ROAD);
+    const before = roadSites().length;
+    remoteMod.placeWaveRoads(home, Memory.rooms.W38S7.remotes);
+    assert(roadSites().length === before - 1 && Memory.rooms.W38S7.roadWave.yielded === 1 && !roadSites().some((k) => k === 'W38S8:20.20' || k === 'W38S8:21.20'),
+        '母房路工地满额：先让掉一个不在当前路线上、没进度的工地（得 ' + JSON.stringify(roadSites()) + '）');
+    world.time++;
+    remoteMod.placeWaveRoads(home, Memory.rooms.W38S7.remotes);
+    assert(roadSites('W38S8').includes('W38S8:20.20'), '让出名额后下一轮放当前路线（第六条 d388）的工地');
+    config.remote.roadSitesPerHome = savedCap;
+    assert(!liveRoadWave.routes.some((r) => r.startsWith('W31S5:W32S5')), 'W31S5→W32S5 不在第一波');
+    delete config.remote.roadWave;
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);

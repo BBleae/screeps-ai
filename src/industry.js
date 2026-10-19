@@ -230,15 +230,15 @@ function reverseReactions() {
     return out;
 }
 
-function nextReactionFor(target, stock, minBatch, depth) {
+function nextReactionFor(target, stock, minBatch, depth, held) {
     if (!target || (depth || 0) > 6) return null;
     const recipe = reverseReactions()[target];
     if (!recipe) return null;
     const missing = recipe.filter((input) => num(stock[input], 0) < minBatch);
-    if (!missing.length) return { a: recipe[0], b: recipe[1], product: target };
+    if (!missing.length) return held && held.has(target) ? null : { a: recipe[0], b: recipe[1], product: target };
     for (const input of missing) {
         if (BASE_MINERALS.indexOf(input) >= 0) continue;
-        const deeper = nextReactionFor(input, stock, minBatch, (depth || 0) + 1);
+        const deeper = nextReactionFor(input, stock, minBatch, (depth || 0) + 1, held);
         if (deeper) return deeper;
     }
     return null;
@@ -267,13 +267,25 @@ function wantedTarget(stock, cfg) {
     return null;
 }
 
-function pickPair(stock, minBatch) {
+function heldProducts(room, mem) {
+    const holds = industryConfig().productHold || {};
+    const out = new Set();
+    for (const product of Object.keys(holds)) {
+        const amount = room.terminal ? num(room.terminal.store[product], 0) : 0;
+        if (amount >= num(holds[product].on, Infinity)) (mem.productHold || (mem.productHold = {}))[product] = Game.time;
+        else if (mem.productHold && amount < num(holds[product].off, 0)) delete mem.productHold[product];
+        if (mem.productHold && mem.productHold[product]) out.add(product);
+    }
+    return out;
+}
+
+function pickPair(stock, minBatch, held) {
     if (typeof REACTIONS === 'undefined' || !REACTIONS) return null;
     const types = Object.keys(stock).filter((type) => stock[type] >= minBatch).sort();
     for (let i = 0; i < types.length; i++) {
         for (let j = i + 1; j < types.length; j++) {
             const product = REACTIONS[types[i]] && REACTIONS[types[i]][types[j]];
-            if (product) return { a: types[i], b: types[j], product };
+            if (product && !(held && held.has(product))) return { a: types[i], b: types[j], product };
         }
     }
     return null;
@@ -332,11 +344,12 @@ function chooseReaction(room, mem, roles, labsById, cfg) {
     const stock = mineralStock(room);
     for (const lab of inputs) addStock(stock, lab.store);
     carriedStock(room, stock);
+    const held = heldProducts(room, mem);
     const reactAmount = typeof LAB_REACTION_AMOUNT !== 'undefined' ? LAB_REACTION_AMOUNT : 5;
     if (ta && tb && ta !== tb && num(stock[ta], 0) >= reactAmount && num(stock[tb], 0) >= reactAmount &&
         typeof REACTIONS !== 'undefined' && REACTIONS && REACTIONS[ta] && REACTIONS[ta][tb]) {
         const product = REACTIONS[ta][tb];
-        if ((!outType || outType === product) && (cfg.opportunistic !== false || inChain(product, cfg.boostTargets))) {
+        if (!held.has(product) && (!outType || outType === product) && (cfg.opportunistic !== false || inChain(product, cfg.boostTargets))) {
             return { a: ta, b: tb, product, target: saved && saved.product === product ? saved.target || null : null, continued: true, stock };
         }
     }
@@ -344,9 +357,9 @@ function chooseReaction(room, mem, roles, labsById, cfg) {
     const targetStock = Object.assign({}, stock);
     if (boost) addStock(targetStock, boost.store);
     const target = wantedTarget(targetStock, cfg);
-    let step = target ? nextReactionFor(target, stock, cfg.minBatch, 0) : null;
+    let step = target ? nextReactionFor(target, stock, cfg.minBatch, 0, held) : null;
     let stepTarget = step ? target : null;
-    if (!step && cfg.opportunistic !== false) step = pickPair(stock, cfg.minBatch);
+    if (!step && cfg.opportunistic !== false) step = pickPair(stock, cfg.minBatch, held);
     if (!step) return null;
     let a = step.a;
     let b = step.b;
