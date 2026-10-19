@@ -23,12 +23,14 @@ function setup() {
     const plan = { version: 1, enabled: true, count: 1, mineralId: 'min', extractorId: 'ext', mineralType: 'H',
         stand: { x: 11, y: 10 }, maxStock: 50000, reserveFree: 10, returnTicks: 60,
         outbound: { 1021: 8 }, sinks: [{ id: 'term', path: { 511: 4 } }, { id: 'store', path: { 511: 4 } }] };
-    const cfg = { minerals: { force: {} } };
+    const cfg = { minerals: { force: {}, plans: { W1N1: plan } } };
     const context = { module: { exports: {} }, require: name => {
         if (name === 'config') return cfg;
-        assert.equal(name, 'brain'); return { get: () => plan };
+        if (name === 'movement') return { go: () => calls.push(['go']) };
+        throw new Error('unexpected require ' + name);
     }, Game: { time: 1, rooms: { W1N1: room }, getObjectById: id => objects[id] },
-    Memory: { rooms: { W1N1: {} } }, WORK: 'work', OK: 0, ERR_NOT_IN_RANGE: -9 };
+    Memory: { rooms: { W1N1: {} } }, WORK: 'work', OK: 0, ERR_NOT_IN_RANGE: -9,
+    RoomPosition: function (x, y, roomName) { this.x = x; this.y = y; this.roomName = roomName; } };
     vm.runInNewContext(source, context);
     const creep = { memory: { home: 'W1N1' }, ticksToLive: 1000, store: store(50),
         pos: { x: 11, y: 10, roomName: 'W1N1', isNearTo: () => true },
@@ -80,7 +82,7 @@ console.log('mineral executor: lifecycle, cargo, cooldown and no-search checks p
     for (let i = 0; i < 5; i++) { f.context.Game.time++; f.run(); }
     assert.equal(f.calls.length, 3, 'stop submitting blocked move intents');
     assert(f.creep.memory.mineralBlocked);
-    f.plan.at = 10; f.run(); assert.equal(f.calls.length, 4, 'new brain route permits another attempt');
+    f.plan.at = 10; f.run(); assert.equal(f.calls.length, 4, 'new plan revision permits another attempt');
 }
 {
     let placed = 0;
@@ -99,6 +101,15 @@ console.log('mineral executor: lifecycle, cargo, cooldown and no-search checks p
     const g = setup(); g.plan.enabled = false; g.plan.count = 0; g.cfg.minerals.force.W1N1 = true;
     g.run(); assert.equal(g.calls[0][0], 'harvest');
     assert.equal(g.context.module.exports.directive(g.room).count, 1);
-    assert.equal(g.plan.enabled, false, 'frozen brain plan is not mutated');
+    assert.equal(g.plan.enabled, false, 'frozen config plan is not mutated');
     console.log('mineral executor: force override checks passed');
+}
+{
+    const f = setup(); delete f.cfg.minerals.plans.W1N1;
+    assert.equal(f.context.module.exports.directive(f.room), null, 'no config plan means no mineral plan');
+    f.cfg.minerals.plans.W1N1 = Object.assign({}, f.plan, { version: 2 });
+    assert.equal(f.context.module.exports.directive(f.room), null, 'unknown plan version is ignored');
+    f.cfg.minerals.rooms = { W1N1: { mineralId: 'min', mineralType: 'H', extractorId: 'ext', pos: { x: 10, y: 10 }, stand: { x: 11, y: 10 }, sinks: ['term'] } };
+    assert.equal(f.context.module.exports.directive(f.room).source, 'config', 'minerals.rooms takes precedence over plans');
+    console.log('mineral executor: config-only plan source checks passed');
 }

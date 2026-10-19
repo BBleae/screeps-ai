@@ -3767,17 +3767,17 @@ resetWorld(4150);
 
     makeStructure(mmRoom, C.STRUCTURE_EXTRACTOR, 33, 24, { id: 'mmExt' });
     world.byId.mmMin = mmRoom._mineral;
-    Memory.brain = { version: 1, issuedAt: Date.now(), rooms: { W33S7: { mineral: {
+    const savedPlanW33S7 = config.minerals.plans.W33S7;
+    config.minerals.plans.W33S7 = {
         version: 1, enabled: true, count: 1, mineralId: 'mmMin', extractorId: 'mmExt', mineralType: 'L',
         stand: { x: 33, y: 25 }, sinks: [{ id: 'mmterm', path: {} }], maxStock: 50000, reserveFree: 5000,
         recycle: { id: 'missing-recycle-spawn', path: {} },
-    } } } };
-    require('brain').run();
+    };
     const drone = makeCreep(mmRoom, 'mm.drone', ['work', 'work', 'carry', 'move'], { home: 'W33S7', role: 'mineralMiner' });
     world.creeps[drone.name] = drone;
     drone.pos = new RoomPosition(33, 25, 'W33S7');
     ROLES.mineralMiner.run(drone);
-    assert(drone.actions.includes('harvest'), '外部指令下在相邻站位开挖');
+    assert(drone.actions.includes('harvest'), 'config 计划下在相邻站位开挖');
 
     drone.actions.length = 0;
     drone.store[C.RESOURCE_ENERGY] = drone.store.getCapacity();
@@ -3792,6 +3792,7 @@ resetWorld(4150);
     assert(drone.memory.retired === true || drone.memory.recycling === true || drone.moveCalls.length > 0,
         '矿脉挖空后空手的钻机去回收退役（得 ' + JSON.stringify(drone.memory) + '）');
     delete world.creeps[drone.name];
+    config.minerals.plans.W33S7 = savedPlanW33S7;
 }
 
 console.log('== legacy layout：road 共格与缺失 controller container 回填 ==');
@@ -15558,14 +15559,25 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
 }
 
 {
-    console.log('== 10-18 11:40 mineral 搬迁试点：W31S4 读 config.minerals.rooms（只放小静态字段，走路用通用移动），其他房照旧读冻结指令 ==');
+    console.log('== mineral 搬迁：W31S4 读 config.minerals.rooms 试点格式，其他 13 房读 config.minerals.plans，不再读大脑指令 ==');
     const mm = ROLES.mineralMiner;
     const c = config.minerals.rooms.W31S4;
     assert(c && c.mineralType === 'L' && c.sinks.length === 2 && c.recycle && Array.isArray(c.body) && !('outbound' in c), 'config 只放静态小字段，不带路径方向场');
     assert(Object.keys(config.minerals.rooms).join() === 'W31S4', '只有 W31S4 试点');
     const p = mm.directive({ name: 'W31S4' });
     assert(p && p.source === 'config' && p.enabled === true && p.count === 1 && p.mineralId === c.mineralId && p.sinks[0].id === c.sinks[0] && !p.sinks[0].path, 'W31S4：开关仍走 force，字段来自 config，sink 不带 path');
-    assert(mm.configPlan({ name: 'W33S3' }) === null, '其他房不读 config，回落冻结指令');
+    assert(mm.configPlan({ name: 'W33S3' }) === null, '其他房不走 minerals.rooms 试点格式');
+    const migrated = ['W33S7', 'W34S7', 'W33S8', 'W35S7', 'W31S8', 'W31S6', 'W33S3', 'W31S5', 'W32S4', 'W37S5', 'W38S7', 'W37S7', 'W29S3'];
+    assert(Object.keys(config.minerals.plans).sort().join() === migrated.slice().sort().join() && !config.minerals.plans.W31S4, '10-19：其他 13 房的冻结 mineral 计划原样搬进 config.minerals.plans，W31S4 不在其中');
+    const savedBrainMem = Memory.brain;
+    Memory.brain = null;
+    const w38 = mm.directive({ name: 'W38S7' });
+    assert(w38 && w38.enabled === true && w38.count === 1 && w38.reason === 'harvest' && w38.mineralType === 'U' && w38.outbound && w38.sinks[0].path, '没有大脑指令时 W38S7 照旧按 config 里的冻结计划开采 U，带方向场');
+    assert(mm.directive({ name: 'W31S6' }).enabled === false && mm.directive({ name: 'W33S3' }).enabled === true, '没有大脑指令时 force 开关照旧生效');
+    const w29 = mm.basePlan({ name: 'W29S3' });
+    assert(w29 && w29.build === false && mm.directive({ name: 'W29S3' }).count === 0, 'W29S3 照旧 build:false、不出矿工');
+    assert(mm.directive({ name: 'W99N99' }) === null, '没有计划的房不出矿工');
+    Memory.brain = savedBrainMem;
     const moves = [];
     const savedGo = movement.go;
     movement.go = (creep, target, opts) => moves.push([target, opts && opts.range]);

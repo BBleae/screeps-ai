@@ -1,5 +1,4 @@
 'use strict';
-const brain = require('brain');
 const movement = require('movement');
 
 const forcedCache = { tick: -1, byRoom: {} };
@@ -43,11 +42,17 @@ function configPlan(room) {
     configCache.byRoom[room.name] = plan;
     return plan;
 }
+function frozenPlan(room) {
+    const plans = ((require('config').minerals) || {}).plans;
+    const plan = room && plans && plans[room.name];
+    return plan && plan.version === 1 ? plan : null;
+}
+function basePlan(room) {
+    return configPlan(room) || frozenPlan(room);
+}
 function directive(room) {
-    const fromConfig = configPlan(room);
-    if (fromConfig) return forced(room, fromConfig);
-    const plan = room && brain.get(room.name, 'mineral', null);
-    return plan && plan.version === 1 ? forced(room, plan) : null;
+    const plan = basePlan(room);
+    return plan ? forced(room, plan) : null;
 }
 function object(id) { return id ? Game.getObjectById(id) : null; }
 function active(structure) {
@@ -159,4 +164,4 @@ function run(creep) {
     const before = creep.store[type] || 0;
     if (creep.harvest(mineral) === OK) creep.memory.mineralIntent = { tick: Game.time, type, before, action: 'harvest' };
 }
-module.exports = { run, directive, ready, mineralOf, forced, drained, configPlan };
+module.exports = { run, directive, ready, mineralOf, forced, drained, configPlan, frozenPlan, basePlan };

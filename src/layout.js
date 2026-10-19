@@ -3,7 +3,6 @@ const config = require('config');
 const utils = require('utils');
 const { creepsHome, creepsHomeRole } = utils;
 const wheelLayout = require('wheel_layout');
-const brain = require('brain');
 const { planPath, unpackPath, isWall, occupied, bestAdjacent, logErr } = utils;
 
 function addTaken(taken, spot) {
@@ -546,7 +545,7 @@ function handleBlocked(room, spot, type, blockers) {
 }
 
 function extractorSpot(room, plan) {
-    const mineralPlan = brain.get(room.name, 'mineral', null);
+    const mineralPlan = require('roles_mineralMiner').basePlan(room);
     if (mineralPlan && mineralPlan.build && mineralPlan.pos) return mineralPlan.pos;
     const minerals = config.minerals || {};
     const want = minerals.buildExtractor;
