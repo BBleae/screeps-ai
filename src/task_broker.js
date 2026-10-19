@@ -281,9 +281,14 @@ function terminalFloorParams(room) {
     if (!(floor > 0) || !st || energyOf(st.store) < min) return null;
     return { floor, min, storage: energyOf(st.store) };
 }
+function terminalFillMargin(key) {
+    const value = Number((config.terminal || {})[key]);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+}
 function terminalFloorWant(room, terminal) {
     const p = terminalFloorParams(room);
     if (!p || !terminal || terminal.my === false || !terminal.store) return 0;
+    if (p.storage < p.min + terminalFillMargin('fillMargin')) return 0;
     return Math.max(0, Math.min(p.floor - energyOf(terminal.store), p.storage - p.min));
 }
 
@@ -295,8 +300,10 @@ function senderFillWant(room, terminal, storageRich) {
     if (!st) return 0;
     const se = energyOf(st.store), te = energyOf(terminal.store);
     if (se + te < (Number(net.starveSendAbove) || Number(net.sendAbove) || 0)) return 0;
+    const storageFloor = Number(net.senderStorageFloor) || 30000;
+    if (se < storageFloor + terminalFillMargin('senderFillMargin')) return 0;
     const reserve = Math.max(Number(net.feeReserve) || 0, feeReserveOf(room.name));
-    return Math.max(0, Math.min(reserve + extra - te, se - (Number(net.senderStorageFloor) || 30000)));
+    return Math.max(0, Math.min(reserve + extra - te, se - storageFloor));
 }
 
 function terminalFillWantBase(room, terminal, storageRich) {
@@ -307,6 +314,13 @@ function terminalFillWantBase(room, terminal, storageRich) {
     if (!storage) return 0;
     const surplus = energyOf(storage.store) - Math.max(0, Number(cfg.terminalFillStorageAbove) || 0);
     return Math.max(0, Math.min(target - energyOf(terminal.store), surplus));
+}
+
+function terminalEnergyWant(room, terminal) {
+    if (!room || !terminal || terminal.my === false || !terminal.store) return 0;
+    const roomMemory = (typeof Memory !== 'undefined' && Memory.rooms && Memory.rooms[room.name]) || null;
+    const storageRich = utils.storageRichState(room, roomMemory, config.upgrading || {});
+    return Math.max(0, Math.floor(terminalFillWant(room, terminal, storageRich)));
 }
 
 function terminalDrainKeep(room, storageRich) {
@@ -1208,7 +1222,7 @@ function flush() {
     }
 }
 
-module.exports = { terminalFloorWant, terminalFillWant, feeReserveFillAllowed, labEnergyWant,
+module.exports = { terminalFloorWant, terminalFillWant, terminalEnergyWant, terminalDrainKeep, feeReserveFillAllowed, labEnergyWant,
     forceReplan,
     controllerFeedLink,
     controllerFeedMode,

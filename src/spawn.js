@@ -725,6 +725,7 @@ function coreSizing() {
         window: Math.max(1, num(s.window, 1500)),
         fallbackShare: Math.max(0, Math.min(1, num(s.fallbackShare, 0.5))),
         minBodyCarry: s.minBodyCarry || {},
+        maxBodyCarry: s.maxBodyCarry || {},
         refillTicks: Math.max(1, num(s.refillTicks, 300)),
         refillTicksRich: Math.max(1, num(s.refillTicksRich, 150)),
         baseDistance: Math.max(1, num(s.baseDistance, 5)),
@@ -734,6 +735,12 @@ function coreSizing() {
         upgradeCarryStep: Math.max(0, num(s.upgradeCarryStep, 0.25)),
         tempWaitTicks: Math.max(0, num(s.tempWaitTicks, 100)),
     };
+}
+
+function maxBodyCarryFor(roomName, full, sizing) {
+    const table = (sizing || coreSizing()).maxBodyCarry;
+    const value = Number(table && table[roomName]);
+    return Number.isFinite(value) && value > 0 ? Math.max(1, Math.min(full, Math.floor(value))) : full;
 }
 
 function minBodyCarryFor(level, sizing) {
@@ -784,16 +791,17 @@ function measuredCoreNeed(room, mem, sizing) {
     const flushAt = stats ? Number(stats.t) : NaN;
     if (bucket && Number.isFinite(flushAt)) {
         const snap = { v: stats.v, since: stats.since, at: flushAt, t: Number(bucket.t) || 0, idle: Number(bucket.idle) || 0,
-            out: Number(bucket.out) || 0, churn: Number(bucket.churn) || 0, dep: Number(bucket.dep) || 0 };
+            out: Number(bucket.out) || 0, churn: Number(bucket.churn) || 0, tch: Number(bucket.tch) || 0, dep: Number(bucket.dep) || 0 };
         const base = ctl.base;
         if (!base || base.v !== snap.v || base.since !== snap.since) ctl.base = snap;
         else if (snap.at > base.at) {
-            const d = { t: snap.t - base.t, idle: snap.idle - base.idle, out: snap.out - base.out, churn: snap.churn - base.churn, dep: snap.dep - base.dep };
+            const d = { t: snap.t - base.t, idle: snap.idle - base.idle, out: snap.out - base.out, churn: snap.churn - base.churn,
+                tch: snap.tch - (Number(base.tch) || 0), dep: snap.dep - base.dep };
             const dTicks = snap.at - base.at;
             ctl.base = snap;
-            if (Object.values(d).every((value) => value >= 0) && d.idle <= d.t && d.churn <= d.out) {
+            if (Object.values(d).every((value) => value >= 0) && d.idle <= d.t && d.churn + d.tch <= d.out) {
                 const decay = Math.pow(1 - 1 / sizing.window, d.t);
-                meas.out = meas.out * decay + (d.out - d.churn);
+                meas.out = meas.out * decay + (d.out - d.churn - d.tch);
                 meas.ticks = meas.ticks * decay + dTicks;
                 meas.busy = meas.busy * decay + (d.t - d.idle);
                 meas.dep = meas.dep * decay + d.dep;
@@ -980,17 +988,18 @@ function estimateHomeHaulerTarget(room, mem, sources) {
     const linkMin = Math.max(0, Number(hubStore ? hauling.linkFloorMinStore : hauling.linkFloorMin) || 0);
     const effectiveFloor = linkFed > 0 && linkDrop > 0 ? Math.max(Math.min(floor, linkMin), floor - linkFed * linkDrop) : floor;
     const full = bodyPartCount(makeBody('hauler', cap), 'carry');
-    const cMin = Math.max(1, Math.min(minBodyCarryFor(level, sizing), full));
+    const bodyMax = maxBodyCarryFor(room.name, full, sizing);
+    const cMin = Math.max(1, Math.min(minBodyCarryFor(level, sizing), bodyMax));
     if (!(production > 0 || linkFed > 0 || storageFed)) {
         delete mem.haulModel;
         return floor;
     }
     const fleet = sizeCoreFleet(terms, full, effectiveFloor, ceil);
-    let want = Math.max(cMin, Math.min(full, Math.ceil(fleet.need - 1e-9)));
-    if (mode === 'fallback' || sizing.mode === 'legacy') want = Math.max(want, Math.min(full, Math.ceil(full * sizing.fallbackShare)));
+    let want = Math.max(cMin, Math.min(bodyMax, Math.ceil(fleet.need - 1e-9)));
+    if (mode === 'fallback' || sizing.mode === 'legacy') want = Math.max(want, Math.min(bodyMax, Math.ceil(full * sizing.fallbackShare)));
     const at = coreCarryAt(terms, want);
     const cstar = Math.max(at.flow, at.measured, at.burst);
-    const perBody = sizeHysteresis(mem, want, { level, hub: !!hubStore, mode, full, cMin, cstar: Math.round(cstar * 10) / 10,
+    const perBody = sizeHysteresis(mem, want, { level, hub: !!hubStore, mode, full: bodyMax, cMin, cstar: Math.round(cstar * 10) / 10,
         shrinkEvery: sizing.shrinkEvery, shrinkMin: sizing.shrinkMin });
     const demand = cstar > 0 ? sizeCoreFleet(terms, full, 1, ceil).heads : 0;
     const towerReserve = Number(config.towerRepairReserve) || 500;
@@ -1016,7 +1025,7 @@ function estimateHomeHaulerTarget(room, mem, sources) {
         carry: averageHaulerCarry(room), spend: round(spend, 100),
         load: round((terms.flowA + terms.flowB * perBody) / Math.max(1, perBody), 100), demand, floor: effectiveFloor, linkFed, linkDrain,
         flow: round(at.flow, 10), base: round(at.base, 10), measured: round(at.measured, 10), burst: round(at.burst, 10),
-        cstar: round(cstar, 10), want, perBody, heads: fleet.heads, temp, full, min: cMin, capped: fleet.capped, mode,
+        cstar: round(cstar, 10), want, perBody, heads: fleet.heads, temp, full, bodyMax, min: cMin, capped: fleet.capped, mode,
         meas: measure ? { n: Math.round(measure.n), flow: round(measure.flow, 100), trip: round(measure.trip, 10) } : null,
         dBase: round(geometry.ext, 10), extFrom: geometry.extFrom, refill, at: Game.time,
     };
@@ -1025,7 +1034,7 @@ function estimateHomeHaulerTarget(room, mem, sources) {
 
 function coreHaulerCarry(room, mem) {
     const cap = room.energyCapacityAvailable;
-    const full = bodyPartCount(makeBody('hauler', cap), 'carry');
+    const full = maxBodyCarryFor(room.name, bodyPartCount(makeBody('hauler', cap), 'carry'));
     const level = room.controller && room.controller.level || 1;
     const minCarry = Math.max(1, Math.min(full, minBodyCarryFor(level)));
     const model = mem && mem.haulModel;

@@ -10461,7 +10461,7 @@ console.log('== 10-17 01:06 terminal 能量底线 1000（storage ≥ 1 万）=='
     const mk = (se, te) => ({ name: 'W38S7', storage: { my: true, store: { energy: se, [C.RESOURCE_ENERGY]: se } } , _t: { my: true, store: { energy: te, [C.RESOURCE_ENERGY]: te } } });
     let r = mk(28772, 931); assert(tb.terminalFloorWant(r, r._t) === 69, 'W38S7 storage 2.9 万、terminal 931：补 69 到 1000（得 ' + tb.terminalFloorWant(r, r._t) + '）');
     r = mk(9000, 0); assert(tb.terminalFloorWant(r, r._t) === 0, '穷房（storage < 1 万）不往 terminal 放能量');
-    r = mk(10400, 0); assert(tb.terminalFloorWant(r, r._t) === 400, '补完 storage 不跌破 1 万');
+    r = mk(12400, 0); assert(tb.terminalFloorWant(r, r._t) === 1000, 'storage ≥ 1 万 + 余量 2000：补到 1000，补完不跌破 1 万');
     r = mk(50000, 1500); assert(tb.terminalFloorWant(r, r._t) === 0, '已 ≥ 1000 不补');
     { const cfgAll = require('../src/config'); const savedM = cfgAll.market;
       cfgAll.market = Object.assign({}, savedM, { buy: { resources: ['Z'], target: 3000, rooms: ['W32S4'] } });
@@ -10473,6 +10473,68 @@ console.log('== 10-17 01:06 terminal 能量底线 1000（storage ≥ 1 万）=='
       assert(tb.feeReserveFillAllowed(room('W33S3', 29716, 0), term(0)), 'storage ≥ 1 万：照常补');
       cfgAll.market = savedM; }
     const cfgT = require('../src/config').terminal; assert(cfgT.energyFloor === 1000 && cfgT.energyFloorMinStorage === 10000, '两个数字是配置项');
+}
+
+console.log('== 10-19 A1/A2：terminal 补和取之间加滞回、按缺口量送；storage↔terminal 不算 hauler 运量；W33S8 hauler 身体上限 16C ==');
+{
+    const tb = require('../src/task_broker');
+    const cfgAll = require('../src/config');
+    const mk = (name, se, te) => ({ name, storage: { my: true, store: { energy: se, [C.RESOURCE_ENERGY]: se } }, _t: { my: true, store: { energy: te, [C.RESOURCE_ENERGY]: te } } });
+    assert(cfgAll.terminal.fillMargin === 2000 && cfgAll.terminal.senderFillMargin === 5000, '余量是配置项（底线 2000、发送房 5000）');
+    let r = mk('W31S5', 10089, 50);
+    assert(tb.terminalFloorWant(r, r._t) === 0, 'W31S5 storage 10089：在 1 万到 1.2 万的余量区里不补 terminal（之前补 89、实际整车倒进去 4700）');
+    r = mk('W31S5', 11999, 0); assert(tb.terminalFloorWant(r, r._t) === 0, 'storage 11999 还不补');
+    r = mk('W31S5', 12000, 0); assert(tb.terminalFloorWant(r, r._t) === 1000, 'storage 1.2 万开始补到底线');
+    r = mk('W31S5', 11000, 1000);
+    assert(tb.terminalDrainKeep(r, false) === 1000, 'storage 1.1 万（余量区）：取回时 terminal 留底线 1000，不全部取回');
+    r = mk('W31S5', 9000, 1000); assert(tb.terminalDrainKeep(r, false) === 0, 'storage < 1 万：仍然全部取回');
+    r = mk('W33S8', 33000, 2000);
+    assert(tb.terminalFillWant(r, r._t, true) === 0, 'W33S8 发送房 storage 3.3 万（3 万 + 5000 余量以内）：不往 terminal 补');
+    r = mk('W33S8', 36000, 2000);
+    assert(tb.terminalFillWant(r, r._t, true) === 6000, 'storage 3.6 万：补，但最多补到 storage 剩 3 万（得 ' + tb.terminalFillWant(r, r._t, true) + '）');
+    r = mk('W33S8', 29000, 8000); assert(tb.terminalDrainKeep(r, true) === 2000, 'storage < 3 万：照旧取回到只剩 feeReserve');
+    const savedRooms = Memory.rooms;
+    Memory.rooms = { W31S5: { storageRich: { on: false, at: 1 } } };
+    r = mk('W31S5', 12500, 0);
+    assert(tb.terminalEnergyWant(r, r._t) === 1000, 'terminalEnergyWant：当场按缺口算（storage 1.25 万、terminal 0 ⇒ 只送 1000，不整车倒）（得 ' + tb.terminalEnergyWant(r, r._t) + '）');
+    r = mk('W31S5', 14000, 1500);
+    assert(tb.terminalEnergyWant(r, r._t) === 0, '已经 ≥ 底线：不送');
+    Memory.rooms = savedRooms;
+
+    const haulStats = require('../src/haul_stats');
+    haulStats._runtime.last = {};
+    haulStats._runtime.acc = {};
+    resetWorld(3595);
+    const room = makeRoom('W33S7', { rcl: 7 });
+    const h = makeCreep(room, 'tchHauler', ['carry', 'carry', 'carry', 'carry', 'move', 'move'], { home: 'W33S7', role: 'hauler' });
+    world.creeps.tchHauler = h;
+    h.pos = new RoomPosition(10, 10, 'W33S7');
+    const st = makeStructure(room, C.STRUCTURE_STORAGE, 11, 10, { energy: 30000, capacity: 1000000 });
+    const term = makeStructure(room, C.STRUCTURE_TERMINAL, 12, 10, { energy: 0, capacity: 300000 });
+    const ext = makeStructure(room, C.STRUCTURE_EXTENSION, 10, 11, { energy: 0, capacity: 200 });
+    const step = (fn) => { haulStats.observe(h); if (fn) fn(); world.time++; };
+    step(() => { haulStats.noteAction(h, 'withdraw', st); h.store[C.RESOURCE_ENERGY] = 200; });
+    step(() => { haulStats.noteAction(h, 'transfer', term); h.store[C.RESOURCE_ENERGY] = 0; });
+    step(() => { haulStats.noteAction(h, 'withdraw', term); h.store[C.RESOURCE_ENERGY] = 200; });
+    step(() => { haulStats.noteAction(h, 'transfer', st); h.store[C.RESOURCE_ENERGY] = 0; });
+    step(() => { haulStats.noteAction(h, 'withdraw', term); h.store[C.RESOURCE_ENERGY] = 150; });
+    step(() => { haulStats.noteAction(h, 'transfer', ext); h.store[C.RESOURCE_ENERGY] = 0; });
+    haulStats.observe(h);
+    world.time += 30 - (world.time % 30);
+    haulStats.flush();
+    const b = Memory.haulStats.rooms.W33S7.hauler;
+    assert(b.out === 550 && b.tch === 400 && b.tIn === 350 && b.tOut === 200 && b.churn === 0,
+        'storage→terminal 200、terminal→storage 200 记进 tch（共 400），terminal→extension 150 仍算运量：' + JSON.stringify({ out: b.out, tch: b.tch, tIn: b.tIn, tOut: b.tOut, churn: b.churn }));
+
+    const spawnMod = require('../src/spawn');
+    const sz = cfgAll.hauling.sizing;
+    assert(sz.maxBodyCarry && sz.maxBodyCarry.W33S8 === 16, 'config.hauling.sizing.maxBodyCarry.W33S8 = 16');
+    const w8 = makeRoom('W33S8', { rcl: 7, energy: 5600, cap: 5600 });
+    const w8mem = { haulModel: { perBody: 32, cstar: 34, heads: 2 } };
+    const plan8 = spawnMod.coreHaulerCarry(w8, w8mem);
+    assert(plan8.parts === 16 && plan8.full === 16, 'W33S8 模型要 32C 也只孵 16C8M（得 ' + JSON.stringify(plan8) + '）');
+    const w7 = makeRoom('W37S5', { rcl: 7, energy: 5600, cap: 5600 });
+    assert(spawnMod.coreHaulerCarry(w7, w8mem).parts === 32, '别的房不受影响（W37S5 照旧 32C）');
 }
 
 console.log('== 10-16 23:03 全局塔底线 500（towerFloor）==');

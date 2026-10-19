@@ -373,6 +373,17 @@ function planAfterDelivery(creep, room, ctx, plan, left, capacity) {
     if (wait && !near(creep, wait.target)) plan.move = wait.target;
 }
 
+function noteTerminalFill(room, carried, want) {
+    if (typeof Memory === 'undefined' || !Memory.rooms) return;
+    const mem = Memory.rooms[room.name] || (Memory.rooms[room.name] = {});
+    const rec = mem.terminalFillSent || (mem.terminalFillSent = { n: 0, amount: 0, capped: 0, trimmed: 0 });
+    const sent = Math.max(0, Math.min(carried, want));
+    rec.n = (Number(rec.n) || 0) + 1;
+    rec.amount = (Number(rec.amount) || 0) + sent;
+    if (want < carried) { rec.capped = (Number(rec.capped) || 0) + 1; rec.trimmed = (Number(rec.trimmed) || 0) + (carried - sent); }
+    rec.at = Game.time;
+}
+
 function deliver(creep, room, ctx, plan, energy, capacity) {
     const load = energy + plan.gained;
     const choice = pickDeliver(creep, room, plan.exclude);
@@ -386,7 +397,17 @@ function deliver(creep, room, ctx, plan, energy, capacity) {
     }
     const target = choice.target;
     if (near(creep, target)) {
-        const sent = Math.min(energy, freeIn(target));
+        let sent = Math.min(energy, freeIn(target));
+        if (target.structureType === STRUCTURE_TERMINAL) {
+            const want = taskBroker.terminalEnergyWant(room, target);
+            noteTerminalFill(room, sent, want);
+            if (want < sent) sent = want;
+            if (sent <= 0) {
+                plan.exclude.add(target.id);
+                planAfterDelivery(creep, room, ctx, plan, load, capacity);
+                return;
+            }
+        }
         if (sent > 0 && creep.transfer(target, RESOURCE_ENERGY, sent) === OK) {
             plan.transfer = true;
             taskBroker.consume(creep, room, target, sent, 'deliver');

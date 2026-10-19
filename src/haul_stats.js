@@ -4,7 +4,7 @@ const VERSION = 2;
 const CARRIER_ROLES = { hauler: true, remoteHauler: true, feeder: true, courier: true, operator: true };
 const FLUSH_EVERY = 30;
 const COUNTERS = ['t', 'cap', 'idle', 'idleE', 'idleL', 'fat', 'mvE', 'mvL', 'lf', 'ld', 'ul', 'ch', 'in', 'out',
-    'cu', 'dep', 'df', 'inS', 'outS', 'churn',
+    'cu', 'dep', 'df', 'inS', 'outS', 'churn', 'tIn', 'tOut', 'tch',
     'ac', 'acm', 'ac0', 'ldT', 'ulT', 'tw', 'twE', 'mvP', 'mvU', 'abL', 'abE', 'lgS', 'lgD', 'egS', 'egD', 'dp8',
     'idSt', 'idOv', 'idWa', 'lostAge', 'lostAgeOut', 'lostN'];
 const ROOM_COUNTERS = ['ticks', 'rfN', 'rfT', 'rfD', 'lkF', 'lsF', 'spW'];
@@ -65,6 +65,10 @@ function lineFor(home, remoteRoom) {
 
 function storageType() {
     return typeof STRUCTURE_STORAGE === 'undefined' ? 'storage' : STRUCTURE_STORAGE;
+}
+
+function terminalType() {
+    return typeof STRUCTURE_TERMINAL === 'undefined' ? 'terminal' : STRUCTURE_TERMINAL;
 }
 
 function cheb(ax, ay, bx, by) {
@@ -193,8 +197,10 @@ function observe(creep) {
         bucket.in += delta;
         if (moved) bucket.ch++;
         const fromStorage = prev.from === storageType();
+        const fromTerminal = prev.from === terminalType();
         if (fromStorage) bucket.inS += delta;
-        state.src = fromStorage || prev.src === 'storage' ? 'storage' : 'other';
+        if (fromTerminal) bucket.tIn += delta;
+        state.src = fromStorage || prev.src === 'storage' ? 'storage' : fromTerminal || prev.src === 'terminal' ? 'terminal' : 'other';
         if (!moved && delta < prev.cap * 0.25 && used < prev.cap) {
             bucket.tw++;
             bucket.twE += delta;
@@ -209,6 +215,10 @@ function observe(creep) {
         if (prev.to === storageType()) {
             bucket.outS -= delta;
             if (prev.src === 'storage') bucket.churn -= delta;
+            else if (prev.src === 'terminal') bucket.tch -= delta;
+        } else if (prev.to === terminalType()) {
+            bucket.tOut -= delta;
+            if (prev.src === 'storage') bucket.tch -= delta;
         }
     } else if (moved) {
         cls = prev.e > 0 ? 'mvL' : 'mvE';
