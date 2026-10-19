@@ -69,7 +69,14 @@ function setup() {
 {
     const f = setup(); f.creep.pos.x = 21; f.creep.pos.y = 20; f.run();
     assert.deepEqual(f.calls[0], ['move', 8], 'follow externally computed direction without pathfinding');
-    f.calls.length = 0; f.creep.pos.x = 25; f.run(); assert.equal(f.calls.length, 0);
+    f.calls.length = 0; f.creep.pos.x = 25; f.run(); assert.deepEqual(f.calls, [['go']], 'off-field cell falls back to movement.go');
+    assert.equal(f.creep.memory.mineralRouteMiss, 1);
+}
+{
+    const f = setup(); f.creep.store.H = 50; f.creep.memory.mineralDelivering = true;
+    f.creep.transfer = target => { f.calls.push(['transfer', target.id]); return -9; };
+    f.creep.pos.x = 30; f.creep.pos.y = 30; f.run();
+    assert.deepEqual(f.calls, [['transfer', 'term'], ['go']], 'inbound off-field cell falls back to movement.go');
     assert.equal(f.creep.memory.mineralRouteMiss, 1);
 }
 {

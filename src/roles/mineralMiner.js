@@ -81,28 +81,25 @@ function ready(room, plan) {
 }
 function move(creep, path, revision, target, range) {
     if (creep.fatigue) return;
-    if (!path && target) {
-        movement.go(creep, target, { range: range || 0, reusePath: 20 });
+    const key = creep.pos.x + creep.pos.y * 50;
+    const direction = path && path[key];
+    if (!Number.isInteger(direction) || direction < 1 || direction > 8) {
+        if (path) creep.memory.mineralRouteMiss = Game.time;
+        if (target) movement.go(creep, target, { range: range || 0, reusePath: 20 });
         return;
     }
-    const direction = path && path[creep.pos.x + creep.pos.y * 50];
-    if (Number.isInteger(direction) && direction >= 1 && direction <= 8) {
-        const previous = creep.memory.mineralMove;
-        const key = creep.pos.x + creep.pos.y * 50;
-        const attempts = previous && previous.key === key && previous.revision === revision ? previous.attempts + 1 : 1;
-        creep.memory.mineralMove = { key, revision, attempts };
-        if (attempts > 3) {
-            const dx = [0, 0, 1, 1, 1, 0, -1, -1, -1][direction];
-            const dy = [0, -1, -1, 0, 1, 1, 1, 0, -1][direction];
-            creep.memory.mineralBlocked = { x: creep.pos.x + dx, y: creep.pos.y + dy };
-            creep.memory.mineralRouteMiss = Game.time;
-            return;
-        }
-        if (!previous || previous.key !== key) delete creep.memory.mineralBlocked;
-        creep.move(direction);
-    } else {
+    const previous = creep.memory.mineralMove;
+    const attempts = previous && previous.key === key && previous.revision === revision ? previous.attempts + 1 : 1;
+    creep.memory.mineralMove = { key, revision, attempts };
+    if (attempts > 3) {
+        const dx = [0, 0, 1, 1, 1, 0, -1, -1, -1][direction];
+        const dy = [0, -1, -1, 0, 1, 1, 1, 0, -1][direction];
+        creep.memory.mineralBlocked = { x: creep.pos.x + dx, y: creep.pos.y + dy };
         creep.memory.mineralRouteMiss = Game.time;
+        return;
     }
+    if (!previous || previous.key !== key) delete creep.memory.mineralBlocked;
+    creep.move(direction);
 }
 function record(creep, key, amount) {
     const mem = Memory.rooms[creep.memory.home];
