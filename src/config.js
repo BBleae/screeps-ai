@@ -452,7 +452,7 @@ module.exports = {
         mineralKeep: 3000,
         mineralKeepByRoom: { W35S7: 0 },
         mineralWant: 1000,
-        mineralWantByResource: { O: 3000 },
+        mineralWantByResource: { O: 3000, U: 3000 },
         mineralMaxSend: 2000,
         mineralLabs: 3,
     },
@@ -479,7 +479,7 @@ module.exports = {
         priceBand: 0.15,
         anyRoom: true,
         keepBy: {
-            H: 0, O: Infinity, K: Infinity, U: 10000, L: 10000, Z: Infinity, X: Infinity,
+            H: 0, O: Infinity, K: Infinity, U: Infinity, L: 10000, Z: Infinity, X: Infinity,
             ZK: Infinity, UL: Infinity, G: Infinity, GH: Infinity, OH: Infinity, GH2O: Infinity, XGH2O: Infinity,
             ZH2O: 50000,
             silicon: 0, mist: 0,
@@ -499,7 +499,7 @@ module.exports = {
         maxOrderCredits: 50000,
         dailyBuyCredits: 500000,
         buyShare: { cap: { Z: 0.4 }, reserve: { O: 0.2, X: 0.2 } },
-        buy: { resources: ['Z', 'O', 'X', 'U'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'] },
+        buy: { resources: ['Z', 'O', 'X', 'U'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'], stopAbove: { U: 5000 } },
         buyEnergy: {
             enabled: false,
             maxEffective: 15,

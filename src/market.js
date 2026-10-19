@@ -102,6 +102,28 @@ function noteBuyBy(led, res, credits) {
     by[res] = Math.max(0, Math.round((by[res] || 0) + credits));
 }
 
+const stockCache = { tick: -1, totals: {} };
+function accountStock(resource) {
+    const tick = typeof Game !== 'undefined' ? Game.time : 0;
+    if (stockCache.tick !== tick) { stockCache.tick = tick; stockCache.totals = {}; }
+    if (stockCache.totals[resource] != null) return stockCache.totals[resource];
+    let total = 0;
+    for (const name in Game.rooms) {
+        const room = Game.rooms[name];
+        if (!room.controller || !room.controller.my) continue;
+        for (const holder of [room.storage, room.terminal]) {
+            if (holder && holder.my !== false && holder.store) total += Number(holder.store[resource] || 0);
+        }
+    }
+    stockCache.totals[resource] = total;
+    return total;
+}
+
+function buyStopped(cfg, resource) {
+    const cap = cfg.buy && cfg.buy.stopAbove && cfg.buy.stopAbove[resource];
+    return cap != null && accountStock(resource) > Number(cap);
+}
+
 function keepFor(resource, cfg) {
     const k = cfg.keepBy && cfg.keepBy[resource];
     return k != null ? Number(k) : cfg.keep;
@@ -472,6 +494,7 @@ function tryBuy(cfg, market, countScan) {
     const rooms = (b.rooms || []).map((n) => Game.rooms[n]).filter((r) => r && r.terminal && r.terminal.my !== false && !(r.terminal.cooldown > 0) && !terminalNet.usedThisTick(r.name));
     for (const room of rooms) {
         for (const res of b.resources) {
+            if (buyStopped(cfg, res)) continue;
             const have = Number(room.terminal.store[res] || 0) + Number((room.storage && room.storage.store[res]) || 0);
             const want = Number(b.target || 3000) - have;
             if (want < cfg.minDeal) continue;
@@ -707,7 +730,7 @@ function syncOrders(cfg, market) {
             led.filled = (led.filled || 0) + filled;
         }
         o.left = left;
-        const expired = Game.time >= o.expires;
+        const expired = Game.time >= o.expires || (o.type === 'buy' && buyStopped(cfg, o.resource));
         if (!x || left <= 0 || expired) {
             if (x && left > 0 && typeof market.cancelOrder === 'function') market.cancelOrder(o.id);
             if (o.type === 'buy' && left > 0) {
@@ -923,7 +946,7 @@ function runOwnOrders(cfg, market) {
             try { labsOk = require('industry').labsAllowed(room); } catch (error) { labsOk = true; }
             if (!labsOk) continue;
             for (const res of b.resources) {
-                if (book['buy:' + roomName + ':' + res]) continue;
+                if (book['buy:' + roomName + ':' + res] || buyStopped(cfg, res)) continue;
                 const have = Number(room.terminal.store[res] || 0) + Number((room.storage && room.storage.store[res]) || 0);
                 const avg = recentAvgPrice(res, cfg);
                 if (avg == null) continue;
@@ -1234,4 +1257,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
+module.exports = { accountStock, buyStopped, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };

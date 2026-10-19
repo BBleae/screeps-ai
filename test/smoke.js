@@ -16503,5 +16503,55 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     assert(layout.extractorSpot(mkR('W37S7', 0), {}).x === 39, 'W37S7 读 config 计划的矿位');
 }
 
+console.log('== 10-19 12:21 U 不再卖：keepBy.U 不卖、lab 房按 3000 调 U、全账号 U > 5000 停买 U ==');
+{
+    const mk = require('../src/market');
+    const term = require('terminal');
+    const base = mk.settings();
+    assert(base.keepBy.U === Infinity, 'keepBy.U = Infinity：U 不进卖单');
+    assert(base.buy.stopAbove && base.buy.stopAbove.U === 5000, 'buy.stopAbove.U = 5000');
+    assert(term.settings().mineralWantByResource.U === 3000, 'mineralWantByResource.U = 3000，与买入 target 一致');
+    const savedRooms = Game.rooms, savedMem = Memory.market, savedGM = Game.market, savedBucket = Game.cpu.bucket, savedStats = Memory.stats;
+    const indC = require('../src/config').industry; const savedLabRooms = indC.labRooms, savedReserve = indC.labStorageReserve;
+    indC.labRooms = ['W32S4', 'W33S3']; indC.labStorageReserve = 8000;
+    Game.cpu.bucket = 10000; Memory.stats = [];
+    const mkTerm = (store) => ({ my: true, store: Object.assign({ getFreeCapacity: () => 100000 }, store) });
+    const mkR = (name, store) => ({ name, controller: { my: true }, terminal: mkTerm(store), storage: { my: true, store: { energy: 60000, [C.RESOURCE_ENERGY]: 60000 } } });
+    let created = [], cancelled = [];
+    const mkM = () => ({ credits: 9000000, orders: { o1: { id: 'o1', type: 'buy', resourceType: 'U', roomName: 'W33S3', remainingAmount: 400 } },
+        getAllOrders: () => [], getHistory: () => [{ avgPrice: 50 }, { avgPrice: 50 }],
+        createOrder: (o) => { created.push(o); return C.OK != null ? C.OK : 0; }, cancelOrder: (id) => { cancelled.push(id); return 0; } });
+    const cfg = Object.assign({}, base, { minDeal: 100, creditFloor: 0, dailyBuyCredits: 500000, buyShare: null,
+        ownOrders: Object.assign({}, base.ownOrders, { energy: null, sell: [] }),
+        buy: { resources: ['U'], target: 3000, orderAmount: 500, rooms: ['W33S3'], stopAbove: { U: 5000 } } });
+    const day = Math.floor(Date.now() / 86400000);
+    const freshMem = () => ({ ledger: { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 200, deals: 0 },
+        orders: { 'buy:W33S3:U': { type: 'buy', resource: 'U', room: 'W33S3', price: 0.5, amount: 400, left: 400, posted: 1, expires: Game.time + 1000, id: 'o1', day } } });
+    Memory.market = freshMem(); world.time++;
+    Game.rooms = { W38S7: mkR('W38S7', { U: 10486 }), W33S3: mkR('W33S3', { U: 1460 }) }; Game.market = mkM(); created = []; cancelled = [];
+    assert(mk.buyStopped(cfg, 'U') && !mk.buyStopped(cfg, 'Z'), '全账号 U 11946 > 5000：停买 U，Z 不受影响');
+    mk.runOwnOrders(cfg, Game.market);
+    assert(!created.some((o) => o.resourceType === 'U'), 'U 超线：不挂新 U 买单');
+    assert(cancelled.indexOf('o1') >= 0 && !Memory.market.orders['buy:W33S3:U'], 'U 超线：撤掉已挂的 U 买单');
+    assert(Memory.market.ledger.buyCredits === 0, '撤单退回未成交额度');
+    Memory.market = freshMem(); Memory.market.orders = {};
+    Game.rooms = { W33S3: mkR('W33S3', { U: 1460 }) }; Game.market = mkM(); Game.market.orders = {}; created = []; world.time++;
+    mk.runOwnOrders(cfg, Game.market);
+    assert(created.some((o) => o.resourceType === 'U' && o.roomName === 'W33S3'), '全账号 U ≤ 5000：照常给 lab 房补 U');
+    Game.rooms = { W38S7: mkR('W38S7', { U: 10486 }) };
+    assert(mk.sellable(Game.rooms.W38S7, base).every((e) => e.resource !== 'U'), 'W38S7 有 10486 U 也不卖');
+    const mkLabs = (n) => Array.from({ length: n }, () => ({ structureType: C.STRUCTURE_LAB, store: {} }));
+    const mkRoomM = (name, minerals, labs) => {
+        const labList = mkLabs(labs || 0);
+        return { name, controller: { my: true, level: 8 }, storage: { my: true, store: mkStore(50000, 1000000) },
+            terminal: { my: true, cooldown: 0, store: mkStore(1000, 300000, minerals) }, find: (k, o) => (o && o.filter ? labList.filter(o.filter) : labList) };
+    };
+    const tp = term.planMineralTransfer([mkRoomM('W38S7', { U: 10486 }, 6), mkRoomM('W32S4', { U: 3000 }, 6), mkRoomM('W33S3', { U: 1460 }, 6)], term.settings());
+    assert(tp && tp.resource === 'U' && tp.from.name === 'W38S7' && tp.to.name === 'W33S3' && tp.amount === 2000,
+        'W38S7 多余 U 发给不足 3000 的 W33S3（得 ' + JSON.stringify(tp && { r: tp.resource, f: tp.from.name, t: tp.to.name, a: tp.amount }) + '）');
+    indC.labRooms = savedLabRooms; indC.labStorageReserve = savedReserve;
+    Game.cpu.bucket = savedBucket; Memory.stats = savedStats; Game.rooms = savedRooms; Memory.market = savedMem; Game.market = savedGM;
+}
+
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);
