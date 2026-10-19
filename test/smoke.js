@@ -16937,5 +16937,28 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     config.sites = { limit: Infinity, nonRoadPerRoom: Infinity, nonRoadMax: Infinity, waveRoadReserve: 0, lowTypes: [], lowAfterRoadBlocked: 0 };
 }
 
+{
+    console.log('\n10-19 18:20 W37S5 强化 invader：塔按净伤害集火，打不过就停火；creep 回避');
+    const P = (x, y) => ({ x, y, roomName: 'W37S5', getRangeTo: (o) => Math.max(Math.abs(x - (o.pos || o).x), Math.abs(y - (o.pos || o).y)) });
+    const part = (type, n, boost) => Array.from({ length: n }, () => ({ type, hits: 100, boost }));
+    const towers = [[9, 37], [10, 22], [11, 23]].map(([x, y]) => ({ pos: P(x, y), store: { energy: 500 } }));
+    const healer = { id: 'h', pos: P(30, 30), owner: { username: 'Invader' }, body: part(HEAL, 25, 'LO').concat(part(MOVE, 25)) };
+    const attacker = { id: 'a', pos: P(24, 29), owner: { username: 'Invader' }, body: part('tough', 16).concat(part(MOVE, 25), part(RANGED_ATTACK, 3), part(WORK, 4), part(ATTACK, 2)) };
+    assert(towerMod.healOn(healer, [healer, attacker]) === 600, '25 LO HEAL 自疗 600/tick');
+    let f = towerMod.npcFocus(towers, [healer, attacker]);
+    assert(f.target.id === 'a' && f.net === 990, 'healer 离开 3 格外：集火 attacker，净伤害 990');
+    healer.pos = P(25, 29);
+    f = towerMod.npcFocus(towers, [healer, attacker]);
+    assert(f.target.id === 'a' && f.net === 390, 'healer 贴身：attacker 净伤害 990-600=390，仍开火');
+    healer.pos = P(37, 18); attacker.pos = P(37, 17);
+    f = towerMod.npcFocus(towers, [healer, attacker]);
+    assert(f.net <= 0, '在 (37,17) 塔 3×150=450 < 治疗 600：净伤害 ≤0，停火');
+    const pvpSrc = fs.readFileSync(require.resolve('../src/pvp.js'), 'utf8');
+    const mainSrc = fs.readFileSync(require.resolve('../src/main.js'), 'utf8');
+    assert(/evadeInvaders/.test(pvpSrc) && /pvp\.evadeInvaders\(creep\)/.test(mainSrc), 'main 每个 creep 先走强化 invader 回避');
+    const towerSrc = fs.readFileSync(require.resolve('../src/tower.js'), 'utf8');
+    assert(!/hardLine/.test(towerSrc), '安全模式兜底保持原样（无硬线）');
+}
+
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);

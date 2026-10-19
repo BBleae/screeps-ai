@@ -27,6 +27,7 @@ const taskBroker = require('task_broker');
 const haulStats = require('haul_stats');
 const cpuShed = require('cpu_shed');
 const wallFix = require('wallfix');
+const pvp = require('pvp');
 
 const ROLES = {
     harvester: require('roles_harvester'),
@@ -295,7 +296,8 @@ module.exports.loop = function () {
                 if (u > SPK_ARM) { spkHot = true; spkMark = u; spkArm = { at: Math.round(u * 10) / 10, qi, of: creepQueue.length }; }
             }
             let fixing = false;
-            try { fixing = wallFix.run(creep); } catch (e) { logErr('wallFix ' + creep.name, e); }
+            try { fixing = pvp.evadeInvaders(creep); } catch (e) { logErr('evade ' + creep.name, e); }
+            if (!fixing) { try { fixing = wallFix.run(creep); } catch (e) { logErr('wallFix ' + creep.name, e); } }
             if (!fixing) { try { role.run(creep); } catch (e) { logErr('creep ' + creep.name, e); } }
             if (spkHot) {
                 const u = Game.cpu.getUsed(), rn = creep.memory.role;

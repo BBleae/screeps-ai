@@ -46,6 +46,53 @@ function noteSafeMode(room, hostiles, why) {
     console.log('[tower] ' + room.name + ' safe mode (' + why + '): ' + JSON.stringify(log.safeMode.hostiles));
 }
 
+const HEAL_BOOST = { LO: 2, LHO2: 3, XLHO2: 4 };
+const TOUGH_BOOST = { GO: 0.7, GHO2: 0.5, XGHO2: 0.3 };
+const NPC = ['Invader', 'Source Keeper'];
+
+function healPower(creep) {
+    let n = 0;
+    for (const p of creep.body || []) if (p.type === HEAL && p.hits > 0) n += HEAL_BOOST[p.boost] || 1;
+    return n;
+}
+
+function healOn(target, hostiles) {
+    let sum = 0;
+    for (const h of hostiles) {
+        const p = healPower(h);
+        if (!p) continue;
+        const r = Math.max(Math.abs(h.pos.x - target.pos.x), Math.abs(h.pos.y - target.pos.y));
+        if (r <= 1) sum += p * 12;
+        else if (r <= 3) sum += p * 4;
+    }
+    return sum;
+}
+
+function toughMult(creep) {
+    let m = 1;
+    for (const p of creep.body || []) if (p.type === 'tough' && p.hits > 0 && TOUGH_BOOST[p.boost]) m = Math.min(m, TOUGH_BOOST[p.boost]);
+    return m;
+}
+
+function npcFocus(towers, hostiles) {
+    let best = null;
+    for (const h of hostiles) {
+        let dmg = 0;
+        for (const t of towers) dmg += towerDamageAt(t, h);
+        const net = Math.floor(dmg * toughMult(h)) - healOn(h, hostiles);
+        if (!best || net > best.net) best = { target: h, net, dmg };
+    }
+    return best;
+}
+
+function noteFocus(room, focus) {
+    if (typeof Memory === 'undefined' || !Memory.rooms) return;
+    const mem = Memory.rooms[room.name] || (Memory.rooms[room.name] = {});
+    const prev = mem.towerFocus || {};
+    const hold = focus.net <= 0;
+    mem.towerFocus = { at: Game.time, net: focus.net, dmg: focus.dmg, id: focus.target.id, hold, holdTicks: (Number(prev.holdTicks) || 0) + (hold ? 1 : 0), fireTicks: (Number(prev.fireTicks) || 0) + (hold ? 0 : 1) };
+}
+
 function run(room) {
     const hostiles = room.find(FIND_HOSTILE_CREEPS);
     const dangerous = hostiles.some((hostile) =>
@@ -74,9 +121,16 @@ function run(room) {
 
     let injured;
     let repairList;
+    let focus = null;
+    if (hostiles.length && hostiles.every((h) => NPC.indexOf(h.owner && h.owner.username) >= 0) && hostiles.some((h) => healPower(h) > 0)) {
+        focus = npcFocus(towers.filter((t) => t.store[RESOURCE_ENERGY] >= 10), hostiles);
+        if (focus) noteFocus(room, focus);
+    }
     for (const t of towers) {
         if (t.store[RESOURCE_ENERGY] <= 0) continue;
-        if (hostiles.length) {
+        if (focus) {
+            if (focus.net > 0) { t.attack(focus.target); continue; }
+        } else if (hostiles.length) {
             const target = hostiles.find((h) => h.owner.username !== 'Source Keeper' && h.owner.username !== 'Invader' && h.getActiveBodyparts('heal') > 0) ||
                 hostiles.sort((a, b) => a.hits - b.hits)[0];
             t.attack(target);
@@ -149,4 +203,4 @@ function creepInjured(room) {
 
 function resetCache() { for (const k of Object.keys(repairCache)) delete repairCache[k]; }
 
-module.exports = { run, resetCache, towersCanHold, towerDamageAt, safeModeDecision, coreHurt };
+module.exports = { run, resetCache, towersCanHold, towerDamageAt, npcFocus, healOn, safeModeDecision, coreHurt };
