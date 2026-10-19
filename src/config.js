@@ -367,7 +367,7 @@ module.exports = {
         storageFeedRate: 20,
         maxUpgradersRich: { 1: 1, 2: 4, 3: 4, 4: 4, 5: 3, 6: 3, 7: 3, 8: 1 },
         forceRichUpgraders: [],
-        hold: { W31S5: { resumeAt: 10000, holdBelow: 6000, guardLow: 0.5, guardHigh: 0.9, work: 2 } },
+        hold: { W31S5: { resumeAt: 10000, holdBelow: 6000, guardLow: 0.5, guardHigh: 0.9, work: 2, smooth: 0.02 } },
         storageFullAt: 30000,
         poorBelow: 10000,
         poorBudgetShare: 0.5,

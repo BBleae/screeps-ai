@@ -15621,6 +15621,7 @@ console.log('== 10-18 12:04 #2：W31S5 降升级强度（storage <1 万只保不
     const uhStore = { energy: 2000 };
     const uhRoom = { name: 'W31S5', controller: { my: true, level: 7, ticksToDowngrade: 140000 }, storage: { my: true, store: uhStore } };
     const uhMem = {};
+    const uhCfg = require('../src/config').upgrading.hold.W31S5; const savedSmooth = uhCfg.smooth; delete uhCfg.smooth;
     let uh = utils.upgradeHold(uhRoom, uhMem);
     assert(uh.on === true && uh.guard === false, 'storage 2000：降档，降级计时满不需要保级');
     assert(spawnMgr.upgraderTarget(Object.assign({ energyCapacityAvailable: 5600 }, uhRoom), uhMem) === 0, '降档且计时充足：upgrader 目标 0');
@@ -15641,6 +15642,26 @@ console.log('== 10-18 12:04 #2：W31S5 降升级强度（storage <1 万只保不
     uhStore.energy = 5999;
     assert(utils.upgradeHold(uhRoom, uhMem).on === true, '跌破 6000：重新降档');
     assert(utils.upgradeHold({ name: 'W32S4', controller: { my: true, level: 7, ticksToDowngrade: 1 } }, {}) === null, '其它房不受影响');
+    uhCfg.smooth = savedSmooth;
+    assert(uhCfg.smooth === 0.02, 'W31S5 hold 按平滑后的 storage 判断（smooth 0.02）');
+    const savedT = world.time;
+    const flap = {};
+    uhRoom.controller.ticksToDowngrade = 149000;
+    uhStore.energy = 8000; utils.upgradeHold(uhRoom, flap);
+    flap.upgradeHold = { on: false, guard: false };
+    let flips = 0, last = false;
+    for (let i = 0; i < 400; i++) {
+        world.time++;
+        uhStore.energy = i % 10 < 5 ? 11500 : 4000;
+        const h = utils.upgradeHold(uhRoom, flap);
+        if (h.on !== last) { flips++; last = h.on; }
+    }
+    assert(flips === 0, 'storage 每几 tick 在 4000 和 11500 之间来回：平滑后 hold 不来回翻（翻了 ' + flips + ' 次）');
+    for (let i = 0; i < 300; i++) { world.time++; uhStore.energy = 3000; utils.upgradeHold(uhRoom, flap); }
+    assert(flap.upgradeHold.on === true, '持续低于 6000：平滑值跟下来后照常降档');
+    for (let i = 0; i < 300; i++) { world.time++; uhStore.energy = 15000; utils.upgradeHold(uhRoom, flap); }
+    assert(flap.upgradeHold.on === false, '持续高于 1 万：照常恢复');
+    world.time = savedT;
     if (hadCD) global.CONTROLLER_DOWNGRADE = savedCD; else delete global.CONTROLLER_DOWNGRADE;
 }
 

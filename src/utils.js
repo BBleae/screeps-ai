@@ -816,15 +816,26 @@ function upgradeHold(room, mem) {
     const prev = m.upgradeHold;
     const resumeAt = Number(cfg.resumeAt) || 10000;
     const holdBelow = Math.min(resumeAt, Number(cfg.holdBelow) || resumeAt);
-    const on = (prev ? !!prev.on : true) ? energy < resumeAt : energy < holdBelow;
+    const level = holdLevel(m, cfg, energy);
+    const on = (prev ? !!prev.on : true) ? level < resumeAt : level < holdBelow;
     const table = typeof CONTROLLER_DOWNGRADE !== 'undefined' ? CONTROLLER_DOWNGRADE : {};
     const full = Number(table[room.controller.level]) || 0;
     const ttd = Number(room.controller.ticksToDowngrade);
     const low = full * (Number(cfg.guardLow) || 0.5);
     const high = full * (Number(cfg.guardHigh) || 0.9);
     const guard = on && full > 0 && Number.isFinite(ttd) && (prev && prev.guard ? ttd < high : ttd < low);
-    if (!prev || prev.on !== on || prev.guard !== guard) m.upgradeHold = { on, guard, at: Game.time, energy, ttd };
+    if (!prev || prev.on !== on || prev.guard !== guard) m.upgradeHold = { on, guard, at: Game.time, energy, level, ttd };
     return m.upgradeHold;
+}
+
+function holdLevel(m, cfg, energy) {
+    const alpha = Number(cfg.smooth);
+    if (!(alpha > 0 && alpha < 1)) return energy;
+    const s = m.upgradeHoldLevel;
+    if (s && s.t === Game.time) return s.v;
+    const v = s && Number.isFinite(s.v) ? s.v + alpha * (energy - s.v) : energy;
+    m.upgradeHoldLevel = { v: Math.round(v), t: Game.time };
+    return m.upgradeHoldLevel.v;
 }
 
 function conserveUpgradeAllowed(room) {
