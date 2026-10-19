@@ -1,31 +1,4 @@
 'use strict';
-/**
- * 运输饱和度遥测 v2（只观察、不改行为）：每只运输型 creep 每 tick 按"上一 tick 实际发生了什么"分类计数，
- * 按 母房 × 角色 累加，每 FLUSH_EVERY tick 并入 Memory.haulStats（累计值；A/B 与监控取两次读数的差分）。
- *
- * Screeps 的动作下一 tick 才结算，所以 tick T 开始时看到的位置/载货变化就是 T−1 那一 tick 的结果。
- * v1 计数（按净载货变化分类，保留以便与旧数据衔接）：
- *   idle / idleE / idleL / fat   没挪位且载货不变（空载 / 载货 / 其中被疲劳卡住）
- *   mvE / mvL / lf               挪了位、载货不变（空跑 / 载货行进，lf = Σ 载货率）
- *   ld / ul / ch                 载货增 / 减；同 tick 还挪了位的另记 ch
- *   in / out / cap / cu          装卸量；Σ 容量；所有挪位 tick 的 Σ 载货率
- *   dep / df                     出发（取货后第一个挪位 tick）次数与 Σ 出发装载率
- *   inS / outS / churn           从 storage 取 / 送回 storage / 取出又送回的量
- * v2 新增（净载货变化会把"同 tick 取 + 送"记成原地不动、把"在源旁涓流等货"记成取货，所以另按动作钩子与事件序列计）：
- *   ac / acm / ac0               有 OK 动作（transfer/withdraw/pickup）的 tick；其中同 tick 挪了位的；做了动作但载货没变的（被同 tick 抢先）
- *   ldT / ulT                    按动作钩子计的取货 / 投递 tick（同 tick 又取又送各记一次）
- *   tw / twE                     原地、没满、每 tick 增量不到容量 25% 的取货 tick（在源旁涓流等货）与其所得
- *   mvP / mvU                    空跑 tick 事后归类：下一个事件是连续 ≥ 3 tick 原地空闲 → 走去停车（mvP）；否则有效（mvU）
- *   abL / abE                    载货走了 ≥ 5 格下一个事件却是取货（半途换目标）/ 空载离开卸货点 ≥ 5 格又回到 2 格内、期间没取货（白跑）
- *   lgS / lgD / egS / egD        载货腿 / 空载腿的实际步数与起终点切比雪夫距离（绕路比 = S / D）
- *   dp8                          出发装载率 < 0.8 的次数
- *   idSt / idOv / idWa           空闲 tick 按母房当时的供给分：没货可取 / 全满 / 有货没人搬（最好的一处可取量 ≥ 半车且 spawn/ext/塔有缺口）
- *   lostAge / lostAgeOut / lostN 老死（最后一次看到时寿命将尽）时身上的能量、其中死在己方房外的、次数
- * 房级 _room：ticks；rfN / rfT / rfD（spawn+ext 从 < 90% 补到 ≥ 90% 的次数、耗时、缺口积分）；lkF / lsF（ctrl link / 任一源 link ≥ 780 的 tick）；spW（spawn 在等能量的 tick）
- * 外矿线 _lines[外矿房]（remoteHauler）：t idle tw ac acm dep df out cap lostAge
- * rs / ri：角色代码登记的原因（note）的 tick 数 / 其中 idle 的 tick 数（两版角色代码登记的原因不同，A/B 不直接比）。
- * 只统计连续两 tick 都观察到的样本（CPU 跳过、退役、刚孵出的那一 tick 不算）。
- */
 
 const VERSION = 2;
 const CARRIER_ROLES = { hauler: true, remoteHauler: true, feeder: true, courier: true, operator: true };
@@ -41,8 +14,8 @@ const ACT = { transfer: 1, withdraw: 2, pickup: 4 };
 
 const runtimeGlobal = typeof global !== 'undefined' ? global : {};
 const runtime = runtimeGlobal.__haulStatsRuntime || (runtimeGlobal.__haulStatsRuntime = { last: {}, acc: {}, gcAt: 0 });
-runtime.rooms = runtime.rooms || {};      // 房级累计（本窗口）
-runtime.roomState = runtime.roomState || {};   // 房级跨 tick 状态（补能期）
+runtime.rooms = runtime.rooms || {};
+runtime.roomState = runtime.roomState || {};
 runtime.lines = runtime.lines || {};
 runtime.supply = runtime.supply || { tick: -1, rooms: {} };
 
@@ -98,7 +71,6 @@ function cheb(ax, ay, bx, by) {
     return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
 }
 
-/** 目标分类：storage 单独计（倒腾检测），其余只区分建筑类型/掉落/creep */
 function targetKind(target) {
     if (!target) return null;
     if (target.structureType) return target.structureType;
@@ -108,7 +80,6 @@ function targetKind(target) {
     return 'other';
 }
 
-/** 取送动作登记（本 tick 的状态上）：observe 在下一 tick 按载货变化把量记到 storage 进/出上，并记动作位掩码 */
 function noteAction(creep, kind, target) {
     const state = creep && runtime.last[creep.name];
     if (!state || typeof Game === 'undefined' || state.t !== Game.time) return;
@@ -118,7 +89,6 @@ function noteAction(creep, kind, target) {
     state.act |= ACT[kind] || 0;
 }
 
-/** 房间当时的供给与缺口（每房每 tick 一次）：最好的一处可取量（源容器 / 源旁掉落 / storage 高于升级者底线的部分）、spawn+ext+塔的缺口 */
 function roomSupply(room) {
     if (runtime.supply.tick !== Game.time) { runtime.supply.tick = Game.time; runtime.supply.rooms = {}; }
     const cached = runtime.supply.rooms[room.name];
@@ -156,7 +126,6 @@ function linkEnergyAt(room, spot) {
     return link && link.store ? Number(link.store[typeof RESOURCE_ENERGY === 'undefined' ? 'energy' : RESOURCE_ENERGY]) || 0 : null;
 }
 
-/** 房级（每个有运输 creep 的母房每 tick 一次）：spawn+ext 补能期、link 满着的 tick、spawn 在等能量的 tick */
 function roomTick(room) {
     const acc = runtime.rooms[room.name] || (runtime.rooms[room.name] = zeroed(ROOM_COUNTERS));
     const st = runtime.roomState[room.name] || (runtime.roomState[room.name] = { seen: -1, start: null, deficit: 0 });
@@ -187,7 +156,6 @@ function roomTick(room) {
     if (waiting && waiting.cost > 0 && Game.time - Number(waiting.at || 0) <= 5 && available < waiting.cost) acc.spW++;
 }
 
-/** 每只 creep 每 tick 在角色代码执行前调用一次：记下本 tick 开始时的状态，并给上一 tick 的活动分类 */
 function observe(creep) {
     if (!isCarrier(creep) || creep.spawning || !creep.pos) return;
     const now = typeof Game !== 'undefined' ? Game.time : 0;
@@ -201,7 +169,6 @@ function observe(creep) {
         cap: capacityOf(creep), fat: Number(creep.fatigue) || 0, why: null, to: null, from: null, act: 0,
         ttl: creep.ticksToLive == null ? null : Number(creep.ticksToLive), home, role,
         remote: role === 'remoteHauler' ? creep.memory.remoteRoom || null : null,
-        // 货物来源（storage / other）跟着货走：空了就清
         src: used > 0 && prev ? prev.src || null : null, cls: null,
         tr: prev && prev.tr ? prev.tr : { run: 0, park: 0, idle: 0, leg: null, eleg: null },
     };
@@ -227,7 +194,6 @@ function observe(creep) {
         if (moved) bucket.ch++;
         const fromStorage = prev.from === storageType();
         if (fromStorage) bucket.inS += delta;
-        // 混装：只要装过 storage 的货就按 storage 算（倒腾检测宁可多算）
         state.src = fromStorage || prev.src === 'storage' ? 'storage' : 'other';
         if (!moved && delta < prev.cap * 0.25 && used < prev.cap) {
             bucket.tw++;
@@ -261,7 +227,6 @@ function observe(creep) {
             else bucket.idSt++;
         }
     }
-    // 动作钩子：有 OK 动作的 tick、其中同 tick 挪位的、做了却没变化的；取/送 tick 各自计
     const act = prev.act || 0;
     if (act) {
         bucket.ac++;
@@ -273,7 +238,6 @@ function observe(creep) {
     }
     if (moved) {
         bucket.cu += fill;
-        // 出发：取货之后第一个挪了位的 tick（连续取货只算最后一次之后的出发）
         if (prev.cls === 'ld' && cls !== 'ld') {
             bucket.dep++;
             bucket.df += fill;
@@ -282,7 +246,6 @@ function observe(creep) {
             tr.leg = { x: prev.x, y: prev.y, r: prev.r, steps: 0 };
         }
     }
-    // 载货腿：出发 → 下一次投递（步数 vs 起终点距离）；半途又去取货且已走 ≥ 5 格 = 换了目标
     if (tr.leg) {
         if (moved && prev.e > 0) tr.leg.steps++;
         if (cls === 'ul' || (act & ACT.transfer)) {
@@ -293,7 +256,6 @@ function observe(creep) {
             tr.leg = null;
         }
     }
-    // 空载腿：投空 → 下一次取货；空载走出 ≥ 5 格又回到起点 2 格内、期间没取货 = 白跑
     if (cls === 'ul' && used === 0) tr.eleg = { x: prev.x, y: prev.y, r: prev.r, steps: 0, far: 0 };
     else if (tr.eleg) {
         if (cls === 'mvE') {
@@ -308,7 +270,6 @@ function observe(creep) {
             tr.eleg = null;
         }
     }
-    // 空跑事后归类：一段空跑之后连续原地 ≥ 3 tick = 走去停车；接着取货 / 别的事 = 有效
     if (cls === 'mvE') {
         tr.run++;
         tr.idle = 0;
@@ -329,7 +290,6 @@ function observe(creep) {
     }
 }
 
-/** 角色代码登记本 tick 的"为什么没在干活"（park / full / wait / retreat…）；observe 在下一 tick 把它记到分类上 */
 function note(creep, why) {
     const state = creep && runtime.last[creep.name];
     if (state && typeof Game !== 'undefined' && state.t === Game.time && !state.why) state.why = why;
@@ -350,14 +310,13 @@ function ownedRoom(name) {
     return !!(room && room.controller && room.controller.my);
 }
 
-/** 老死带货：上次看到时寿命已尽（≤ 离上次观察的 tick 数 + 1）且身上有货的死亡 creep */
 function settleDeaths() {
     for (const name of Object.keys(runtime.last)) {
         if (Game.creeps && Game.creeps[name]) continue;
         const last = runtime.last[name];
         delete runtime.last[name];
         if (!last || !(last.e > 0) || last.ttl == null) continue;
-        if (last.ttl > Game.time - last.t + 1) continue;   // 还有寿命却消失了：回收 / 战死，不算老死
+        if (last.ttl > Game.time - last.t + 1) continue;
         const bucket = bucketFor(last.home || last.r || '?', last.role || '?');
         bucket.lostAge += last.e;
         bucket.lostN++;
@@ -400,7 +359,6 @@ function flush() {
     runtime.lines = {};
 }
 
-/** 只记录的原型包装：运输型 creep 的 transfer/withdraw/pickup 返回 OK 时登记目标类型与动作位（每个全局只装一次，原样返回） */
 function installActionHooks() {
     if (typeof Creep === 'undefined' || !Creep.prototype) return;
     const okCode = typeof OK === 'undefined' ? 0 : OK;
@@ -411,7 +369,7 @@ function installActionHooks() {
         const hooked = function (target, ...rest) {
             const result = original.call(this, target, ...rest);
             if (result === okCode && isCarrier(this)) {
-                try { noteAction(this, kind, target); } catch (error) { /* 遥测不影响动作 */ }
+                try { noteAction(this, kind, target); } catch (error) {  }
             }
             return result;
         };
