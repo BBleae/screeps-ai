@@ -270,7 +270,21 @@ function terminalFillWant(room, terminal, storageRich) {
             if (give > 0) return Math.max(give, terminalFillWantBase(room, terminal, storageRich));
         }
     }
-    return Math.max(terminalFillWantBase(room, terminal, storageRich), senderFillWant(room, terminal, storageRich), terminalFloorWant(room, terminal));
+    return Math.max(terminalFillWantBase(room, terminal, storageRich), senderFillWant(room, terminal, storageRich), terminalFloorWant(room, terminal), terminalRoomTargetWant(room, terminal));
+}
+
+function terminalRoomTarget(room, terminal) {
+    const rule = ((config.terminal || {}).energyTargetByRoom || {})[room.name];
+    const st = room.storage && room.storage.my !== false && room.storage.store ? room.storage : null;
+    if (!rule || !st || !terminal || terminal.my === false || !terminal.store) return 0;
+    if (energyOf(st.store) + energyOf(terminal.store) < (Number(rule.minRoomEnergy) || 0)) return 0;
+    return feeReserveOf(room.name) + Math.max(0, Number(rule.extra) || 0);
+}
+
+function terminalRoomTargetWant(room, terminal) {
+    const target = terminalRoomTarget(room, terminal);
+    if (!(target > 0)) return 0;
+    return Math.max(0, Math.min(target - energyOf(terminal.store), energyOf(room.storage.store)));
 }
 
 function terminalFloorParams(room) {
@@ -325,7 +339,8 @@ function terminalEnergyWant(room, terminal) {
 
 function terminalDrainKeep(room, storageRich) {
     const fee = feeReserveOf(room.name);
-    const keep = terminalDrainKeepBase(room, storageRich);
+    const base = terminalDrainKeepBase(room, storageRich);
+    const keep = base != null ? Math.max(base, terminalRoomTarget(room, room.terminal)) : base;
     const fp = terminalFloorParams(room);
     if (fp && keep != null && keep < fp.floor) return Math.max(fp.floor, fee > 0 ? fee : 0);
     if (fee > 0 && keep != null) return Math.max(keep, fee);

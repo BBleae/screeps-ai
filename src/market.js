@@ -282,6 +282,8 @@ function sellable(room, cfg, hold) {
         let can = amount - keep;
         const roomKeep = roomKeepFor(room, key, cfg);
         if (roomKeep != null) can = Math.min(can, amount + Number((room.storage && room.storage.store && room.storage.store[key]) || 0) - roomKeep);
+        const accountKeep = cfg.keepAccount && cfg.keepAccount[key];
+        if (accountKeep != null) can = Math.min(can, accountStock(key) - Number(accountKeep));
         const cap = cfg.dailySellUnits && cfg.dailySellUnits[key];
         if (cap != null) can = Math.min(can, Number(cap) - Number((ledger().sold || {})[key] || 0));
         if (can <= 0) continue;
@@ -686,6 +688,28 @@ function trackOrphanEnergy(led, live, book, claimed) {
     }
 }
 
+function cancelStaleOrphans(e, market, price) {
+    const rule = e && e.orphanCancel;
+    if (!rule || !(price > 0) || typeof market.cancelOrder !== 'function') return 0;
+    const reg = (Memory.market && Memory.market.orphanEnergy) || {};
+    const maxAge = (Number(rule.ageHours) || 6) * 3600000;
+    const now = Date.now();
+    const ok = typeof OK !== 'undefined' ? OK : 0;
+    let n = 0;
+    for (const id of Object.keys(reg)) {
+        const x = (market.orders || {})[id];
+        if (!x || !(Number(x.remainingAmount) > 0) || !(Number(x.price) < price)) continue;
+        const born = Number(x.createdTimestamp);
+        if (!(born > 0) || now - born < maxAge) continue;
+        if (market.cancelOrder(id) === ok) n++;
+    }
+    if (n) {
+        const led = ledger();
+        led.orphanCancelled = { at: Game.time, n: (Number(led.orphanCancelled && led.orphanCancelled.n) || 0) + n, price };
+    }
+    return n;
+}
+
 function roomEnergyOpen(market, roomName) {
     return Object.values((market && market.orders) || {}).filter((x) => x && x.type === BUY() && x.resourceType === ENERGY &&
         x.roomName === roomName && Number(x.remainingAmount) > 0);
@@ -986,6 +1010,7 @@ function runOwnOrders(cfg, market) {
                 const avg = recentAvgPrice(ENERGY, cfg);
                 price = Math.min(Number(e.price) || 10, cap, avg != null ? avg * (1 + band) : Infinity);
             }
+            cancelStaleOrphans(e, market, price);
             const budget = { key: 'energyBuyCredits', cap: energyBudget(e).budget, floor: eFloor,
                 roomKey: 'energyBuyByRoom', roomCap: Number(e.perRoomDailyCredits) || 0 };
             const below = Number(e.below || 10000);
@@ -1257,4 +1282,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { accountStock, buyStopped, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
+module.exports = { accountStock, buyStopped, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };

@@ -463,10 +463,26 @@ function storedEnergy(room) {
     return store ? Number(store[RESOURCE_ENERGY] || 0) : 0;
 }
 
+function dropHomeHold(home) {
+    const below = positiveSetting('dropHomeBelow', 0);
+    if (!below || !home || !home.storage) return false;
+    const resume = Math.max(below, positiveSetting('dropHomeResume', below));
+    const mem = Memory.rooms[home.name] || (Memory.rooms[home.name] = {});
+    const energy = storedEnergy(home);
+    const prev = mem.dropHomeHold;
+    const on = prev && prev.on ? energy < resume : energy < below;
+    if (!prev || prev.on !== on) mem.dropHomeHold = { on, at: Game.time, energy };
+    return on;
+}
+
 function refreshDropRoom(home, record) {
     const spotSource = (record.sources || []).find((source) => source.spot);
     const target = spotSource ? new RoomPosition(spotSource.spot.x, spotSource.spot.y, record.room) : null;
     const homeHops = routeHops(record.room, home.name);
+    if (dropHomeHold(home)) {
+        record.drop = { room: home.name, hops: homeHops, distance: null, at: Game.time, distanceVersion: DISTANCE_VERSION, homeHold: true };
+        return;
+    }
     const candidates = [{ room: home.name, hops: homeHops }];
     const richerMargin = positiveSetting('dropRicherMargin', 50000);
     const homeStored = storedEnergy(home);
@@ -494,6 +510,7 @@ function refreshDropRoom(home, record) {
 
 function dropNeedsRefresh(home, record) {
     if (!record.drop) return true;
+    if (!!record.drop.homeHold !== dropHomeHold(home)) return true;
     if (record.drop.distanceVersion !== DISTANCE_VERSION) {
         return Game.time % INFRA_REFRESH === (roomPhase(home.name, INFRA_REFRESH) +
             roomPhase(record.room, INFRA_REFRESH)) % INFRA_REFRESH;
@@ -1724,7 +1741,7 @@ function reserverHandoffs(home, demands, blockingTicks) {
     });
 }
 
-module.exports = { reserverCapReached,
+module.exports = { dropHomeHold, refreshDropRoom, dropNeedsRefresh, reserverCapReached,
     dropRoom,
     remoteWhitelist,
     canClearReservation,

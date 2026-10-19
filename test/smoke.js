@@ -16167,6 +16167,9 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     resetWorld(7100);
     const mk = require('market');
     const term = require('terminal');
+    const mcfg = require('../src/config').market;
+    const savedL = { account: mcfg.keepAccount, keepBy: mcfg.keepBy, share: mcfg.minEffectiveShare };
+    mcfg.keepAccount = {}; mcfg.keepBy = Object.assign({}, mcfg.keepBy, { L: mcfg.keep }); mcfg.minEffectiveShare = Object.assign({}, mcfg.minEffectiveShare, { L: undefined });
     const cfg = mk.settings();
     const savedMarket = Game.market;
     const savedRooms = Game.rooms;
@@ -16251,6 +16254,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     delete Memory.market;
     delete Memory.rooms.W33S7;
     delete Memory.rooms.W31S6;
+    mcfg.keepAccount = savedL.account; mcfg.keepBy = savedL.keepBy; mcfg.minEffectiveShare = savedL.share;
 }
 
 {
@@ -16529,7 +16533,7 @@ console.log('== 10-19 12:21 U 不再卖：keepBy.U 不卖、lab 房按 3000 调 
     const mk = require('../src/market');
     const term = require('terminal');
     const base = mk.settings();
-    assert(base.keepBy.U === Infinity, 'keepBy.U = Infinity：U 不进卖单');
+    assert(base.keepAccount.U === 30000, 'keepAccount.U = 30000：全账号 U 超过 3 万的部分才卖');
     assert(base.buy.stopAbove && base.buy.stopAbove.U === 5000, 'buy.stopAbove.U = 5000');
     assert(term.settings().mineralWantByResource.U === 3000, 'mineralWantByResource.U = 3000，与买入 target 一致');
     const savedRooms = Game.rooms, savedMem = Memory.market, savedGM = Game.market, savedBucket = Game.cpu.bucket, savedStats = Memory.stats;
@@ -16572,6 +16576,95 @@ console.log('== 10-19 12:21 U 不再卖：keepBy.U 不卖、lab 房按 3000 调 
         'W38S7 多余 U 发给不足 3000 的 W33S3（得 ' + JSON.stringify(tp && { r: tp.resource, f: tp.from.name, t: tp.to.name, a: tp.amount }) + '）');
     indC.labRooms = savedLabRooms; indC.labStorageReserve = savedReserve;
     Game.cpu.bucket = savedBucket; Memory.stats = savedStats; Game.rooms = savedRooms; Memory.market = savedMem; Game.market = savedGM;
+}
+
+console.log('== 10-19 12:50 A–E：孤儿能量单自动撤、名单内富房给优先房送、母房缺能外矿卸回家、W33S3 terminal 目标、U/L 全账号留 3 万 ==');
+{
+    const mk = require('../src/market');
+    const term = require('terminal');
+    const tb = require('task_broker');
+    const rm = require('../src/remote');
+    const cfgAll = require('../src/config');
+    const savedRooms = Game.rooms, savedMem = Memory.market, savedGM = Game.market;
+    {
+        const now = Date.now();
+        let cancelled = [];
+        const market = { orders: {
+            old: { id: 'old', type: 'buy', resourceType: 'energy', price: 43.201, remainingAmount: 1157, createdTimestamp: now - 7 * 3600000 },
+            fresh: { id: 'fresh', type: 'buy', resourceType: 'energy', price: 43.201, remainingAmount: 1157, createdTimestamp: now - 3600000 },
+            high: { id: 'high', type: 'buy', resourceType: 'energy', price: 45, remainingAmount: 1157, createdTimestamp: now - 7 * 3600000 } },
+            cancelOrder: (id) => { cancelled.push(id); return C.OK != null ? C.OK : 0; } };
+        Memory.market = { ledger: { day: Math.floor(now / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, deals: 0 },
+            orphanEnergy: { old: { room: 'W31S5' }, fresh: { room: 'W31S5' }, high: { room: 'W37S5' } } };
+        const n = mk.cancelStaleOrphans(cfgAll.market.ownOrders.energy, market, 45);
+        assert(n === 1 && cancelled.join() === 'old', '孤儿能量单：低于跟价且挂超 6 小时才撤（得 ' + cancelled.join() + '）');
+        assert(cfgAll.market.ownOrders.energy.orphanCancel.ageHours === 6, 'config orphanCancel.ageHours = 6');
+    }
+    {
+        const tcfg = term.settings();
+        const mkR = (name, storageE, terminalE) => ({ name, controller: { my: true, level: 7 },
+            storage: { my: true, store: mkStore(storageE, 1000000) },
+            terminal: { my: true, cooldown: 0, store: mkStore(terminalE, 300000), send() { return C.OK; } } });
+        const rooms = [mkR('W32S4', 48000, 26000), mkR('W31S5', 6000, 0)];
+        const p = term.planTransfer(rooms, Object.assign({}, tcfg, { priorityReceivers: ['W32S4', 'W31S5'], starvingUntil: {} }), () => false);
+        assert(p && p.peer && p.from.name === 'W32S4' && p.to.name === 'W31S5', '名单内 W32S4 总能量 7.4 万：可给优先房 W31S5 送（得 ' + JSON.stringify(p && { f: p.from.name, t: p.to.name, a: p.amount }) + '）');
+        assert(74000 - p.amount - p.cost >= 40000, '发送后 W32S4 自己仍 ≥ 4 万（剩 ' + (74000 - p.amount - p.cost) + '）');
+        const poor = [mkR('W32S4', 30000, 15000), mkR('W31S5', 6000, 0)];
+        assert(term.planTransfer(poor, Object.assign({}, tcfg, { priorityReceivers: ['W32S4', 'W31S5'], starvingUntil: {} }), () => false) === null, '名单内房总能量 4.5 万 < 5 万：不送');
+        const edge = [mkR('W32S4', 30000, 21000), mkR('W31S5', 6000, 0)];
+        const pe = term.planTransfer(edge, Object.assign({}, tcfg, { priorityReceivers: ['W32S4', 'W31S5'], starvingUntil: {} }), () => false);
+        assert(!pe || 51000 - pe.amount - pe.cost >= 40000, '总能量 5.1 万：送完不低于 4 万');
+    }
+    {
+        const savedRoomsMem = Memory.rooms;
+        Memory.rooms = { W31S5: {} };
+        const home = { name: 'W31S5', storage: { my: true, store: { energy: 8000, [C.RESOURCE_ENERGY]: 8000 } } };
+        assert(rm.dropHomeHold(home) === true, '母房 storage 8000 < 1 万：外矿卸货回母房');
+        home.storage.store.energy = home.storage.store[C.RESOURCE_ENERGY] = 12000;
+        assert(rm.dropHomeHold(home) === true, '滞回：1.2 万仍卸回母房');
+        home.storage.store.energy = home.storage.store[C.RESOURCE_ENERGY] = 15000;
+        assert(rm.dropHomeHold(home) === false, '回到 1.5 万：恢复选最近');
+        home.storage.store.energy = home.storage.store[C.RESOURCE_ENERGY] = 9000;
+        const record = { room: 'W32S5', sources: [], drop: { room: 'W32S4', hops: 1, distance: 58, at: Game.time, distanceVersion: 3 } };
+        assert(rm.dropNeedsRefresh(home, record) === true, '进入缺能：drop 立即重算');
+        const savedMap = Game.map; Game.map = { findRoute: () => [1] };
+        rm.refreshDropRoom(home, record);
+        Game.map = savedMap;
+        assert(record.drop.room === 'W31S5' && record.drop.homeHold === true, '缺能时 dropRoom = 母房 W31S5（得 ' + JSON.stringify(record.drop) + '）');
+        assert(rm.dropRoom('W31S5', 'W32S5') != null, 'dropRoom 照常可读');
+        Memory.rooms = savedRoomsMem;
+    }
+    {
+        const mkT = (storageE, terminalE) => ({ name: 'W33S3', controller: { my: true, level: 8 },
+            storage: { my: true, store: mkStore(storageE, 1000000) }, terminal: { my: true, store: mkStore(terminalE, 300000) } });
+        const target = cfgAll.terminalNetwork.terminalFeeReserve.W33S3 + 5000;
+        const r1 = mkT(29000, 3000);
+        assert(tb.terminalFillWant(r1, r1.terminal, false) >= target - 3000, 'W33S3 总能量 3.2 万：terminal 补到 fee reserve + 5000（得 ' + tb.terminalFillWant(r1, r1.terminal, false) + '）');
+        const r2 = mkT(20000, 3000);
+        assert(tb.terminalFillWant(r2, r2.terminal, false) < target - 3000, '总能量 2.3 万 < 3 万：不加这 5000');
+        const r3 = mkT(29000, 8000);
+        const keep = tb.terminalDrainKeep(r3, false);
+        assert(keep == null || keep >= target, '取回 terminal 时不低于目标，避免补了又取（keep ' + keep + '）');
+        assert(cfgAll.terminalNetwork.terminalFeeReserve.W33S3 === 3000, 'W33S3 fee reserve 本身不动');
+    }
+    {
+        const base = mk.settings();
+        const mkR = (name, store) => ({ name, controller: { my: true }, terminal: { my: true, store: Object.assign({ getFreeCapacity: () => 100000 }, store) }, storage: { my: true, store: { energy: 50000 } } });
+        world.time++;
+        Game.rooms = { W31S4: mkR('W31S4', { L: 50000 }), W32S4: mkR('W32S4', { L: 1000 }), W33S7: mkR('W33S7', { L: 8000 }) };
+        const l = mk.sellable(Game.rooms.W31S4, base).find((e) => e.resource === 'L');
+        assert(l && l.amount === 59000 - 30000, 'L 全账号 5.9 万：只卖超过 3 万的 2.9 万（得 ' + JSON.stringify(l) + '）');
+        assert(!mk.sellable(Game.rooms.W32S4, base).some((e) => e.resource === 'L'), 'lab 房 W32S4 的 L 留 3000 不卖');
+        assert(base.minEffectiveShare.L === 0.8, 'L 净价底线 = 5 日均价 × 0.8');
+        assert(mk.sellFloorFor('L', 100, base) === 80, 'L 均价 100 ⇒ 底线 80');
+        world.time++;
+        Game.rooms = { W38S7: mkR('W38S7', { U: 40000 }) };
+        const u = mk.sellable(Game.rooms.W38S7, base).find((e) => e.resource === 'U');
+        assert(u && u.amount === 10000, 'U 全账号 4 万：只卖超过 3 万的 1 万');
+        assert(base.buy.stopAbove.U === 5000, 'U 停买线 5000 保留');
+        assert(term.settings().mineralWantByResource.L === 3000, 'lab 房 L 目标 3000');
+    }
+    Game.rooms = savedRooms; Memory.market = savedMem; Game.market = savedGM;
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);

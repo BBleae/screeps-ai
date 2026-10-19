@@ -87,16 +87,22 @@ function planStarving(rooms, cfg, rich) {
     const feeReserve = Math.max(0, Number(cfg.feeReserve) || 0);
     const sendAbove = Number(cfg.starveSendAbove) || cfg.sendAbove;
     const keep = Number(cfg.starveKeep) || cfg.keep;
-    const senders = rooms.slice().sort((a, b) => roomEnergy(b) - roomEnergy(a)).filter((room) => roomEnergy(room) >= sendAbove &&
-        !(room.terminal.cooldown > 0) && !usedThisTick(room.name) && energyOf(room.terminal.store) > feeReserve && rich(room) &&
-        order.indexOf(room.name) < 0);
+    const peerMin = Number(cfg.starvePeerMin) || 0;
+    const peerKeep = Number(cfg.starvePeerKeep) || 0;
+    const isPeer = (room) => order.indexOf(room.name) >= 0;
+    const senders = rooms.slice().sort((a, b) => roomEnergy(b) - roomEnergy(a)).filter((room) =>
+        !(room.terminal.cooldown > 0) && !usedThisTick(room.name) && energyOf(room.terminal.store) > feeReserve &&
+        (isPeer(room) ? peerMin > 0 && roomEnergy(room) >= peerMin : roomEnergy(room) >= sendAbove && rich(room)));
     for (const name of order) {
         const to = byName[name];
         const until = Math.max(below, Number(cfg.starvingUntil && cfg.starvingUntil[name]) || 0);
         if (!to || (to.controller && to.controller.level >= 8) || roomEnergy(to) >= until || freeOf(to.terminal.store) <= 0) continue;
         for (const from of senders) {
-            const spare = roomEnergy(from) - keep - feeReserveOf(from);
-            const budget = energyOf(from.terminal.store) - Math.max(feeReserve, feeReserveOf(from));
+            if (from.name === to.name) continue;
+            const peer = isPeer(from);
+            const spare = roomEnergy(from) - (peer ? peerKeep : keep) - feeReserveOf(from);
+            const terminalBudget = energyOf(from.terminal.store) - Math.max(feeReserve, feeReserveOf(from));
+            const budget = peer ? Math.min(terminalBudget, spare) : terminalBudget;
             let amount = Math.min(spare, Number(cfg.starveMaxSend) || cfg.maxSend, freeOf(to.terminal.store), budget);
             let cost = transactionCost(amount, from.name, to.name);
             while (amount > 0 && amount + cost > budget) {
@@ -106,7 +112,7 @@ function planStarving(rooms, cfg, rich) {
             }
             const minSend = until > below ? Math.min(cfg.minSend, Number(cfg.starveMinSend) || cfg.minSend) : cfg.minSend;
             if (amount < minSend) continue;
-            return { from, to, amount, cost, starving: true };
+            return { from, to, amount, cost, starving: true, peer };
         }
     }
     return null;
@@ -363,6 +369,12 @@ function run(shed) {
     if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
         mem.sent = (Number(mem.sent) || 0) + 1;
         mem.amount = (Number(mem.amount) || 0) + plan.amount;
+        if (plan.peer) {
+            const peer = mem.peer || (mem.peer = { n: 0, amount: 0 });
+            peer.n++;
+            peer.amount += plan.amount;
+            peer.last = record;
+        }
     }
     return record;
 }
