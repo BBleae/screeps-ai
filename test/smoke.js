@@ -16270,7 +16270,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     const savedGet = brainMod.get;
     brainMod.get = (room, key, fb) => (key === 'remotes' && room === 'W31S5') ? ['W31S3'] : fb;
     config.remote.assign = liveRemoteAssign;
-    assert(JSON.stringify(rem.remoteWhitelist('W31S5')) === '["W32S5"]', 'assign 盖过大脑（得 ' + JSON.stringify(rem.remoteWhitelist('W31S5')) + '）');
+    assert(JSON.stringify(rem.remoteWhitelist('W31S5')) === '[]' && rem.remoteWhitelist('W32S4').indexOf('W32S5') >= 0, 'assign 盖过大脑（W31S5 得 ' + JSON.stringify(rem.remoteWhitelist('W31S5')) + '，W32S5 归 W32S4）');
     config.remote.assign = Object.assign({}, liveRemoteAssign, { W31S5: [] });
     assert(Array.isArray(rem.remoteWhitelist('W31S5')) && rem.remoteWhitelist('W31S5').length === 0, '[] = 不做外矿（不退回大脑/自治）');
     config.remote.assign = liveRemoteAssign;
@@ -16786,7 +16786,7 @@ console.log('== 10-19 13:14 第二批：hold 不收新生 upgrader、送到一�
     assert(JSON.stringify(Memory.roadWave.active) === JSON.stringify(['W38S7:W39S8:d239', 'W31S8:W31S9:de40']), '遥测 Memory.roadWave.active：每房一条');
     assert(Memory.rooms.W38S7.roadWave.placed === 5 && Memory.rooms.W38S7.roadWave.cost === 1500 && Memory.rooms.W38S7.roadWave.need === 0, '路费记进母房 roadWave（5 格 × 300），放完 need 0（得 ' + JSON.stringify(Memory.rooms.W38S7.roadWave) + '）');
     const wb = (h, r, id, done) => remoteMod.waveBlocked(h, r, { id, roadComplete: !!done });
-    assert(wb('W38S7', 'W39S8', 'aad239') && wb('W38S7', 'W38S8', 'bbd388') && wb('W31S5', 'W32S5', 'xxdce8', true), '第一波名单里没修完的线、W31S5→W32S5：普通补路不放');
+    assert(wb('W38S7', 'W39S8', 'aad239') && wb('W38S7', 'W38S8', 'bbd388') && !wb('W31S5', 'W32S5', 'xxdce8', true), '第一波名单里没修完的线：普通补路不放；W31S5→W32S5 已移出 hold');
     assert(!wb('W38S7', 'W39S8', 'aad23b') && !wb('W29S3', 'W29S2', 'zzdfd8') && !wb('W38S7', 'W39S8', 'aad239', true), '其他线、第一波里修完的线：照常放路工地、补衰减');
     world.time++;
     Memory.rooms.W38S7.remotes.W39S8.sources[0].roadComplete = true;
@@ -16812,7 +16812,7 @@ console.log('== 10-19 13:14 第二批：hold 不收新生 upgrader、送到一�
     remoteMod.placeWaveRoads(home, Memory.rooms.W38S7.remotes);
     assert(Memory.rooms.W38S7.roadWave.need === 0 && Memory.rooms.W38S7.roadWave.yielded === yieldedBefore, '当前线不缺工地了：名额满也不删别线工地');
     config.remote.roadSitesPerHome = savedCap;
-    assert(!liveRoadWave.routes.some((r) => r.startsWith('W31S5:W32S5')) && liveRoadWave.hold.includes('W31S5:W32S5') && liveRoadWave.active == null, 'W31S5→W32S5 只拦不修；不再有全局只修一条');
+    assert(!liveRoadWave.routes.some((r) => r.startsWith('W31S5:W32S5')) && !liveRoadWave.hold.includes('W31S5:W32S5') && liveRoadWave.active == null, 'W31S5→W32S5 不在修路名单；不再有全局只修一条');
     delete config.remote.roadWave;
 }
 
@@ -16998,6 +16998,19 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(layout.placeCoreRamparts(atk).length === 0, '已有工地不重复放');
     assert(layout.placeCoreRamparts(poor).length === 0, '不在 config.coreRamparts 的房不放');
     config.sites = liveSitesR;
+}
+
+{
+    console.log('\n10-19 20:05 W32S5 外矿改挂 W32S4，W31S5→W32S5 移出修路名单');
+    delete require.cache[require.resolve('../src/config')];
+    const freshCfg = require('../src/config');
+    delete require.cache[require.resolve('../src/config')];
+    require.cache[require.resolve('../src/config')] = { id: require.resolve('../src/config'), filename: require.resolve('../src/config'), loaded: true, exports: config };
+    const a = freshCfg.remote.assign;
+    assert(a.W32S4.indexOf('W32S5') >= 0 && Object.keys(a).filter((h) => a[h].indexOf('W32S5') >= 0).join() === 'W32S4', 'W32S5 只挂在 W32S4 名下');
+    assert(Array.isArray(a.W31S5) && a.W31S5.length === 0, 'W31S5 不再有外矿');
+    const rw = freshCfg.remote.roadWave;
+    assert(rw.hold.concat(rw.routes).every((r) => r.indexOf('W32S5') < 0), 'W31S5→W32S5 不在修路名单');
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
