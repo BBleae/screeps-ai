@@ -1,5 +1,4 @@
 'use strict';
-/** 10-16 战略猫：高威胁玩家回避（见 config.pvp）。外矿/deposit/远征 creep 在非己方房看到 Jumpp 或武装玩家 creep：立刻撤回母房，不还手 */
 const movement = require('movement');
 const utils = require('utils');
 
