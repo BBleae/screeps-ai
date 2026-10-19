@@ -68,20 +68,21 @@ function salesAvg(day, n) {
         const r = hist[k];
         if (r && Number.isFinite(Number(r.net))) { days.push(k); sum += Number(r.net); }
     }
-    return { avg: days.length ? Math.round(sum / days.length) : 0, days };
+    return { avg: n > 0 ? Math.round(sum / n) : 0, days };
 }
 
 function energyBudget(e) {
     const led = ledger();
-    if (led.energyBudget && led.energyBudget.day === led.day) return led.energyBudget;
     const b = (e && e.budget) || {};
-    const s = salesAvg(led.day, Number(b.days) || 7);
+    const n = Number(b.days) || 7;
+    if (led.energyBudget && led.energyBudget.day === led.day && led.energyBudget.div === n) return led.energyBudget;
+    const s = salesAvg(led.day, n);
     const from = !(e && e.budget) ? Infinity : b.from ? Math.floor(Date.parse(b.from + 'T00:00:00Z') / 86400000) : 0;
     const legacy = !(led.day >= from);
     const lo = Number(b.min) || 0;
     const hi = Number(b.max) || Infinity;
     const budget = legacy ? (Number(e && e.actualStopCredits) || Number(e && e.dailyBuyCredits) || 0) : Math.round(Math.min(hi, Math.max(lo, s.avg)));
-    led.energyBudget = { day: led.day, budget, salesAvg: s.avg, days: s.days, legacy };
+    led.energyBudget = { day: led.day, budget, salesAvg: s.avg, days: s.days, legacy, div: n };
     return led.energyBudget;
 }
 

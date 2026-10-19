@@ -244,7 +244,6 @@ module.exports = {
         unlock: {
             W37S5: { after: ['W38S5:38:18'], rooms: [
                 { room: 'W38S4', maxSteps: 60, sources: [{ x: 13, y: 40 }, { x: 27, y: 44 }] },
-                { room: 'W38S5', maxSteps: 70, sources: [{ x: 3, y: 32 }, { x: 5, y: 36 }] },
             ] },
         },
     },
@@ -309,7 +308,7 @@ module.exports = {
         oneOffBeforeRoads: true,
         luxuryStorageAbove: 10000,
         luxuryStorageAboveByRoom: {},
-        luxuryAfterTerminal: ['W29S3'],
+        luxuryAfterTerminal: [],
         deferNuker: true,
         deferPowerSpawn: true,
         rcl8BuildOrder: true,
@@ -497,10 +496,9 @@ module.exports = {
             budgetEach: 500000,
         },
         maxOrderCredits: 50000,
-        dailyBuyCredits: 150000,
-        buyShare: { cap: {}, reserve: {} },
-        pauseNotes: { market: { buy: { resources: ['Z'], rooms: ['W32S4'] }, at: '2026-10-17', reason: '09:00 JST 后停买 Z，当天日买额 0' } },
-        buy: { resources: ['X', 'O'], target: 3000, orderAmount: 500, rooms: ['W32S4'] },
+        dailyBuyCredits: 500000,
+        buyShare: { cap: { Z: 0.4 }, reserve: { O: 0.2, X: 0.2 } },
+        buy: { resources: ['Z', 'O', 'X', 'U'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'] },
         buyEnergy: {
             enabled: false,
             maxEffective: 15,
@@ -574,7 +572,7 @@ module.exports = {
     },
     minerals: {
         force: { W33S8: true, W33S3: true, W32S4: true, W31S4: true, W35S7: 'drain', W31S6: false, W37S7: false, W37S5: false, W29S3: false },
-        maxStock: { W33S8: 10000, W33S3: 30000, W32S4: 30000 },
+        maxStock: { W33S8: 10000, W33S3: 30000, W32S4: 60000 },
         buildExtractor: { W29S3: { minStorage: 20000 } },
         rooms: {
             W31S4: {
