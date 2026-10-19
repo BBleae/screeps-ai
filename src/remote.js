@@ -5,7 +5,7 @@ const brain = require('brain');
 const wheelLayout = require('wheel_layout');
 const defense = require('defense');
 const movement = require('movement');
-const { logErr, bodyCost, bodyPartCount, roomCoords, roomDistance, isRetiring, roomPhase, creepsHomeRole, removeSite } = require('utils');
+const { logErr, bodyCost, bodyPartCount, roomCoords, roomDistance, isRetiring, roomPhase, creepsHomeRole, removeSite, placeSite } = require('utils');
 
 function positiveSetting(name, fallback) {
     const value = config.remote && config.remote[name];
@@ -936,7 +936,7 @@ function placeInfrastructure(home, room, record, remotes) {
             } else record.containerBlockedAt = Game.time;
             return;
         }
-        if (room.createConstructionSite(source.spot.x, source.spot.y, STRUCTURE_CONTAINER) === OK) record.containerSiteAt = Game.time;
+        if (placeSite(room, source.spot.x, source.spot.y, STRUCTURE_CONTAINER) === OK) record.containerSiteAt = Game.time;
         return;
     }
     const homeCap = positiveSetting('roadSitesPerHome', 12);
@@ -959,7 +959,7 @@ function placeInfrastructure(home, room, record, remotes) {
             const blocking = room.lookForAt(LOOK_STRUCTURES, pos.x, pos.y)
                 .some((structure) => structure.structureType !== STRUCTURE_RAMPART);
             if (blocking) continue;
-            if (room.createConstructionSite(pos.x, pos.y, STRUCTURE_ROAD) === OK) budget--;
+            if (placeSite(room, pos.x, pos.y, STRUCTURE_ROAD) === OK) budget--;
         }
     }
 }
@@ -1065,7 +1065,7 @@ function placeWaveRoads(home, remotes) {
     }
     for (const { room, pos } of missing) {
         if (budget <= 0) return;
-        if (room.createConstructionSite(pos.x, pos.y, STRUCTURE_ROAD) !== OK) continue;
+        if (placeSite(room, pos.x, pos.y, STRUCTURE_ROAD, true) !== OK) continue;
         budget--;
         log.need--;
         log.placed++;

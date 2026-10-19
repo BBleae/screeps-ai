@@ -3,7 +3,7 @@ const config = require('config');
 const brain = require('brain');
 const retire = require('retire');
 const movement = require('movement');
-const { makeBody, roomDistance, creepsHomeRole, isRetiring, logErr } = require('utils');
+const { makeBody, roomDistance, creepsHomeRole, isRetiring, logErr, placeSite } = require('utils');
 
 function settings() {
     return Object.assign({ minCapacity: 650, minRcl: 3, pioneers: 2, pioneerBudget: 800,
@@ -380,7 +380,7 @@ function run(home) {
     const spawnPos = wheelSpawnPos(room.name) || target.spawnPos;
     if (!spawnPos) return;
     const hasSite = room.find(FIND_MY_CONSTRUCTION_SITES).some((site) => site.structureType === STRUCTURE_SPAWN);
-    if (!hasSite) room.createConstructionSite(spawnPos.x, spawnPos.y, STRUCTURE_SPAWN);
+    if (!hasSite) placeSite(room, spawnPos.x, spawnPos.y, STRUCTURE_SPAWN);
 }
 
 module.exports = { run, getDemands, activeTarget, targetStatus, gclHeadroom, bootstrapInProgress, claimCapableCreep, settings, arrivalState, noteStuck, markUnreachable, autoClaimTarget, claimTarget };

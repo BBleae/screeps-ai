@@ -571,7 +571,7 @@ function trySite(room, spot, type) {
         return false;
     }
     if (room.lookForAt(LOOK_CONSTRUCTION_SITES, spot.x, spot.y).length > 0) return false;
-    return room.createConstructionSite(spot.x, spot.y, type) === OK;
+    return utils.placeSite(room, spot.x, spot.y, type) === OK;
 }
 
 function pending(room, type) {
@@ -1005,7 +1005,7 @@ function placeSites(room, mem, plan) {
             for (const pos of cores) {
                 if (n >= 2 || budget <= 0) break;
                 if (structureAt(room, pos.x, pos.y, STRUCTURE_RAMPART) || siteAt(room, pos.x, pos.y, STRUCTURE_RAMPART)) continue;
-                if (room.createConstructionSite(pos.x, pos.y, STRUCTURE_RAMPART) === OK) { n++; budget--; }
+                if (utils.placeSite(room, pos.x, pos.y, STRUCTURE_RAMPART) === OK) { n++; budget--; }
             }
         }
     }

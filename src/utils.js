@@ -490,11 +490,83 @@ function plannedStructure(room, structure) {
     return true;
 }
 
+const siteTally = { tick: -1 };
+function siteSettings() {
+    const cfg = config.sites || {};
+    const n = (value, fallback) => (value == null || Number.isNaN(Number(value)) ? fallback : Number(value));
+    return {
+        limit: n(cfg.limit, typeof MAX_CONSTRUCTION_SITES === 'number' ? MAX_CONSTRUCTION_SITES : 100),
+        nonRoadPerRoom: n(cfg.nonRoadPerRoom, 5),
+        nonRoadMax: n(cfg.nonRoadMax, 60),
+        repairReserve: n(cfg.waveRoadReserve, 6),
+        lowTypes: Array.isArray(cfg.lowTypes) ? cfg.lowTypes : [STRUCTURE_LAB, STRUCTURE_FACTORY],
+        lowAfterRoadBlocked: n(cfg.lowAfterRoadBlocked, 1500),
+    };
+}
+
+function tallySites() {
+    if (siteTally.tick === Game.time && siteTally.source === Game.constructionSites) return siteTally;
+    if (siteTally.tick >= 0 && typeof Memory !== 'undefined' && Memory) {
+        const log = Memory.siteCap || (Memory.siteCap = {});
+        Object.assign(log, { at: siteTally.tick, total: siteTally.total, nonRoad: siteTally.nonRoad, blocked: siteTally.blocked });
+        if (siteTally.roadBlocked) log.roadBlockedAt = siteTally.tick;
+    }
+    Object.assign(siteTally, { tick: Game.time, source: Game.constructionSites, total: 0, nonRoad: 0, byRoom: {}, blocked: {}, roadBlocked: false });
+    for (const site of Object.values(Game.constructionSites || {})) countSite(site.pos && site.pos.roomName, site.structureType);
+    return siteTally;
+}
+
+function countSite(roomName, type, delta = 1) {
+    siteTally.total += delta;
+    if (type === STRUCTURE_ROAD) return;
+    siteTally.nonRoad += delta;
+    siteTally.byRoom[roomName] = (siteTally.byRoom[roomName] || 0) + delta;
+}
+
+function waveRoadsPending() {
+    const wave = typeof Memory !== 'undefined' && Memory && Memory.roadWave;
+    return !!wave && (wave.active || []).some((key) => {
+        const log = (Memory.rooms[String(key).split(':')[0]] || {}).roadWave;
+        return log && log.route === key && Number(log.need) > 0;
+    });
+}
+
+function siteTier(type, wave) {
+    if (type === STRUCTURE_ROAD) return wave ? 'wave' : 'road';
+    return siteSettings().lowTypes.indexOf(type) >= 0 ? 'low' : 'core';
+}
+
+function siteAllowed(roomName, type, wave) {
+    const cfg = siteSettings();
+    const tally = tallySites();
+    const tier = siteTier(type, wave);
+    if (tally.total >= cfg.limit) return false;
+    if (tier === 'wave') return true;
+    if (tier === 'road') return tally.total < cfg.limit - cfg.repairReserve;
+    if (tally.nonRoad >= cfg.nonRoadMax || (tally.byRoom[roomName] || 0) >= cfg.nonRoadPerRoom) return false;
+    if (tier === 'core') return true;
+    const roadBlockedAt = Math.max(Number(Memory.siteCap && Memory.siteCap.roadBlockedAt) || 0, tally.roadBlocked ? Game.time : 0);
+    return !waveRoadsPending() && Game.time - roadBlockedAt >= cfg.lowAfterRoadBlocked;
+}
+
+function placeSite(room, x, y, type, wave) {
+    if (!siteAllowed(room.name, type, wave)) {
+        const tier = siteTier(type, wave);
+        siteTally.blocked[tier] = (siteTally.blocked[tier] || 0) + 1;
+        if (tier !== 'core' && tier !== 'low') siteTally.roadBlocked = true;
+        return ERR_FULL;
+    }
+    const ret = room.createConstructionSite(x, y, type);
+    if (ret === OK) countSite(room.name, type);
+    return ret;
+}
+
 function removeSite(site, reason) {
     if (!site || typeof site.remove !== 'function') return false;
     if ((Number(site.progress) || 0) > 0) return false;
     const ret = site.remove();
     const ok = ret == null || ret === OK;
+    if (ok && site.pos && siteTally.tick === Game.time && siteTally.source === Game.constructionSites) countSite(site.pos.roomName, site.structureType, -1);
     if (ok && site.pos && typeof Memory !== 'undefined' && Memory) {
         const all = Memory.siteRemovals || (Memory.siteRemovals = {});
         const r = all[site.pos.roomName] || (all[site.pos.roomName] = {});
@@ -1029,6 +1101,9 @@ function pvpDangerRoom(name) {
 }
 
 module.exports = {
+    placeSite,
+    siteAllowed,
+    tallySites,
     terminalMinStorageFor,
     pvpHostile,
     notePvpThreat,

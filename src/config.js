@@ -286,6 +286,7 @@ module.exports = {
     demolition: { interval: 25, minEnergy: 300, logSize: 20, batch: 4, keepStoredBelow: 0 },
     maxSites: 40,
     globalSiteReserve: 12,
+    sites: { nonRoadPerRoom: 5, nonRoadMax: 60, waveRoadReserve: 6, lowAfterRoadBlocked: 1500 },
     siteFloorPerRoom: 10,
     remoteContainerSiteReserve: 2,
     roadsMinRcl: 3,
