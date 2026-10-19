@@ -16779,34 +16779,99 @@ console.log('== 10-19 13:14 第二批：hold 不收新生 upgrader、送到一�
     const roadSites = (room) => Object.values(Game.constructionSites).filter((s) => s.structureType === C.STRUCTURE_ROAD && (!room || s.pos.roomName === room)).map((s) => s.pos.roomName + ':' + s.pos.x + '.' + s.pos.y).sort();
     remoteMod.placeWaveRoads(home, Memory.rooms.W38S7.remotes);
     remoteMod.placeWaveRoads(home2, Memory.rooms.W31S8.remotes);
-    assert(JSON.stringify(roadSites()) === JSON.stringify(['W38S8:10.10', 'W38S8:11.10', 'W38S8:12.10', 'W39S8:40.20', 'W39S8:41.20']),
-        '只开第一条 W38S7→W39S8 d239 的工地（不含母房段、不碰 d23b / d388 / 第二条）（得 ' + JSON.stringify(roadSites()) + '）');
-    assert(JSON.stringify(Memory.roadWave.active) === JSON.stringify(['W38S7:W39S8:d239']), '遥测 Memory.roadWave.active 只有第一条');
-    assert(Memory.rooms.W38S7.roadWave.placed === 5 && Memory.rooms.W38S7.roadWave.cost === 1500, '路费记进母房 roadWave（5 格 × 300）（得 ' + JSON.stringify(Memory.rooms.W38S7.roadWave) + '）');
+    assert(JSON.stringify(roadSites()) === JSON.stringify(['W31S9:7.7', 'W31S9:8.7', 'W38S8:10.10', 'W38S8:11.10', 'W38S8:12.10', 'W39S8:40.20', 'W39S8:41.20']),
+        '每个母房各修一条：W38S7 先 W39S8 d239，W31S8 同时修 W31S9（不含母房段、不碰 d23b / d388）（得 ' + JSON.stringify(roadSites()) + '）');
+    assert(JSON.stringify(Memory.roadWave.active) === JSON.stringify(['W38S7:W39S8:d239', 'W31S8:W31S9:de40']), '遥测 Memory.roadWave.active：每房一条');
+    assert(Memory.rooms.W38S7.roadWave.placed === 5 && Memory.rooms.W38S7.roadWave.cost === 1500 && Memory.rooms.W38S7.roadWave.need === 0, '路费记进母房 roadWave（5 格 × 300），放完 need 0（得 ' + JSON.stringify(Memory.rooms.W38S7.roadWave) + '）');
+    const wb = (h, r, id, done) => remoteMod.waveBlocked(h, r, { id, roadComplete: !!done });
+    assert(wb('W38S7', 'W39S8', 'aad239') && wb('W38S7', 'W38S8', 'bbd388') && wb('W31S5', 'W32S5', 'xxdce8', true), '第一波名单里没修完的线、W31S5→W32S5：普通补路不放');
+    assert(!wb('W38S7', 'W39S8', 'aad23b') && !wb('W29S3', 'W29S2', 'zzdfd8') && !wb('W38S7', 'W39S8', 'aad239', true), '其他线、第一波里修完的线：照常放路工地、补衰减');
     world.time++;
     Memory.rooms.W38S7.remotes.W39S8.sources[0].roadComplete = true;
-    remoteMod.placeWaveRoads(home2, Memory.rooms.W31S8.remotes);
-    assert(JSON.stringify(Memory.roadWave.active) === JSON.stringify(['W31S8:W31S9:de40']) && roadSites('W31S9').length === 2, '第一条修完：轮到第二条 W31S8→W31S9');
-    world.time++;
-    Memory.rooms.W31S8.remotes.W31S9.sources[0].roadComplete = true;
     homeStore.store.energy = 4000;
     remoteMod.placeWaveRoads(home, Memory.rooms.W38S7.remotes);
-    assert(Memory.roadWave.paused.includes('W38S7:W38S8:d388') && roadSites('W38S8').length === 3, 'W38S7 storage 4000 < 5000：第六条暂停，不放工地');
+    assert(Memory.roadWave.paused.includes('W38S7:W38S8:d388') && roadSites('W38S8').length === 3, 'W39S8 修完轮到 W38S8，但 W38S7 storage 4000 < 5000：暂停，不放工地');
     world.time++;
     homeStore.store.energy = 20000;
     const savedCap = config.remote.roadSitesPerHome;
     config.remote.roadSitesPerHome = 6;
     far.createConstructionSite(30, 30, C.STRUCTURE_ROAD);
+    far.createConstructionSite(31, 30, C.STRUCTURE_ROAD);
     const before = roadSites().length;
     remoteMod.placeWaveRoads(home, Memory.rooms.W38S7.remotes);
     assert(roadSites().length === before - 1 && Memory.rooms.W38S7.roadWave.yielded === 1 && !roadSites().some((k) => k === 'W38S8:20.20' || k === 'W38S8:21.20'),
-        '母房路工地满额：先让掉一个不在当前路线上、没进度的工地（得 ' + JSON.stringify(roadSites()) + '）');
+        '名额真不够（6 个满、当前线还缺 2 格）：让掉一个别线零进度工地（得 ' + JSON.stringify(roadSites()) + '）');
+    for (let i = 0; i < 3 && !roadSites('W38S8').includes('W38S8:20.20'); i++) { world.time++; remoteMod.placeWaveRoads(home, Memory.rooms.W38S7.remotes); }
+    assert(roadSites('W38S8').includes('W38S8:20.20') && roadSites('W38S8').length + roadSites('W39S8').length <= 6, '让出名额后放当前线 d388 的工地（得 ' + JSON.stringify(roadSites()) + '）');
     world.time++;
+    for (const site of Object.values(Game.constructionSites)) if (site.pos.roomName === 'W38S8' && site.pos.y === 20) site.remove();
+    for (const x of [20, 21]) transit._structs.push({ structureType: C.STRUCTURE_ROAD, pos: new RoomPosition(x, 20, 'W38S8') });
+    const yieldedBefore = Memory.rooms.W38S7.roadWave.yielded;
     remoteMod.placeWaveRoads(home, Memory.rooms.W38S7.remotes);
-    assert(roadSites('W38S8').includes('W38S8:20.20'), '让出名额后下一轮放当前路线（第六条 d388）的工地');
+    assert(Memory.rooms.W38S7.roadWave.need === 0 && Memory.rooms.W38S7.roadWave.yielded === yieldedBefore, '当前线不缺工地了：名额满也不删别线工地');
     config.remote.roadSitesPerHome = savedCap;
-    assert(!liveRoadWave.routes.some((r) => r.startsWith('W31S5:W32S5')), 'W31S5→W32S5 不在第一波');
+    assert(!liveRoadWave.routes.some((r) => r.startsWith('W31S5:W32S5')) && liveRoadWave.hold.includes('W31S5:W32S5') && liveRoadWave.active == null, 'W31S5→W32S5 只拦不修；不再有全局只修一条');
     delete config.remote.roadWave;
+}
+
+console.log('== 10-19 13:44 第三批：修路每房各一条、只拦第一波和 W31S5→W32S5；G 集中 W32S4 做、UL/G 走矿物平衡、lab 缺料空转 500 tick 退回 OH ==');
+{
+    const term = require('terminal');
+    const cfg = term.settings();
+    const savedLabRooms = config.industry.labRooms;
+    config.industry.labRooms = ['W32S4', 'W33S3'];
+    const labsOf = (n) => Array.from({ length: n }, () => ({ structureType: C.STRUCTURE_LAB, store: {} }));
+    const mkR = (name, minerals) => {
+        const labList = labsOf(3);
+        return { name, controller: { my: true, level: 8 }, storage: { my: true, store: mkStore(50000, 1000000) },
+            terminal: { my: true, cooldown: 0, store: mkStore(20000, 300000, minerals || {}), send() { return C.OK; } },
+            find: (kind, o) => (o && o.filter ? labList.filter(o.filter) : labList) };
+    };
+    world.time++;
+    const ul = term.planMineralTransfer([mkR('W33S3', { UL: 6855 }), mkR('W32S4', { ZK: 7020 })], cfg);
+    assert(ul && ul.resource === 'UL' && ul.from.name === 'W33S3' && ul.to.name === 'W32S4' && ul.amount === 2000, 'W33S3 的 UL 走矿物平衡发给 W32S4（得 ' + JSON.stringify(ul && { r: ul.resource, f: ul.from.name, t: ul.to.name, a: ul.amount }) + '）');
+    world.time++;
+    assert(term.planMineralTransfer([mkR('W32S4', { UL: 5000 }), mkR('W33S3', {})], cfg) === null, 'W33S3 不要 UL：W32S4 的 UL 不往回发');
+    world.time++;
+    const g = term.planMineralTransfer([mkR('W32S4', { G: 3000 }), mkR('W33S3', {})], cfg);
+    assert(g && g.resource === 'G' && g.from.name === 'W32S4' && g.to.name === 'W33S3' && g.amount === 2000, 'W32S4 做好的 G 按需发 W33S3，自己留 1000（得 ' + JSON.stringify(g && { r: g.resource, a: g.amount }) + '）');
+    world.time++;
+    assert(term.planMineralTransfer([mkR('W32S4', { G: 1800 }), mkR('W33S3', {})], cfg) === null, 'W32S4 G 1800：留够自己做 GH 的 1000，不发');
+    config.industry.labRooms = savedLabRooms;
+}
+{
+    resetWorld(95000);
+    Memory.rooms = {};
+    const ind = require('../src/industry');
+    const savedReactions = global.REACTIONS;
+    global.REACTIONS = { H: { O: 'OH', G: 'GH' }, O: { H: 'OH' }, G: { H: 'GH' }, GH: { OH: 'GH2O' }, OH: { GH: 'GH2O' }, GH2O: { X: 'XGH2O' }, X: { GH2O: 'XGH2O' },
+        U: { L: 'UL' }, L: { U: 'UL' }, Z: { K: 'ZK' }, K: { Z: 'ZK' }, UL: { ZK: 'G' }, ZK: { UL: 'G' } };
+    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic };
+    config.industry.boostTargets = ['XGH2O'];
+    config.industry.labOpportunistic = false;
+    const lr = makeRoom('W33S3', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
+    makeStructure(lr, C.STRUCTURE_STORAGE, 24, 22, { id: 'idStore', capacity: 1000000, energy: 100000 });
+    const t = makeStructure(lr, C.STRUCTURE_TERMINAL, 25, 22, { id: 'idTerm', capacity: 300000, energy: 20000, extraStore: { H: 29000, O: 3700, X: 115, OH: 7200 } });
+    for (const [x, id] of [[35, 'idA'], [36, 'idB'], [37, 'idC']]) makeStructure(lr, C.STRUCTURE_LAB, x, 21, { id, capacity: 5000, energy: 0 });
+    Memory.rooms.W33S3 = { labRoles: { inputs: ['idA', 'idB'], outputs: ['idC'], boost: null, at: 1 } };
+    assert(ind.labPlan(lr).product === null && Memory.rooms.W33S3.labIdleSince === Game.time, 'OH 7200 停做、没有 G：lab 空转，开始计时');
+    world.time += 499;
+    assert(ind.labPlan(lr).product === null, '空转 499 tick：还等');
+    world.time += 1;
+    const fb = ind.labPlan(lr);
+    assert(fb.product === 'OH' && Memory.rooms.W33S3.labFallbackAt === Game.time && Memory.rooms.W33S3.productHold.OH, '空转满 500 tick：退回做 OH（OH 停做标记不动）（得 ' + fb.product + '）');
+    world.time++;
+    t.store.G = 1000;
+    const back = ind.labPlan(lr);
+    assert(back.product === 'GH' && !Memory.rooms.W33S3.labIdleSince, 'G 到了：马上改做 GH，空转计时清掉（得 ' + back.product + '）');
+    world.time++;
+    delete t.store.G;
+    t.store.UL = 1000; t.store.ZK = 1000;
+    assert(ind.labPlan(lr).product === 'G', '有 ZK 和 UL：做 G');
+    assert(config.industry.labIdleFallback === 500 && config.industry.productHold.OH.off === 2000, '配置：空转 500 tick 保底；OH 回切线 2000 不动');
+    config.industry.boostTargets = savedInd.boostTargets;
+    config.industry.labOpportunistic = savedInd.labOpportunistic;
+    global.REACTIONS = savedReactions;
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);

@@ -335,6 +335,20 @@ function carriedStock(room, out) {
 }
 
 function chooseReaction(room, mem, roles, labsById, cfg) {
+    const held = heldProducts(room, mem);
+    const picked = pickReaction(room, mem, roles, labsById, cfg, held);
+    if (picked || !held.size) {
+        delete mem.labIdleSince;
+        return picked;
+    }
+    if (!mem.labIdleSince) mem.labIdleSince = Game.time;
+    if (Game.time - mem.labIdleSince < num(industryConfig().labIdleFallback, 500)) return null;
+    const fallback = pickReaction(room, mem, roles, labsById, cfg, new Set(), held.values().next().value);
+    if (fallback) mem.labFallbackAt = Game.time;
+    return fallback;
+}
+
+function pickReaction(room, mem, roles, labsById, cfg, held, forced) {
     const inputs = roles.inputs.map((id) => labsById[id]);
     const output = labsById[roles.outputs[0]];
     const ta = labMineral(inputs[0]);
@@ -344,7 +358,6 @@ function chooseReaction(room, mem, roles, labsById, cfg) {
     const stock = mineralStock(room);
     for (const lab of inputs) addStock(stock, lab.store);
     carriedStock(room, stock);
-    const held = heldProducts(room, mem);
     const reactAmount = typeof LAB_REACTION_AMOUNT !== 'undefined' ? LAB_REACTION_AMOUNT : 5;
     if (ta && tb && ta !== tb && num(stock[ta], 0) >= reactAmount && num(stock[tb], 0) >= reactAmount &&
         typeof REACTIONS !== 'undefined' && REACTIONS && REACTIONS[ta] && REACTIONS[ta][tb]) {
@@ -356,7 +369,7 @@ function chooseReaction(room, mem, roles, labsById, cfg) {
     const boost = roles.boost && labsById[roles.boost];
     const targetStock = Object.assign({}, stock);
     if (boost) addStock(targetStock, boost.store);
-    const target = wantedTarget(targetStock, cfg);
+    const target = forced || wantedTarget(targetStock, cfg);
     let step = target ? nextReactionFor(target, stock, cfg.minBatch, 0, held) : null;
     let stepTarget = step ? target : null;
     if (!step && cfg.opportunistic !== false) step = pickPair(stock, cfg.minBatch, held);

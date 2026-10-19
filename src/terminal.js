@@ -246,13 +246,17 @@ function mineralHave(room, labs, mineral) {
     return sum;
 }
 
-function mineralWantFor(cfg, mineral) {
+function mineralWantFor(cfg, mineral, roomName) {
+    const room = roomName && cfg.mineralWantByRoom && cfg.mineralWantByRoom[roomName];
+    if (room && Object.prototype.hasOwnProperty.call(room, mineral)) return Math.max(0, Number(room[mineral]) || 0);
     const by = cfg.mineralWantByResource;
     const v = by && Number(by[mineral]);
     return v > 0 ? v : Math.max(1, Number(cfg.mineralWant) || 1000);
 }
 
-function mineralKeepFor(cfg, roomName) {
+function mineralKeepFor(cfg, roomName, mineral) {
+    const byResource = cfg.mineralKeepByResource;
+    if (mineral && byResource && Object.prototype.hasOwnProperty.call(byResource, mineral)) return Math.max(0, Number(byResource[mineral]) || 0);
     const by = cfg.mineralKeepByRoom;
     if (by && Object.prototype.hasOwnProperty.call(by, roomName)) {
         const v = Number(by[roomName]);
@@ -270,7 +274,7 @@ function mineralShort(rooms, cfg) {
         const labRooms = config.industry && config.industry.labRooms;
         if (Array.isArray(labRooms) && labRooms.indexOf(room.name) < 0) continue;
         for (const mineral of cfg.minerals || []) {
-            const want = mineralWantFor(cfg, mineral);
+            const want = mineralWantFor(cfg, mineral, room.name);
             const have = mineralHave(room, labs, mineral);
             if (have < want) (out[mineral] || (out[mineral] = [])).push({ room, have });
         }
@@ -286,10 +290,10 @@ function planMineralTransfer(rooms, cfg) {
         const needy = (short[mineral] || []).filter((entry) => freeOf(entry.room.terminal.store) > 0).sort((a, b) => a.have - b.have);
         if (!needy.length) continue;
         const donors = rooms.filter((room) => !(room.terminal.cooldown > 0) && !usedThisTick(room.name) &&
-            Number(room.terminal.store[mineral] || 0) > mineralKeepFor(cfg, room.name) + want)
+            Number(room.terminal.store[mineral] || 0) > mineralKeepFor(cfg, room.name, mineral) + want)
             .sort((a, b) => Number(b.terminal.store[mineral] || 0) - Number(a.terminal.store[mineral] || 0));
         for (const from of donors) {
-            const keep = mineralKeepFor(cfg, from.name);
+            const keep = mineralKeepFor(cfg, from.name, mineral);
             for (const entry of needy) {
                 const to = entry.room;
                 if (to.name === from.name) continue;

@@ -921,7 +921,7 @@ function noteRoadTrail(home, remoteRoom, sourceId, sourceIdx, packed) {
     source.roadComplete = false;
 }
 
-function placeInfrastructure(room, record, remotes) {
+function placeInfrastructure(home, room, record, remotes) {
     if (!record.enabled || record.suspendedUntil > Game.time) return;
     const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
     for (const source of record.sources) {
@@ -947,9 +947,11 @@ function placeInfrastructure(room, record, remotes) {
     const mine = homeRemoteRoadSites(remotes);
     const others = foreignRemoteRoadSites(remotes);
     if (others > 0 || mine >= homeCap) record.roadQuota = { at: Game.time, mine, others, cap: homeCap };
-    if (waveSettings()) return;
-    let budget = Math.min(MAX_REMOTE_SITES - sites.length, homeCap - mine);
+    const waveLog = waveSettings() && Memory.rooms[home.name].roadWave;
+    const waveNeed = waveLog && activeWaveRoutes().some((route) => route.home === home.name) ? Math.max(0, Number(waveLog.need) || 0) : 0;
+    let budget = Math.min(MAX_REMOTE_SITES - sites.length, homeCap - mine - waveNeed);
     for (const source of record.sources) {
+        if (waveBlocked(home.name, record.room, source)) continue;
         for (const pos of unpackRoad(source.road)) {
             if (budget <= 0) return;
             if (at(room, LOOK_STRUCTURES, pos, STRUCTURE_ROAD) ||
@@ -967,6 +969,18 @@ function waveSettings() {
     return wave && Array.isArray(wave.routes) && wave.routes.length ? wave : null;
 }
 
+function waveEntryMatches(entry, homeName, roomName, source) {
+    const [home, room, suffix] = String(entry).split(':');
+    return home === homeName && room === roomName && String(source.id).endsWith(suffix || '');
+}
+
+function waveBlocked(homeName, roomName, source) {
+    const wave = waveSettings();
+    if (!wave) return false;
+    if ((wave.hold || []).some((entry) => waveEntryMatches(entry, homeName, roomName, source))) return true;
+    return !source.roadComplete && wave.routes.some((entry) => waveEntryMatches(entry, homeName, roomName, source));
+}
+
 function waveSource(entry) {
     const [home, room, suffix] = String(entry).split(':');
     const record = ((Memory.rooms[home] || {}).remotes || {})[room];
@@ -981,7 +995,6 @@ function activeWaveRoutes() {
     const status = { at: Game.time, active: [], paused: [], done: [] };
     const active = [];
     const seen = new Set();
-    const limit = Math.max(1, Number(wave && wave.active) || 1);
     for (const entry of wave ? wave.routes : []) {
         const route = waveSource(entry);
         if (!route) continue;
@@ -990,7 +1003,6 @@ function activeWaveRoutes() {
         seen.add(route.home);
         const storage = Game.rooms[route.home] && Game.rooms[route.home].storage;
         if (!storage || storage.store[RESOURCE_ENERGY] < (Number(wave.minStorage) || 0)) { status.paused.push(route.key); continue; }
-        if (active.length >= limit) continue;
         active.push(route);
         status.active.push(route.key);
     }
@@ -1033,24 +1045,31 @@ function placeWaveRoads(home, remotes) {
     if (log.route !== route.key) Object.assign(log, { route: route.key, since: Game.time, placed: 0, cost: 0 });
     log.at = Game.time;
     log.sites = routeSites.length;
-    if (capLeft <= 0 && routeSites.length < MAX_REMOTE_SITES) {
+    const missing = [];
+    for (const [roomName, packed] of segments) {
+        const room = Game.rooms[roomName];
+        if (!room) continue;
+        for (const pos of unpackRoad(packed)) {
+            if (room.lookForAt(LOOK_STRUCTURES, pos.x, pos.y).some((item) => item.structureType !== STRUCTURE_RAMPART && item.structureType !== STRUCTURE_CONTAINER) ||
+                at(room, LOOK_CONSTRUCTION_SITES, pos, STRUCTURE_ROAD)) continue;
+            missing.push({ room, pos });
+        }
+    }
+    log.need = Math.max(0, Math.min(missing.length, MAX_REMOTE_SITES - routeSites.length));
+    if (!log.need) return;
+    if (capLeft <= 0) {
         const idle = Object.values(Game.constructionSites || {}).find((site) => site.structureType === STRUCTURE_ROAD && remotes[site.pos.roomName] &&
             !(site.progress > 0) && !onRoute.has(site.pos.roomName + ':' + site.pos.x + '.' + site.pos.y));
         if (idle && removeSite(idle, 'roadWave')) log.yielded = (log.yielded || 0) + 1;
         return;
     }
-    for (const [roomName, packed] of segments) {
-        const room = Game.rooms[roomName];
-        if (!room) continue;
-        for (const pos of unpackRoad(packed)) {
-            if (budget <= 0) return;
-            if (room.lookForAt(LOOK_STRUCTURES, pos.x, pos.y).some((item) => item.structureType !== STRUCTURE_RAMPART && item.structureType !== STRUCTURE_CONTAINER) ||
-                at(room, LOOK_CONSTRUCTION_SITES, pos, STRUCTURE_ROAD)) continue;
-            if (room.createConstructionSite(pos.x, pos.y, STRUCTURE_ROAD) !== OK) continue;
-            budget--;
-            log.placed++;
-            log.cost += room.getTerrain().get(pos.x, pos.y) & TERRAIN_MASK_SWAMP ? 1500 : 300;
-        }
+    for (const { room, pos } of missing) {
+        if (budget <= 0) return;
+        if (room.createConstructionSite(pos.x, pos.y, STRUCTURE_ROAD) !== OK) continue;
+        budget--;
+        log.need--;
+        log.placed++;
+        log.cost += room.getTerrain().get(pos.x, pos.y) & TERRAIN_MASK_SWAMP ? 1500 : 300;
     }
 }
 
@@ -1189,7 +1208,7 @@ function run(home) {
         if (!room) continue;
         try {
             refreshVisible(home, record, room);
-            if (infraTick) placeInfrastructure(room, record, mem.remotes);
+            if (infraTick) placeInfrastructure(home, room, record, mem.remotes);
         } catch (error) {
             logErr('remote.run ' + home.name + '->' + roomName, error);
         }
@@ -1850,6 +1869,7 @@ module.exports = { dropHomeHold, refreshDropRoom, dropNeedsRefresh, reserverCapR
     noteDelivered,
     activeWaveRoutes,
     placeWaveRoads,
+    waveBlocked,
     run,
     applyAvoidHolds,
     cededRoom,
