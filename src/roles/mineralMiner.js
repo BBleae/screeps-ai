@@ -79,9 +79,12 @@ function headroom(room, plan) {
     const cap = Number((((require('config').minerals) || {}).maxStock || {})[room.name]);
     return { left: (cap > 0 ? cap : plan.maxStock) - stock(plan, sinks), mineral };
 }
+function finishable(space, plan) {
+    return space.mineral.mineralAmount <= lifetimeYield(plan);
+}
 function ready(room, plan) {
     const space = headroom(room, plan);
-    return !!space && space.left > 0;
+    return !!space && (space.left > 0 || finishable(space, plan));
 }
 function lifetimeYield(plan) {
     const work = (plan.body || []).filter((part) => part === 'work').length;
@@ -91,7 +94,9 @@ function lifetimeYield(plan) {
 }
 function spawnReady(room, plan) {
     const space = headroom(room, plan);
-    return !!space && space.left >= Math.min(lifetimeYield(plan), space.mineral.mineralAmount);
+    if (!space) return false;
+    if (finishable(space, plan)) return true;
+    return space.left >= lifetimeYield(plan);
 }
 function move(creep, path, revision, target, range) {
     if (creep.fatigue) return;

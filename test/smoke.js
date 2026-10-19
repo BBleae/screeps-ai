@@ -15505,7 +15505,7 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     amount = 70000;
     assert(mm.forced({ name: 'W35S7' }, oPlan).enabled === false && Memory.mineralDrained.W35S7 > 0, '重生后也不再开（记在 Memory.mineralDrained）');
     Game.getObjectById = savedGet; Memory.mineralDrained = savedDrained;
-    assert(config.minerals.maxStock.W32S4 === 60000 && config.minerals.maxStock.W33S3 === 30000, 'H maxStock：W32S4 6 万（10-19 卖 H 房、收 W31S8 转来的 H）、W33S3 3 万，由 config 覆盖指令里的 5 万');
+    assert(config.minerals.maxStock.W32S4 === 60000 && config.minerals.maxStock.W33S3 === 60000, 'H maxStock：W32S4 6 万（10-19 卖 H 房、收 W31S8 转来的 H）、W33S3 6 万（10-19 20:10），由 config 覆盖指令里的 5 万');
 }
 
 {
@@ -16711,6 +16711,12 @@ console.log('== 10-19 13:14 第二批：hold 不收新生 upgrader、送到一�
     assert(miner.spawnReady(mr, plan), 'L 4.4 万：余量够一辈子（约 5000），才孵');
     term.store.L = 48000; mineral.mineralAmount = 1000;
     assert(miner.spawnReady(mr, plan), '矿只剩 1000、余量 2000 ≥ 1000：可以孵');
+    term.store.L = 50211; mineral.mineralAmount = 1376;
+    assert(miner.spawnReady(mr, plan) && miner.ready(mr, plan), '10-19 20:10 超上限但矿只剩 1376 < 一辈子产量：照孵照挖，把矿采完好再生');
+    mineral.mineralAmount = 9000;
+    assert(!miner.spawnReady(mr, plan) && !miner.ready(mr, plan), '超上限、矿剩 9000 > 一辈子产量：照旧挡住');
+    const cfgSrc = fs.readFileSync(require.resolve('../src/config.js'), 'utf8');
+    assert(/W33S3: 60000/.test(cfgSrc), 'config.minerals.maxStock.W33S3 = 60000');
 }
 {
     resetWorld(82000);
