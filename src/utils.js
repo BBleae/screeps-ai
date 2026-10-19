@@ -501,6 +501,7 @@ function siteSettings() {
         repairReserve: n(cfg.waveRoadReserve, 6),
         lowTypes: Array.isArray(cfg.lowTypes) ? cfg.lowTypes : [STRUCTURE_LAB, STRUCTURE_FACTORY],
         lowAfterRoadBlocked: n(cfg.lowAfterRoadBlocked, 1500),
+        lowRooms: Array.isArray(cfg.lowRooms) ? cfg.lowRooms : null,
     };
 }
 
@@ -545,6 +546,7 @@ function siteAllowed(roomName, type, wave) {
     if (tier === 'road') return tally.total < cfg.limit - cfg.repairReserve;
     if (tally.nonRoad >= cfg.nonRoadMax || (tally.byRoom[roomName] || 0) >= cfg.nonRoadPerRoom) return false;
     if (tier === 'core') return true;
+    if (cfg.lowRooms && cfg.lowRooms.indexOf(roomName) < 0) return false;
     const roadBlockedAt = Math.max(Number(Memory.siteCap && Memory.siteCap.roadBlockedAt) || 0, tally.roadBlocked ? Game.time : 0);
     return !waveRoadsPending() && Game.time - roadBlockedAt >= cfg.lowAfterRoadBlocked;
 }

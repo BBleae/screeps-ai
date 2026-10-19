@@ -16918,7 +16918,11 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     world.time++;
     assert(utils.placeSite(r, 20, 10, C.STRUCTURE_LAB) !== C.OK, '补路刚被挡过（1500 tick 内）：lab 不放');
     world.time += 1500;
-    assert(utils.placeSite(r, 21, 10, C.STRUCTURE_LAB) === C.OK, '第一波不缺、补路 1500 tick 没被挡、名额够：lab 才放');
+    assert(utils.placeSite(r, 21, 10, C.STRUCTURE_LAB) !== C.OK && utils.placeSite(r, 21, 11, C.STRUCTURE_FACTORY) !== C.OK, '第一波不缺、补路没被挡，但 W31S4 不在 lowRooms：lab/factory 照样不放');
+    assert(JSON.stringify(liveSites.lowRooms) === JSON.stringify(['W32S4', 'W33S3']), '配置 config.sites.lowRooms 只放 W32S4、W33S3');
+    const labRoom = makeRoom('W32S4', { rcl: 8, owner: 'me' });
+    assert(utils.placeSite(labRoom, 21, 12, C.STRUCTURE_LAB) === C.OK, 'lab 房 W32S4：条件满足时 lab 可放');
+    assert(utils.placeSite(r, 23, 10, C.STRUCTURE_EXTENSION) === C.OK, '非 lab 房的核心建筑不受影响');
     world.time++;
     for (const key of Object.keys(world.constructionSites)) delete world.constructionSites[key];
     fill(5, C.STRUCTURE_EXTENSION, 'W31S4');
