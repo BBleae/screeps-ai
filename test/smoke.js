@@ -16483,22 +16483,24 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
 }
 
 {
-    console.log('== 10-19 W29S3 extractor：冻结指令 build:false 时按 config.minerals.buildExtractor 放工地 ==');
-    const br = require('brain');
-    const savedGet = br.get;
+    console.log('== 10-19 W29S3 extractor：config 计划 build:false 时按 config.minerals.buildExtractor 放工地 ==');
+    const plans = config.minerals.plans;
+    const savedW37S7 = plans.W37S7;
     const mineral = { pos: { x: 40, y: 12, roomName: 'W29S3' } };
     const mkR = (name, energy) => ({ name, storage: { store: { energy } }, find: (t) => (t === FIND_MINERALS ? [mineral] : []) });
-    br.get = (room, key, fb) => (key === 'mineral' ? { version: 1, enabled: false, build: false, count: 0, reason: 'rcl' } : fb);
+    assert(plans.W29S3 && plans.W29S3.build === false, 'config 计划：W29S3 build:false');
     assert(config.minerals.buildExtractor && config.minerals.buildExtractor.W29S3 && config.minerals.buildExtractor.W29S3.minStorage === 20000, 'config：W29S3 storage ≥ 2 万放 extractor');
     assert(config.minerals.force.W29S3 === false, 'W29S3 矿工开关照旧关着');
     const p1 = layout.extractorSpot(mkR('W29S3', 27100), {});
     assert(p1 && p1.x === 40 && p1.y === 12, 'W29S3 storage 2.71 万：放在矿上（得 ' + JSON.stringify(p1) + '）');
     assert(layout.extractorSpot(mkR('W29S3', 19000), {}) === null, 'storage 不到 2 万不放');
     assert(layout.extractorSpot(mkR('W29S3', 27100), { structures: { extractor: { x: 41, y: 13 } } }).x === 41, '有布局里的 extractor 位置就用布局的');
-    assert(layout.extractorSpot(mkR('W37S7', 90000), {}) === null, '不在名单的房照旧听指令（build:false 不放）');
-    br.get = (room, key, fb) => (key === 'mineral' ? { build: true, pos: { x: 5, y: 6 } } : fb);
-    assert(layout.extractorSpot(mkR('W37S7', 0), {}).x === 5, '指令 build:true 照旧按指令放');
-    br.get = savedGet;
+    plans.W37S7 = { version: 1, enabled: false, build: false, count: 0, reason: 'rcl' };
+    assert(layout.extractorSpot(mkR('W37S7', 90000), {}) === null, '不在名单的房照旧听计划（build:false 不放）');
+    plans.W37S7 = { version: 1, build: true, pos: { x: 5, y: 6 } };
+    assert(layout.extractorSpot(mkR('W37S7', 0), {}).x === 5, '计划 build:true 照旧按计划放');
+    plans.W37S7 = savedW37S7;
+    assert(layout.extractorSpot(mkR('W37S7', 0), {}).x === 39, 'W37S7 读 config 计划的矿位');
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
