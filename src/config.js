@@ -146,6 +146,7 @@ module.exports = {
         validate: { enabled: false, home: 'W33S7', room: 'W34S6', units: 12, entryWindow: 300 },
     },
     defense: {
+        helperStorage: 20000,
         minCapacity: 260,
         idleTicks: 50,
         maxDefenders: 3,
@@ -357,6 +358,7 @@ module.exports = {
     towerMaintenanceWeight: 5,
     towerCriticalRange: 20,
     towerRepairReserve: 500,
+    coreRamparts: { rooms: ['W37S5', 'W37S7'] },
     wallFix: { enabled: true, target: 30000, trigger: 25000, roads: { W31S5: { roles: ['builder'], criticalHits: 500, fixTo: 0.8 } } },
     storageDeliverBacklogCap: 10000,
     upgrading: {

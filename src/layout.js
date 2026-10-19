@@ -844,10 +844,26 @@ function yieldRampartSitesForRoads(room, plan) {
     return freed > 0;
 }
 
+function placeCoreRamparts(room) {
+    const rooms = (config.coreRamparts && config.coreRamparts.rooms) || [];
+    if (rooms.indexOf(room.name) < 0 || !room.controller || !room.controller.my || room.controller.level < 2) return [];
+    const placed = [];
+    for (const pos of coreRampartSpots(room)) {
+        if (structureAt(room, pos.x, pos.y, STRUCTURE_RAMPART) || siteAt(room, pos.x, pos.y, STRUCTURE_RAMPART)) continue;
+        if (utils.placeSite(room, pos.x, pos.y, STRUCTURE_RAMPART) === OK) placed.push(pos.x + ',' + pos.y);
+    }
+    if (placed.length) {
+        const mem = roomMem(room);
+        mem.coreRampartSites = { at: Game.time, placed: placed.concat((mem.coreRampartSites && mem.coreRampartSites.placed) || []).slice(0, 12) };
+    }
+    return placed;
+}
+
 function placeSites(room, mem, plan) {
     normalizeLinkPlan(room, plan);
     const allow = allowance(room);
     trimSites(room, plan);
+    placeCoreRamparts(room);
     const own = room.find(FIND_MY_CONSTRUCTION_SITES).length;
     const floor = Math.max(0, Number(config.siteFloorPerRoom) || 0);
     let budget = Math.min(config.maxSites - own, Math.max(globalSiteBudget(), Math.min(floor - own, globalSiteHeadroom())));
@@ -1052,5 +1068,5 @@ function run(room) {
     try { place(room, mem); } catch (e) { logErr('layout.place ' + room.name, e); }
 }
 
-module.exports = { run, roomMem, structureAt, allowance, extractorSpot, linkSpot, resolveSources, sourceOrderStats, remapHarvesterSources, normalizeLinkPlan, normalizeLabPlan, maybeGenerateWheelPlan,
+module.exports = { placeCoreRamparts, run, roomMem, structureAt, allowance, extractorSpot, linkSpot, resolveSources, sourceOrderStats, remapHarvesterSources, normalizeLinkPlan, normalizeLabPlan, maybeGenerateWheelPlan,
     upgraderStorageStations, controllerFedByStorage, upgraderStation, atUpgraderStation, ringAllowed, ringKeep, highPriorityNeeds, yieldLowPrioritySites };

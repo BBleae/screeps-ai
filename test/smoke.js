@@ -16960,5 +16960,45 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(!/hardLine/.test(towerSrc), '安全模式兜底保持原样（无硬线）');
 }
 
+{
+    console.log('\n10-19 18:25 有塔房塔压不住 NPC：最近的 storage≥2万 邻房派一队；玩家不派；核心 rampart');
+    resetWorld(91000);
+    Memory.map = {};
+    const atk = makeRoom('W37S5', { rcl: 7, energy: 0, cap: 5600, owner: 'me' });
+    makeSpawn(atk, 20, 30);
+    makeStructure(atk, C.STRUCTURE_TOWER, 10, 22, { store: mkStore(500, 1000) });
+    makeStructure(atk, C.STRUCTURE_STORAGE, 19, 32, { store: mkStore(12000, 1000000) });
+    makeStructure(atk, C.STRUCTURE_TERMINAL, 18, 31, { store: mkStore(700, 300000) });
+    const near = makeRoom('W37S7', { rcl: 7, energy: 5600, cap: 5600, owner: 'me' });
+    makeSpawn(near, 25, 25);
+    makeStructure(near, C.STRUCTURE_STORAGE, 26, 26, { store: mkStore(30000, 1000000) });
+    const poor = makeRoom('W37S6', { rcl: 7, energy: 5600, cap: 5600, owner: 'me' });
+    makeSpawn(poor, 25, 25);
+    makeStructure(poor, C.STRUCTURE_STORAGE, 26, 26, { store: mkStore(15000, 1000000) });
+    Memory.rooms.W37S5 = { remotes: {} }; Memory.rooms.W37S7 = { remotes: {} }; Memory.rooms.W37S6 = { remotes: {} };
+    const healer = makeHostile(atk, 40, 40, ['heal', 'heal', 'heal', 'heal', 'heal', 'heal', 'move', 'move', 'move', 'move', 'move', 'move'], { owner: 'Invader' });
+    healer.body.forEach((p) => { if (p.type === 'heal') p.boost = 'LO'; });
+    makeHostile(atk, 40, 41, ['attack', 'attack', 'move', 'move'], { owner: 'Invader' });
+    const defenseH = require('defense');
+    const towersH = atk.find(C.FIND_MY_STRUCTURES, { filter: (x) => x.structureType === C.STRUCTURE_TOWER });
+    assert(!towerMod.towersCanHold(atk, towersH, atk.find(C.FIND_HOSTILE_CREEPS)), 'towersCanHold 计入 LO 强化治疗：6 HEAL×12×2=144 > 塔 150×0.9');
+    assert(defenseH.towerHelper('W37S5') === 'W37S7', '派兵房 = 最近且 storage≥2 万的邻房（W37S6 只有 1.5 万，跳过）');
+    const dNear = defenseH.getDemands(near).filter((d) => d.memory.targetRoom === 'W37S5');
+    assert(dNear.length >= 1 && dNear.every((d) => d.role === 'defender' && d.memory.home === 'W37S7') && dNear[0].slot === 'defender:W37S5', 'W37S7 出一队 defender 去 W37S5（slot 唯一 = 一房一队）');
+    assert(defenseH.getDemands(atk).filter((d) => d.memory.targetRoom === 'W37S5').length === 0 && defenseH.getDemands(poor).filter((d) => d.memory.targetRoom === 'W37S5').length === 0, '被打的房和 storage 不够的邻房不出兵');
+    for (const h of atk._hostiles) h.owner.username = 'enemy';
+    world.time++;
+    assert(defenseH.towerHelper('W37S5') === null && defenseH.getDemands(near).filter((d) => d.memory.targetRoom === 'W37S5').length === 0, '玩家攻击：不走邻房派兵');
+    for (const h of atk._hostiles) h.owner.username = 'Invader';
+    world.time++;
+    const liveSitesR = config.sites;
+    config.sites = Object.assign({}, liveSitesR, { lowAfterRoadBlocked: 0 });
+    const placed = layout.placeCoreRamparts(atk);
+    assert(placed.length === 4 && ['20,30', '10,22', '19,32', '18,31'].every((k) => placed.indexOf(k) >= 0), 'W37S5 的 spawn/tower/storage/terminal 各放一个 rampart 工地');
+    assert(layout.placeCoreRamparts(atk).length === 0, '已有工地不重复放');
+    assert(layout.placeCoreRamparts(poor).length === 0, '不在 config.coreRamparts 的房不放');
+    config.sites = liveSitesR;
+}
+
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);

@@ -46,6 +46,41 @@ function invaderCore(room) {
     return room.find(FIND_STRUCTURES).find((structure) => structure.structureType === type) || null;
 }
 
+const helperCache = { t: -1, map: {} };
+function towerHelper(roomName) {
+    if (helperCache.t !== Game.time) { helperCache.t = Game.time; helperCache.map = {}; }
+    if (Object.prototype.hasOwnProperty.call(helperCache.map, roomName)) return helperCache.map[roomName];
+    let helper = null;
+    const room = Game.rooms[roomName];
+    if (room && room.controller && room.controller.my && room.controller.level >= 3) {
+        const towers = room.find(FIND_MY_STRUCTURES, { filter: (s) => s.structureType === STRUCTURE_TOWER });
+        const hostiles = armedHostiles(room);
+        if (towers.length && hostiles.length && hostiles.every((h) => NPC_OWNERS.indexOf(h.owner && h.owner.username) >= 0) &&
+            !tower.towersCanHold(room, towers, hostiles)) {
+            for (const creep of Object.values(Game.creeps || {})) {
+                const m = creep.memory || {};
+                if (m.role === 'defender' && m.targetRoom === roomName && !m.retired && m.home && m.home !== roomName) { helper = m.home; break; }
+            }
+            if (!helper) {
+                const min = Number(settings().helperStorage) || 20000;
+                let best = Infinity;
+                for (const r of Object.values(Game.rooms || {})) {
+                    if (r.name === roomName || !r.controller || !r.controller.my || !r.storage) continue;
+                    if (Number(r.storage.store[RESOURCE_ENERGY] || 0) < min || !r.find(FIND_MY_SPAWNS).length) continue;
+                    const d = roomDistance(r.name, roomName);
+                    if (d < best || (d === best && r.name < helper)) { best = d; helper = r.name; }
+                }
+            }
+            if (helper && typeof Memory !== 'undefined' && Memory.rooms) {
+                const log = roomLog(roomName);
+                if (!log.helper || log.helper.room !== helper || Game.time - Number(log.helper.at || 0) > 100) log.helper = { room: helper, at: Game.time };
+            }
+        }
+    }
+    helperCache.map[roomName] = helper;
+    return helper;
+}
+
 function closestBase(roomName) {
     let best = null;
     let bestDistance = Infinity;
@@ -347,7 +382,9 @@ function getDemands(home) {
         seen.add(roomName);
         if (require('utils').pausedRoom(roomName)) return;
         { const t = Game.rooms[roomName]; if (!(t && t.controller && t.controller.my) && require('utils').pvpDangerRoom(roomName)) return; }
-        if (!record && closestBase(roomName) !== home.name) return;
+        const helper = record ? null : towerHelper(roomName);
+        if (helper && helper !== home.name) return;
+        if (!record && !helper && closestBase(roomName) !== home.name) return;
         if (record && record.enabled && record.staffed === false) return;
         const target = Game.rooms[roomName];
         if (target && target.controller && target.controller.my && target.controller.safeMode > 0) return;
@@ -402,5 +439,5 @@ function noteLoss(name, memory) {
     return true;
 }
 
-module.exports = { getDemands, planFor, defenderBody, threatIn, armedHostiles, invaderCore, settings, creepProfile, hostileProfile,
+module.exports = { towerHelper, getDemands, planFor, defenderBody, threatIn, armedHostiles, invaderCore, settings, creepProfile, hostileProfile,
     canBeat, planSquad, recordThreat, noteLoss, BOOSTS };

@@ -189,7 +189,7 @@ function towersCanHold(room, towers, hostiles) {
         s.structureType === STRUCTURE_SPAWN || s.structureType === STRUCTURE_TOWER || s.structureType === STRUCTURE_STORAGE });
     if (core.some((s) => s.hitsMax && s.hits < s.hitsMax * 0.5)) return false;
     let heal = 0;
-    for (const hostile of hostiles) heal += hostile.getActiveBodyparts(HEAL) * 12;
+    for (const hostile of hostiles) heal += healPower(hostile) * 12;
     if (!heal) return true;
     const focus = hostiles.slice().sort((a, b) => b.getActiveBodyparts(HEAL) - a.getActiveBodyparts(HEAL))[0];
     let damage = 0;
