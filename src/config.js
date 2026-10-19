@@ -486,6 +486,7 @@ module.exports = {
         },
         keepByRoom: { W32S4: { H: 5000 }, W33S3: { H: 5000 } },
         dailySellUnits: { ZH2O: 5000, H: 20000 },
+        dealOnly: ['ZH2O'],
         salesTrack: { resource: 'H', since: 74402100 },
         creditFloor: 2000000,
         militaryBoost: {
@@ -574,6 +575,7 @@ module.exports = {
     minerals: {
         force: { W33S8: true, W33S3: true, W32S4: true, W31S4: true, W35S7: 'drain', W31S6: false, W37S7: false, W37S5: false, W29S3: false },
         maxStock: { W33S8: 10000, W33S3: 30000, W32S4: 30000 },
+        buildExtractor: { W29S3: { minStorage: 20000 } },
         rooms: {
             W31S4: {
                 mineralId: '598342ec641acf0573577a2d', mineralType: 'L', extractorId: '6aa64a768e64b6047b947e4f',

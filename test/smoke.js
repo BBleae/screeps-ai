@@ -15390,13 +15390,13 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     Game.rooms = { W34S7: { name: 'W34S7', terminal: { my: true, store: { ZH2O: 60000, energy: 10000 } } } };
     Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
     assert(!(base.ownOrders.sell || []).some((x) => x.resource === 'ZH2O'), '10-18 11:40：ZH2O 不再自挂卖单（改直接 deal）；下面只回归改价机制');
-    const capCfg = Object.assign({}, base, { ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, sell: [{ resource: 'ZH2O', room: 'W34S7' }] }) });
+    const capCfg = Object.assign({}, base, { dealOnly: [], ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, sell: [{ resource: 'ZH2O', room: 'W34S7' }] }) });
     mk.runOwnOrders(capCfg, m);
     const feeCap = Math.floor(base.ownOrders.dailySellFeeCredits / (2015 * 0.05));
     assert(created[0] && created[0].totalAmount === Math.min(5000, feeCap), '挂单费日上限照旧封顶数量（得 ' + (created[0] && created[0].totalAmount) + '）');
     created.length = 0; delete m.orders.z1;
     Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
-    const cfg = Object.assign({}, base, { ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, dailySellFeeCredits: 600000, sell: [{ resource: 'ZH2O', room: 'W34S7' }] }) });
+    const cfg = Object.assign({}, base, { dealOnly: [], ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, dailySellFeeCredits: 600000, sell: [{ resource: 'ZH2O', room: 'W34S7' }] }) });
     mk.runOwnOrders(cfg, m);
     assert(created[0] && created[0].price === 2015 && created[0].totalAmount === 5000, 'ZH2O 按最高买价 2015 挂（不再守 2704），一天 5000 个（得 ' + JSON.stringify(created[0]) + '）');
     world.time += 600; top = 2300;
@@ -16363,6 +16363,68 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     assert(ind.labsAllowed(mkRoom('W32S4', {}, { energy: config.industry.labStorageReserve - 1 })) === false, 'storage < labStorageReserve 关');
     assert(config.industry.boostTargets[0] === 'XGH2O', 'XGH2O 排第一');
     Game.market = savedMarket; Game.rooms = savedRooms; Memory.market = savedMem; Memory.stats = savedStats; Game.cpu.bucket = savedBucket;
+}
+
+{
+    console.log('== 10-19 ZH2O 只 deal：dealOnly 拦下自挂卖单；没跟踪的卖单成交计入当天卖出上限 ==');
+    const mk = require('market');
+    const savedCfgMarket = config.market, savedGM = Game.market, savedMem = Memory.market, savedRooms = Game.rooms;
+    config.market = structuredClone(liveMarketCfg);
+    const base = mk.settings();
+    assert(Array.isArray(base.dealOnly) && base.dealOnly.includes('ZH2O'), 'config.market.dealOnly 含 ZH2O');
+    const created = [];
+    const m = { credits: 30000000, orders: {},
+        getAllOrders: (f) => (f && f.resourceType === 'ZH2O' ? [{ price: 2015, amount: 5000 }] : []),
+        getHistory: () => [1, 2, 3, 4, 5].map(() => ({ avgPrice: 2700 })),
+        createOrder: (o) => { created.push(o); return OK; }, cancelOrder: () => OK };
+    Game.market = m;
+    Game.rooms = { W34S7: { name: 'W34S7', terminal: { my: true, store: { ZH2O: 60000, energy: 10000 } } } };
+    const day = Math.floor(Date.now() / 86400000);
+    Memory.market = { ledger: { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
+    const cfg = Object.assign({}, base, { ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, sell: [{ resource: 'ZH2O', room: 'W34S7' }] }) });
+    mk.runOwnOrders(cfg, m);
+    assert(created.length === 0 && Memory.market.ledger.sellBlocked && Memory.market.ledger.sellBlocked.resource === 'ZH2O' && !(Memory.market.ledger.sellFees > 0), 'sell 列表里误加 ZH2O 也不挂单、不扣挂单费（得 ' + JSON.stringify(created) + '）');
+    assert(mk.sellListAllowed(Object.assign({}, base, { dealOnly: [] , ownOrders: { sell: [{ resource: 'H', room: 'W32S4' }] } }), 'H', 'W32S4') === true && mk.sellListAllowed(base, 'H', 'W32S4') === false, '不在 sell 列表的资源/房间一律不挂卖单');
+    created.length = 0;
+    Memory.market = { ledger: { day, sold: { ZH2O: 1000 }, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
+    m.orders = { old1: { id: 'old1', type: 'sell', resourceType: 'ZH2O', roomName: 'W34S7', remainingAmount: 601, price: 2704, created: world.time - 30000 } };
+    const plain = Object.assign({}, base, { ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null }) });
+    mk.runOwnOrders(plain, m);
+    assert(Memory.market.orphanSell && Memory.market.orphanSell.old1 && Memory.market.orphanSell.old1.left === 601 && Memory.market.ledger.orphanSellSeen.id === 'old1', '代码没跟踪的旧卖单被识别出来，记进 Memory.market.orphanSell');
+    assert(Memory.market.ledger.sold.ZH2O === 1000, '首次看到不追记以前的成交');
+    m.orders.old1.remainingAmount = 101;
+    mk.runOwnOrders(plain, m);
+    assert(Memory.market.ledger.sold.ZH2O === 1500 && Memory.market.ledger.orphanSold === 500 && Memory.market.ledger.soldCredits === 500 * 2704, '旧卖单成交 500 计入当天 ZH2O 卖出（得 ' + Memory.market.ledger.sold.ZH2O + '）');
+    Game.rooms.W34S7.terminal.store.ZH2O = 60000;
+    const left = mk.sellable(Game.rooms.W34S7, base, null).find((e) => e.resource === 'ZH2O');
+    assert(left && left.amount === 3500, 'deal 的当天额度扣掉旧卖单的成交：5000 − 1500 = 3500（得 ' + (left && left.amount) + '）');
+    m.orders.old1.remainingAmount = 101;
+    mk.runOwnOrders(plain, m);
+    assert(Memory.market.ledger.sold.ZH2O === 1500, '没有新成交不重复记');
+    delete m.orders.old1;
+    mk.runOwnOrders(plain, m);
+    assert(!Memory.market.orphanSell.old1, '卖单没了就从登记里删掉');
+    assert(created.length === 0, '整个过程不挂任何新卖单');
+    Game.market = savedGM; Memory.market = savedMem; Game.rooms = savedRooms; config.market = savedCfgMarket;
+}
+
+{
+    console.log('== 10-19 W29S3 extractor：冻结指令 build:false 时按 config.minerals.buildExtractor 放工地 ==');
+    const br = require('brain');
+    const savedGet = br.get;
+    const mineral = { pos: { x: 40, y: 12, roomName: 'W29S3' } };
+    const mkR = (name, energy) => ({ name, storage: { store: { energy } }, find: (t) => (t === FIND_MINERALS ? [mineral] : []) });
+    br.get = (room, key, fb) => (key === 'mineral' ? { version: 1, enabled: false, build: false, count: 0, reason: 'rcl' } : fb);
+    assert(config.minerals.buildExtractor && config.minerals.buildExtractor.W29S3 && config.minerals.buildExtractor.W29S3.minStorage === 20000, 'config：W29S3 storage ≥ 2 万放 extractor');
+    assert(config.minerals.force.W29S3 === false, 'W29S3 矿工开关照旧关着');
+    const p1 = layout.extractorSpot(mkR('W29S3', 27100), {});
+    assert(p1 && p1.x === 40 && p1.y === 12, 'W29S3 storage 2.71 万：放在矿上（得 ' + JSON.stringify(p1) + '）');
+    assert(layout.extractorSpot(mkR('W29S3', 19000), {}) === null, 'storage 不到 2 万不放');
+    assert(layout.extractorSpot(mkR('W29S3', 27100), { structures: { extractor: { x: 41, y: 13 } } }).x === 41, '有布局里的 extractor 位置就用布局的');
+    assert(layout.extractorSpot(mkR('W37S7', 90000), {}) === null, '不在名单的房照旧听指令（build:false 不放）');
+    br.get = (room, key, fb) => (key === 'mineral' ? { build: true, pos: { x: 5, y: 6 } } : fb);
+    assert(layout.extractorSpot(mkR('W37S7', 0), {}).x === 5, '指令 build:true 照旧按指令放');
+    br.get = savedGet;
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);

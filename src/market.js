@@ -722,6 +722,41 @@ function syncOrders(cfg, market) {
             delete book[key];
         }
     }
+    trackOrphanSell(led, live, book, claimed);
+}
+
+function sellListAllowed(cfg, resource, room) {
+    if (Array.isArray(cfg.dealOnly) && cfg.dealOnly.includes(resource)) return false;
+    const own = ownSettings(cfg) || {};
+    return (own.sell || []).some((s) => s && s.resource === resource && s.room === room);
+}
+
+function trackOrphanSell(led, live, book, claimed) {
+    const mem = Memory.market || (Memory.market = {});
+    const reg = mem.orphanSell || (mem.orphanSell = {});
+    const pending = new Set(Object.values(book).filter((o) => !o.id && o.type === 'sell').map((o) => o.room + ':' + o.resource));
+    const sold = led.sold || (led.sold = {});
+    for (const x of Object.values(live)) {
+        if (!x || claimed.has(x.id) || x.type !== 'sell' || x.resourceType === ENERGY) continue;
+        if (pending.has(x.roomName + ':' + x.resourceType)) continue;
+        const left = Math.max(0, Number(x.remainingAmount) || 0);
+        const r = reg[x.id];
+        if (!r) {
+            reg[x.id] = { room: x.roomName, resource: x.resourceType, price: x.price, left, at: Game.time };
+            led.orphanSellSeen = { at: Game.time, id: x.id, room: x.roomName, resource: x.resourceType, price: x.price, left };
+            continue;
+        }
+        const filled = Math.max(0, Number(r.left) - left);
+        if (filled > 0) {
+            sold[r.resource] = (sold[r.resource] || 0) + filled;
+            led.soldCredits = Math.round((Number(led.soldCredits) || 0) + filled * Number(x.price));
+            led.orphanSold = (Number(led.orphanSold) || 0) + filled;
+            led.filled = (led.filled || 0) + filled;
+        }
+        r.left = left;
+        r.price = x.price;
+    }
+    for (const id of Object.keys(reg)) if (!live[id] || claimed.has(id)) delete reg[id];
 }
 
 function postOrder(cfg, market, type, resource, room, price, amount, budget) {
@@ -748,6 +783,9 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
             if (credits - commit < cfg.creditFloor || led.buyCredits + commit > cfg.dailyBuyCredits || price * amount > cfg.maxOrderCredits) return null;
             if (resource !== ENERGY && !buyShareOk(cfg, led, resource, commit)) return null;
         }
+    } else if (!sellListAllowed(cfg, resource, room)) {
+        led.sellBlocked = { at: Game.time, resource, room, amount, price: Math.round(price * 1000) / 1000 };
+        return null;
     } else if ((led.sellFees || 0) + fee > (Number(own.dailySellFeeCredits) || 0)) return null;
     const ret = market.createOrder({ type, resourceType: resource, price: Math.round(price * 1000) / 1000, totalAmount: amount, roomName: room });
     const rec = { at: Game.time, type, resource, room, price, amount, result: ret };
@@ -1195,4 +1233,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts };
+module.exports = { run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };

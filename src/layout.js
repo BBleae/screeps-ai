@@ -545,6 +545,22 @@ function handleBlocked(room, spot, type, blockers) {
     if (blockedThisRun) blockedThisRun.push({ x: spot.x, y: spot.y, type, by: by.length === 1 ? by[0] : by.join('/') });
 }
 
+function extractorSpot(room, plan) {
+    const mineralPlan = brain.get(room.name, 'mineral', null);
+    if (mineralPlan && mineralPlan.build && mineralPlan.pos) return mineralPlan.pos;
+    const minerals = config.minerals || {};
+    const want = minerals.buildExtractor;
+    if (!want || !want[room.name]) return null;
+    const minStorage = Number(want[room.name].minStorage) || 0;
+    const stored = room.storage && room.storage.store ? Number(room.storage.store[RESOURCE_ENERGY] || 0) : 0;
+    if (stored < minStorage) return null;
+    const fromConfig = minerals.rooms && minerals.rooms[room.name] && minerals.rooms[room.name].pos;
+    if (fromConfig) return fromConfig;
+    if (plan && plan.structures && plan.structures.extractor) return plan.structures.extractor;
+    const found = typeof FIND_MINERALS !== 'undefined' && room.find(FIND_MINERALS)[0];
+    return found ? found.pos : null;
+}
+
 function trySite(room, spot, type) {
     if (!spot) return false;
     if (type !== STRUCTURE_EXTRACTOR && isWall(room, spot.x, spot.y)) return false;
@@ -946,9 +962,8 @@ function placeSites(room, mem, plan) {
         mem.luxuryHeld = { at: Game.time, storage: room.storage ? Number(room.storage.store[RESOURCE_ENERGY] || 0) : 0 };
     }
     if (need('extractor') > 0 && budget > 0) {
-        const mineralPlan = brain.get(room.name, 'mineral', null);
-        if (mineralPlan && mineralPlan.build && mineralPlan.pos &&
-            trySite(room, mineralPlan.pos, STRUCTURE_EXTRACTOR)) budget--;
+        const pos = extractorSpot(room, plan);
+        if (pos && trySite(room, pos, STRUCTURE_EXTRACTOR)) budget--;
     }
     if (luxuryOk && need('lab') > 0 && budget > 0) {
         let missing = need('lab');
@@ -1038,5 +1053,5 @@ function run(room) {
     try { place(room, mem); } catch (e) { logErr('layout.place ' + room.name, e); }
 }
 
-module.exports = { run, roomMem, structureAt, allowance, linkSpot, resolveSources, sourceOrderStats, remapHarvesterSources, normalizeLinkPlan, normalizeLabPlan, maybeGenerateWheelPlan,
+module.exports = { run, roomMem, structureAt, allowance, extractorSpot, linkSpot, resolveSources, sourceOrderStats, remapHarvesterSources, normalizeLinkPlan, normalizeLabPlan, maybeGenerateWheelPlan,
     upgraderStorageStations, controllerFedByStorage, upgraderStation, atUpgraderStation, ringAllowed, ringKeep, highPriorityNeeds, yieldLowPrioritySites };
