@@ -25,7 +25,7 @@ function setup() {
         outbound: { 1021: 8 }, sinks: [{ id: 'term', path: { 511: 4 } }, { id: 'store', path: { 511: 4 } }] };
     const cfg = { minerals: { force: {} } };
     const context = { module: { exports: {} }, require: name => {
-        if (name === 'config') return cfg;   // 只读 minerals.force（2026-10-15 K 矿强开）
+        if (name === 'config') return cfg;
         assert.equal(name, 'brain'); return { get: () => plan };
     }, Game: { time: 1, rooms: { W1N1: room }, getObjectById: id => objects[id] },
     Memory: { rooms: { W1N1: {} } }, WORK: 'work', OK: 0, ERR_NOT_IN_RANGE: -9 };
@@ -94,7 +94,6 @@ console.log('mineral executor: lifecycle, cargo, cooldown and no-search checks p
     assert.equal(placed, 1, 'natural-wall exception only applies to extractor');
 }
 {
-    // 冻结的大脑指令 enabled:false：force 名单里的房照样开采，名单外不动
     const f = setup(); f.plan.enabled = false; f.plan.count = 0;
     assert.equal(f.context.module.exports.directive(f.room).enabled, false);
     const g = setup(); g.plan.enabled = false; g.plan.count = 0; g.cfg.minerals.force.W1N1 = true;
