@@ -15652,6 +15652,19 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
 }
 
 {
+    console.log('== 10-21 lootHauler 去 storage 时挑旁边没人站的格子，不挤拆迁者的工位 ==');
+    const lh = require('roles_lootHauler');
+    const S = [{ structureType: STRUCTURE_STORAGE, pos: { x: 26, y: 18 } }, { structureType: STRUCTURE_EXTENSION, pos: { x: 26, y: 19 } }];
+    const C = [{ name: 'a', pos: { x: 25, y: 17 } }, { name: 'b', pos: { x: 26, y: 17 } }, { name: 'c', pos: { x: 25, y: 19 } }];
+    const room = { name: 'W37S2', getTerrain: () => ({ get: (x, y) => (y === 19 && x === 27 ? 1 : 0) }),
+        lookForAt: (l, x, y) => (l === LOOK_CREEPS ? C : S).filter((o) => o.pos.x === x && o.pos.y === y) };
+    const storage = { room, pos: { x: 26, y: 18, roomName: 'W37S2' } };
+    const me = { name: 'h', pos: { x: 25, y: 16, roomName: 'W37S2', getRangeTo: (x, y) => Math.max(Math.abs(x - 25), Math.abs(y - 16)) } };
+    const spot = lh.freeStand(me, storage);
+    assert(spot && spot.x === 27 && spot.y === 17, '(25,17)/(26,17)/(25,19) 有人、(26,19) 是扩展、(27,19) 是墙 → 去 (27,17)');
+}
+
+{
     console.log('== 10-21 W33S7 分段修墙：每次挑最低的一面，补 1 万或补到 5 万就换下一面最低的 ==');
     const wf = require('wallfix');
     const savedTime = world.time;

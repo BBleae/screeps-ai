@@ -63,6 +63,35 @@ function lastTripDue(creep, home) {
     return true;
 }
 
+function freeStand(creep, obj) {
+    const room = obj.room;
+    if (!room || typeof room.getTerrain !== 'function') return null;
+    const terrain = room.getTerrain();
+    let best = null;
+    let bestD = Infinity;
+    for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            const x = obj.pos.x + dx;
+            const y = obj.pos.y + dy;
+            if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+            if (terrain.get(x, y) & TERRAIN_MASK_WALL) continue;
+            const sts = room.lookForAt(LOOK_STRUCTURES, x, y);
+            if (sts.some((st) => !(st.structureType === STRUCTURE_ROAD || st.structureType === STRUCTURE_CONTAINER || (st.structureType === STRUCTURE_RAMPART && (st.my || st.isPublic))))) continue;
+            if (room.lookForAt(LOOK_CREEPS, x, y).some((c) => c.name !== creep.name)) continue;
+            const d = creep.pos.getRangeTo(x, y);
+            if (d < bestD) { bestD = d; best = new RoomPosition(x, y, room.name); }
+        }
+    }
+    return best;
+}
+
+function moveNear(creep, obj) {
+    const spot = creep.pos.roomName === obj.pos.roomName ? freeStand(creep, obj) : null;
+    if (spot) movement.go(creep, spot, { range: 0, reusePath: 5 });
+    else movement.go(creep, obj, { range: 1, reusePath: 20 });
+}
+
 function routePickup(creep) {
     const m = creep.memory;
     if (!creep.store || creep.store.getFreeCapacity() <= 0) { delete m.pick; return false; }
@@ -76,7 +105,8 @@ function routePickup(creep) {
         if (Game.time % 5 !== 0) return false;
         const tombs = creep.room.find(FIND_TOMBSTONES).filter((t) => t.creep && t.creep.my && t.store.getUsedCapacity() > 0);
         const own = creep.room.controller && creep.room.controller.my;
-        const drops = own ? [] : creep.room.find(FIND_DROPPED_RESOURCES).filter((r) => r.amount >= 50);
+        const outbound = m.salvageLoot && m.state !== 'deliver';
+        const drops = own ? [] : creep.room.find(FIND_DROPPED_RESOURCES).filter((r) => r.amount >= 50 && !(outbound && r.resourceType === ENERGY));
         const all = tombs.concat(drops);
         if (!all.length) return false;
         obj = creep.pos.findClosestByRange(all);
@@ -245,7 +275,7 @@ function run(creep) {
         if (cachedRuin && Game.time % 5 !== 0) {
             const r0 = conquest.salvagePickResource(cachedRuin.store, creep.memory.lootOrder);
             if (r0) {
-                if (creep.withdraw(cachedRuin, r0) === ERR_NOT_IN_RANGE) movement.go(creep, cachedRuin, { range: 1, reusePath: 50 });
+                if (creep.withdraw(cachedRuin, r0) === ERR_NOT_IN_RANGE) moveNear(creep, cachedRuin);
                 return;
             }
         }
@@ -279,7 +309,7 @@ function run(creep) {
         const res = conquest.salvagePickResource(c.store, order);
         if (!res) { creep.memory.state = 'deliver'; return; }
         creep.memory.ruin = c.id;
-        if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) movement.go(creep, c, { range: 1, reusePath: 50 });
+        if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) moveNear(creep, c);
         return;
     }
     const containers = conquest.lootContainersOf(creep.room, creep.memory.lootTiles);
@@ -290,4 +320,4 @@ function run(creep) {
     if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) movement.go(creep, c, { range: 1, reusePath: 5 });
 }
 
-module.exports = { run };
+module.exports = { run, freeStand };
