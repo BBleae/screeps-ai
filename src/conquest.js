@@ -146,10 +146,25 @@ function boostLabReady(home, compounds, parts) {
     return compounds.every((c) => labs.some((l) => (l.store[c] || 0) >= minNeed && (l.store[RESOURCE_ENERGY] || 0) >= eNeed));
 }
 
+const leadCache = {};
+function reliefLead(from, to, body) {
+    const key = from + '>' + to;
+    let c = leadCache[key];
+    if (!c || Game.time - c.at > 1000) {
+        let rooms = 0;
+        const r = Game.map && typeof Game.map.findRoute === 'function' ? Game.map.findRoute(from, to) : null;
+        rooms = Array.isArray(r) ? r.length : (Game.map && Game.map.getRoomLinearDistance ? Game.map.getRoomLinearDistance(from, to) : 3);
+        c = leadCache[key] = { at: Game.time, travel: rooms * 50 + 25 };
+    }
+    return (Array.isArray(body) ? body.length : 50) * 3 + c.travel + 30;
+}
+
 function boostPlanDemands(d, home, sponsors, body, mem) {
     const plan = d.boostPlan;
     const n = Math.max(0, Number(plan.base) || 0) + (boostPlanBreached(d) ? Math.max(0, Number(plan.more) || 0) : 0);
-    const lead = Math.max(0, Number(plan.lead) || 350);
+    const lead = Math.max(0, plan.lead === 'auto' ? 0 : (Number(plan.lead) || 350), plan.lead === 'auto' || plan.autoLead ? reliefLead(home.name, d.target, body) : 0);
+    plan.leadUsed = plan.leadUsed || {};
+    plan.leadUsed[home.name] = lead;
     const prefix = 'siegeBoost:' + d.target + ':';
     let others = 0;
     for (const name in Game.creeps) {

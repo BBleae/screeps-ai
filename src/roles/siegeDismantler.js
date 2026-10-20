@@ -149,17 +149,35 @@ function lootHoldRun(creep) {
     return true;
 }
 
-const postCache = { tick: -1, by: {} };
+const postCache = { tick: -1, by: {}, q: {} };
+function power(c) {
+    let n = 0;
+    for (const p of c.body || []) {
+        if (p.type !== WORK || p.hits === 0) continue;
+        const b = p.boost && typeof BOOSTS !== 'undefined' && BOOSTS.work && BOOSTS.work[p.boost];
+        n += b && b.dismantle ? b.dismantle : 1;
+    }
+    return n;
+}
+
+function boostedWork(c) {
+    return (c.body || []).some((p) => p.type === WORK && p.boost);
+}
+
 function claimedStands(target) {
-    if (postCache.tick !== Game.time) { postCache.tick = Game.time; postCache.by = {}; }
+    if (postCache.tick !== Game.time) { postCache.tick = Game.time; postCache.by = {}; postCache.q = {}; }
     if (!postCache.by[target]) {
         const set = new Map();
+        const q = new Map();
         for (const n in Game.creeps) {
             const c = Game.creeps[n];
             const m = c.memory;
-            if (m && m.role === 'siegeDismantler' && m.targetRoom === target && m.post) set.set(m.post.s[0] + ',' + m.post.s[1], { name: n, boosted: c.body.some((p) => p.boost) });
+            if (!m || m.role !== 'siegeDismantler' || m.targetRoom !== target) continue;
+            if (m.post) set.set(m.post.s[0] + ',' + m.post.s[1], { name: n, power: power(c) });
+            else if (m.q) q.set(m.q[0] + ',' + m.q[1], n);
         }
         postCache.by[target] = set;
+        postCache.q[target] = q;
     }
     return postCache.by[target];
 }
@@ -168,44 +186,101 @@ function barrierAt(room, t) {
     return room.lookForAt(LOOK_STRUCTURES, t[0], t[1]).find(isBarrier) || null;
 }
 
+function openCheck(room, dir, e) {
+    if (!Array.isArray(e.open)) return true;
+    const key = e.t[0] + ',' + e.t[1];
+    const memo = dir.openChk || (dir.openChk = {});
+    const c = memo[key];
+    if (c && Game.time - c.at < 300) return c.ok;
+    const stand = (e.s || [])[0];
+    if (!stand) return false;
+    const res = PathFinder.search(new RoomPosition(stand[0], stand[1], room.name), { pos: new RoomPosition(e.open[0], e.open[1], room.name), range: 0 }, {
+        maxRooms: 1,
+        maxOps: 6000,
+        roomCallback: (name) => {
+            if (name !== room.name) return false;
+            const cm = new PathFinder.CostMatrix();
+            for (const st of room.find(FIND_STRUCTURES)) {
+                const t = st.structureType;
+                if (st.pos.x === e.t[0] && st.pos.y === e.t[1]) continue;
+                if (t === STRUCTURE_ROAD || t === STRUCTURE_CONTAINER || (t === STRUCTURE_RAMPART && st.my)) continue;
+                cm.set(st.pos.x, st.pos.y, 255);
+            }
+            return cm;
+        },
+    });
+    const ok = !res.incomplete;
+    memo[key] = { ok, at: Game.time, len: res.path ? res.path.length : 0 };
+    return ok;
+}
+
+function queueRun(creep, dir, target) {
+    const m = creep.memory;
+    const list = Array.isArray(dir.queue) && dir.queue.length ? dir.queue : null;
+    if (list) {
+        claimedStands(target);
+        const q = postCache.q[target];
+        let spot = m.q && list.some((p) => p[0] === m.q[0] && p[1] === m.q[1]) && q.get(m.q[0] + ',' + m.q[1]) === creep.name ? m.q : null;
+        if (!spot) {
+            spot = list.find((p) => { const h = q.get(p[0] + ',' + p[1]); return !h || h === creep.name || !Game.creeps[h]; }) || null;
+            if (spot) { m.q = [spot[0], spot[1]]; q.set(spot[0] + ',' + spot[1], creep.name); }
+        }
+        if (spot) {
+            if (creep.pos.x !== spot[0] || creep.pos.y !== spot[1]) movement.go(creep, new RoomPosition(spot[0], spot[1], target), { range: 0, reusePath: 20 });
+            return true;
+        }
+    }
+    const s0 = dir.posts[0].s && dir.posts[0].s[0];
+    if (!s0) return false;
+    const wait = new RoomPosition(s0[0], s0[1], target);
+    if (creep.pos.getRangeTo(wait) > 3) movement.go(creep, wait, { range: 3, reusePath: 20 });
+    return true;
+}
+
+function postUsable(room, dir, e) {
+    if (!barrierAt(room, e.t)) return false;
+    if (Array.isArray(e.after) && e.after.length && !e.after.some((t) => !barrierAt(room, t))) return false;
+    return openCheck(room, dir, e);
+}
+
 function postRun(creep) {
     const m = creep.memory;
     const target = m.targetRoom;
     if (!target || creep.room.name !== target || !m.salvageLoot) return false;
     let dir = null;
     for (const x of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (x && x.target === target && !x.completed) { dir = x; break; }
-    if (!dir || !Array.isArray(dir.posts) || !dir.posts.length) { delete m.post; return false; }
+    if (!dir || !Array.isArray(dir.posts) || !dir.posts.length) { delete m.post; delete m.q; return false; }
     let obj = m.post ? barrierAt(creep.room, m.post.t) : null;
-    if (m.post && (!obj || !dir.posts.some((e) => e.t[0] === m.post.t[0] && e.t[1] === m.post.t[1]))) { delete m.post; obj = null; }
+    if (m.post) {
+        const e = dir.posts.find((x) => x.t[0] === m.post.t[0] && x.t[1] === m.post.t[1] && (x.s || []).some((p) => p[0] === m.post.s[0] && p[1] === m.post.s[1]));
+        if (!obj || !e || !openCheck(creep.room, dir, e)) { delete m.post; obj = null; }
+    }
     if (!m.post) {
         const taken = claimedStands(target);
-        const boosted = creep.body.some((p) => p.boost);
+        const mine = power(creep);
         for (const e of dir.posts) {
-            const b = barrierAt(creep.room, e.t);
-            if (!b) continue;
-            if (Array.isArray(e.after) && e.after.length && !e.after.some((t) => !barrierAt(creep.room, t))) continue;
-            let s = (e.s || []).find((p) => !taken.has(p[0] + ',' + p[1]));
-            if (!s && boosted) {
-                s = (e.s || []).find((p) => { const h = taken.get(p[0] + ',' + p[1]); return h && !h.boosted && h.name !== creep.name; });
-                if (s) {
-                    const h = taken.get(s[0] + ',' + s[1]);
-                    const hc = Game.creeps[h.name];
+            if (!postUsable(creep.room, dir, e)) continue;
+            let s = (e.s || []).find((p) => { const h = taken.get(p[0] + ',' + p[1]); return !h || !Game.creeps[h.name]; });
+            if (!s) {
+                let low = null;
+                for (const p of e.s || []) {
+                    const h = taken.get(p[0] + ',' + p[1]);
+                    if (h && h.name !== creep.name && h.power < mine && (!low || h.power < low.h.power)) low = { p, h };
+                }
+                if (low) {
+                    s = low.p;
+                    const hc = Game.creeps[low.h.name];
                     if (hc) { delete hc.memory.post; hc.memory.postBumpedAt = Game.time; }
                 }
             }
             if (!s) continue;
             m.post = { t: [e.t[0], e.t[1]], s: [s[0], s[1]] };
-            taken.set(s[0] + ',' + s[1], { name: creep.name, boosted });
-            obj = b;
+            delete m.q;
+            taken.set(s[0] + ',' + s[1], { name: creep.name, power: mine });
+            obj = barrierAt(creep.room, e.t);
             break;
         }
-        if (!m.post) {
-            const s0 = dir.posts[0].s && dir.posts[0].s[0];
-            if (!s0) return false;
-            const wait = new RoomPosition(s0[0], s0[1], target);
-            if (creep.pos.getRangeTo(wait) > 3) movement.go(creep, wait, { range: 3, reusePath: 20 });
-            return true;
-        }
+        if (!m.post) return queueRun(creep, dir, target);
     }
     if (creep.pos.x === m.post.s[0] && creep.pos.y === m.post.s[1]) {
         creep.dismantle(obj);
@@ -215,7 +290,23 @@ function postRun(creep) {
     return true;
 }
 
+function retireUnboosted(creep) {
+    const m = creep.memory;
+    if (m.retired) return false;
+    const target = m.targetRoom;
+    if (!target || !creep.room || creep.room.name !== target) return false;
+    let dir = null;
+    for (const x of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (x && x.target === target && !x.completed) { dir = x; break; }
+    if (!dir || !dir.retireUnboosted || boostedWork(creep)) return false;
+    m.retired = true;
+    delete m.post;
+    delete m.q;
+    return true;
+}
+
 function run(creep) {
+    retireUnboosted(creep);
+    if (creep.memory.retired) { retire.retireAtSpawn(creep); return; }
     if (lootHoldRun(creep)) return;
     if (postRun(creep)) return;
     const target = creep.memory.targetRoom;
@@ -345,4 +436,4 @@ function run(creep) {
     if (creep.dismantle(tgt) === ERR_NOT_IN_RANGE) movement.go(creep, tgt, { range: 1, reusePath: 5 });
 }
 
-module.exports = { run, squadMates };
+module.exports = { run, squadMates, power, openCheck };
