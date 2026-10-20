@@ -528,6 +528,15 @@ function computeLabPlan(room) {
     if (!roles) return null;
     const labsById = {};
     for (const lab of labs) labsById[lab.id] = lab;
+    if (boostOnlyRoom(room) && !roles.boost) {
+        const used0 = roles.inputs.concat(roles.outputs);
+        const spare0 = Object.keys(labsById).filter((id) => used0.indexOf(id) < 0)[0];
+        if (spare0) roles.boost = spare0;
+        else if (roles.outputs.length) {
+            roles.boost = roles.outputs.pop();
+            roomMem(room).labRoles = roles;
+        }
+    }
     const cfg = labSettings(room);
     const reaction = boostOnlyRoom(room) ? null : chooseReaction(room, mem, roles, labsById, cfg);
     const wants = [];
@@ -553,15 +562,6 @@ function computeLabPlan(room) {
         if (!held) continue;
         const amount = storeOf(lab, held);
         if (amount >= cfg.minBatch || !reaction || held !== reaction.product) drains.push({ labId: id, mineral: held, amount });
-    }
-    if (boostOnlyRoom(room) && !roles.boost) {
-        const used0 = roles.inputs.concat(roles.outputs);
-        const spare0 = Object.keys(labsById).filter((id) => used0.indexOf(id) < 0)[0];
-        if (spare0) roles.boost = spare0;
-        else if (roles.outputs.length) {
-            roles.boost = roles.outputs.pop();
-            roomMem(room).labRoles = roles;
-        }
     }
     const boostWant = boostLabJob(room, roles, labsById, cfg, reaction, wants, drains);
     const militaryLabs = militaryBoostStaging(room, roles, labsById, cfg, wants, drains);
