@@ -1401,7 +1401,7 @@ function run(shed) {
     if (cfg.enabled && cfg.interval > 0 && Game.time % cfg.interval !== 0) return runFollow(cfg, shed);
     if (!cfg.enabled || !(cfg.interval > 0) || Game.time % cfg.interval !== 0) return null;
     if (!terminalNet.cpuAllows(cfg, shed)) return null;
-    try { const dep = require('deposit'); if (!dep.cpuOk(dep.settings())) return null; } catch (error) {  }
+    try { const dep = require('deposit'); const dc = dep.settings(); if (!(dep.statsCpuOk ? dep.statsCpuOk(dc.cpuAvgMax, dc.cpuSamples, dc.minBucket) : dep.cpuOk(dc))) return null; } catch (error) {  }
     const market = marketApi();
     if (!market || typeof market.deal !== 'function' || typeof market.getAllOrders !== 'function') return null;
     cfg.energyPrice = energyPriceNow(cfg);

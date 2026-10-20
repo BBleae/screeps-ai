@@ -18037,6 +18037,30 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     if (savedFill === undefined) delete Memory.pixelFill; else Memory.pixelFill = savedFill;
 }
 
+{
+    console.log('== 10-20 16:31 市场不受 pixel 回补 / CPU 环预热挡（只用旧的 stats 均值 + bucket 3000 闸）==');
+    const mk = require('market');
+    const gate = require('cpu_gate');
+    const savedFill = Memory.pixelFill, savedCpu = Game.cpu, savedStats = Memory.stats, savedMarket = Game.market, savedRooms = Game.rooms;
+    Memory.pixelFill = { at: 1 };
+    gate.reset && gate.reset();
+    Memory.stats = [{ cpu: 120 }, { cpu: 130 }];
+    Game.cpu = Object.assign({}, savedCpu, { bucket: 6624 });
+    let reached = false;
+    Game.market = { get deal() { reached = true; return () => -1; }, getAllOrders: () => [], getHistory: () => [], incomingTransactions: [], outgoingTransactions: [], orders: {}, credits: 1e7 };
+    Game.rooms = {};
+    world.time = Math.ceil((world.time + 1) / 100) * 100;
+    try { mk.run({ active: false }); } catch (e) {}
+    assert(reached, 'pixel 回补中、环未满、bucket 6624：市场照常运行（得 ' + reached + '）');
+    Game.cpu = Object.assign({}, savedCpu, { bucket: 2500 });
+    reached = false;
+    world.time += 100;
+    try { mk.run({ active: false }); } catch (e) {}
+    assert(!reached, 'bucket 2500 < 3000：市场仍停');
+    Memory.pixelFill = savedFill; Game.cpu = savedCpu; Memory.stats = savedStats; Game.market = savedMarket; Game.rooms = savedRooms;
+    for (let i = 0; i < 100; i++) gate.record(10);
+}
+
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);
 
