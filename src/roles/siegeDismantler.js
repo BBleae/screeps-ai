@@ -250,6 +250,68 @@ function innerOpen(room, dir) {
     return dir.posts.some((e) => Array.isArray(e.after) && e.after.length && e.after.some((t) => !barrierAt(room, t)));
 }
 
+const CLEAR_MAX = 10000;
+function blocks(st) {
+    const t = st.structureType;
+    return !(t === STRUCTURE_ROAD || t === STRUCTURE_CONTAINER || (t === STRUCTURE_RAMPART && (st.my || st.isPublic)));
+}
+
+function clearable(room, st) {
+    if (st.my || !st.owner) return false;
+    const t = st.structureType;
+    if (t === STRUCTURE_RAMPART || t === STRUCTURE_WALL || t === STRUCTURE_STORAGE || t === STRUCTURE_TERMINAL || t === STRUCTURE_FACTORY) return false;
+    if (!(st.hits <= CLEAR_MAX)) return false;
+    return !room.lookForAt(LOOK_STRUCTURES, st.pos.x, st.pos.y).some((x) => x.structureType === STRUCTURE_RAMPART && !x.my && !x.isPublic);
+}
+
+function standAround(room, t) {
+    const terrain = room.getTerrain();
+    const out = [];
+    for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            const x = t[0] + dx;
+            const y = t[1] + dy;
+            if (x < 1 || x > 48 || y < 1 || y > 48) continue;
+            if (terrain.get(x, y) & TERRAIN_MASK_WALL) continue;
+            const sts = room.lookForAt(LOOK_STRUCTURES, x, y).filter(blocks);
+            if (sts.length && !sts.every((st) => clearable(room, st))) continue;
+            out.push([x, y]);
+        }
+    }
+    return out;
+}
+
+function coreBarrierTiles(room, dir) {
+    const out = (Array.isArray(dir.lootTiles) ? dir.lootTiles : []).map((p) => [p[0], p[1]]);
+    for (const st of room.find(FIND_STRUCTURES)) {
+        const t = st.structureType;
+        if (st.my || (t !== STRUCTURE_STORAGE && t !== STRUCTURE_TERMINAL && t !== STRUCTURE_FACTORY)) continue;
+        if (barrierAt(room, [st.pos.x, st.pos.y])) out.push([st.pos.x, st.pos.y]);
+    }
+    return out;
+}
+
+const innerCache = { tick: -1, by: {} };
+function innerPosts(room, dir) {
+    if (innerCache.tick !== Game.time) { innerCache.tick = Game.time; innerCache.by = {}; }
+    if (innerCache.by[room.name]) return innerCache.by[room.name];
+    const out = [];
+    const seen = new Set();
+    const add = (t, s, after) => {
+        const key = t[0] + ',' + t[1];
+        if (seen.has(key) || !barrierAt(room, t)) return;
+        seen.add(key);
+        const list = (s || []).map((p) => [p[0], p[1]]);
+        for (const p of standAround(room, t)) if (!list.some((q) => q[0] === p[0] && q[1] === p[1])) list.push(p);
+        out.push({ t: [t[0], t[1]], s: list, after: Array.isArray(after) && after.length ? after : [[t[0], t[1]]] });
+    };
+    for (const e of dir.posts) if (Array.isArray(e.after) && e.after.length) add(e.t, e.s, e.after);
+    for (const t of coreBarrierTiles(room, dir)) add(t, null, null);
+    innerCache.by[room.name] = out;
+    return out;
+}
+
 function postUsable(room, dir, e, open) {
     if (!barrierAt(room, e.t)) return false;
     const inner = Array.isArray(e.after) && e.after.length;
@@ -267,10 +329,11 @@ function postRun(creep) {
     if (!dir || !Array.isArray(dir.posts) || !dir.posts.length) { delete m.post; delete m.q; return false; }
     const open = innerOpen(creep.room, dir);
     if (open && !dir.innerOpenAt) dir.innerOpenAt = Game.time;
+    const posts = open ? innerPosts(creep.room, dir) : dir.posts;
     let obj = m.post ? barrierAt(creep.room, m.post.t) : null;
     let upgrade = false;
     if (m.post) {
-        const e = dir.posts.find((x) => x.t[0] === m.post.t[0] && x.t[1] === m.post.t[1] && (x.s || []).some((p) => p[0] === m.post.s[0] && p[1] === m.post.s[1]));
+        const e = posts.find((x) => x.t[0] === m.post.t[0] && x.t[1] === m.post.t[1] && (x.s || []).some((p) => p[0] === m.post.s[0] && p[1] === m.post.s[1]));
         if (!obj || !e || !postUsable(creep.room, dir, e, open)) { delete m.post; obj = null; }
         else if (e.side && Game.time % 5 === 0) upgrade = true;
     }
@@ -278,7 +341,7 @@ function postRun(creep) {
         const taken = claimedStands(target);
         const mine = power(creep);
         const held = m.post;
-        for (const e of dir.posts) {
+        for (const e of posts) {
             if (upgrade && e.side) continue;
             if (!postUsable(creep.room, dir, e, open)) continue;
             let s = (e.s || []).find((p) => { const h = taken.get(p[0] + ',' + p[1]); return !h || !Game.creeps[h.name]; });
@@ -309,7 +372,15 @@ function postRun(creep) {
         creep.dismantle(obj);
         return true;
     }
-    movement.go(creep, new RoomPosition(m.post.s[0], m.post.s[1], target), { range: 0, reusePath: 20 });
+    const sp = new RoomPosition(m.post.s[0], m.post.s[1], target);
+    const block = creep.room.lookForAt(LOOK_STRUCTURES, sp.x, sp.y).find(blocks);
+    if (block) {
+        if (creep.pos.getRangeTo(sp) <= 1) creep.dismantle(block);
+        else movement.go(creep, sp, { range: 1, reusePath: 20 });
+        return true;
+    }
+    if (obj && creep.pos.getRangeTo(obj) <= 1) creep.dismantle(obj);
+    movement.go(creep, sp, { range: 0, reusePath: 20 });
     return true;
 }
 
@@ -412,8 +483,12 @@ function run(creep) {
         let dir = null;
         for (const x of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (x && x.target === target && !x.completed) { dir = x; break; }
         const focus = dir && Array.isArray(dir.focusTiles) && dir.focusTiles.length ? dir.focusTiles : null;
-        const tiles = focus || creep.memory.lootTiles || [];
+        let tiles = focus || creep.memory.lootTiles || [];
         let rr = tiles.length ? conquest.lootRampartTargets(creep.room, tiles) : [];
+        if (!rr.length && focus && Array.isArray(creep.memory.lootTiles) && creep.memory.lootTiles.length) {
+            tiles = creep.memory.lootTiles;
+            rr = conquest.lootRampartTargets(creep.room, tiles);
+        }
         if (rr.length) {
             if (creep.memory.salvageLoot && tiles.length) {
                 const order = new Map(tiles.map((p, i) => [p[0] + ',' + p[1], i]));
@@ -459,4 +534,4 @@ function run(creep) {
     if (creep.dismantle(tgt) === ERR_NOT_IN_RANGE) movement.go(creep, tgt, { range: 1, reusePath: 5 });
 }
 
-module.exports = { run, squadMates, power, openCheck };
+module.exports = { run, squadMates, power, openCheck, innerPosts, standAround };
