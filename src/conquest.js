@@ -159,10 +159,31 @@ function reliefLead(from, to, body) {
     return (Array.isArray(body) ? body.length : 50) * 3 + c.travel + 30;
 }
 
+const DISMANTLE_MULT = { ZH: 2, ZH2O: 3, XZH2O: 4 };
+function focusFinish(d) {
+    const room = Game.rooms[d.target];
+    if (!room) return null;
+    const tiles = Array.isArray(d.focusTiles) && d.focusTiles.length ? d.focusTiles : (Array.isArray(d.lootTiles) ? d.lootTiles : []);
+    let hits = 0;
+    for (const t of tiles) {
+        const bs = room.lookForAt(LOOK_STRUCTURES, t[0], t[1]).filter((x) => x.structureType === STRUCTURE_RAMPART || x.structureType === STRUCTURE_WALL);
+        if (bs.length) { hits = bs.reduce((a, x) => a + x.hits, 0); break; }
+    }
+    if (!(hits > 0)) return null;
+    let rate = 0;
+    for (const c of room.find(FIND_MY_CREEPS)) {
+        const m = c.memory || {};
+        if (m.role !== 'siegeDismantler' || m.retired || m.targetRoom !== d.target) continue;
+        for (const p of c.body) if (p.type === WORK && p.hits > 0) rate += 50 * (DISMANTLE_MULT[p.boost] || 1);
+    }
+    return { hits, rate, ticks: rate > 0 ? Math.ceil(hits / rate) : Infinity };
+}
+
 function boostPlanDemands(d, home, sponsors, body, mem) {
     const plan = d.boostPlan;
     const n = Math.max(0, Number(plan.base) || 0) + (boostPlanBreached(d) ? Math.max(0, Number(plan.more) || 0) : 0);
-    const travelLead = Number(plan.travel) > 0 ? Number(plan.travel) + (Number(plan.boostTicks) || 20) + (plan.leadPad != null ? Number(plan.leadPad) : 100) : 0;
+    const spawnTicks = plan.spawnTicks != null ? Number(plan.spawnTicks) : (Array.isArray(body) ? body.length : 50) * 3;
+    const travelLead = Number(plan.travel) > 0 ? Number(plan.travel) + (Number(plan.boostTicks) || 20) + spawnTicks + (plan.leadPad != null ? Number(plan.leadPad) : 100) : 0;
     const lead = travelLead > 0 ? travelLead : Math.max(0, plan.lead === 'auto' ? 0 : (Number(plan.lead) || 350), plan.lead === 'auto' || plan.autoLead ? reliefLead(home.name, d.target, body) : 0);
     plan.leadUsed = plan.leadUsed || {};
     plan.leadUsed[home.name] = lead;
@@ -195,16 +216,21 @@ function boostPlanDemands(d, home, sponsors, body, mem) {
     plan.ready = { at: Game.time, rooms: ready };
     if (ready.indexOf(home.name) < 0) { plan.labWait = plan.labWait || {}; plan.labWait[home.name] = Game.time; return []; }
     const held = {};
+    const dying = {};
     for (const name in Game.creeps) {
         const c = Game.creeps[name];
         const k = String((c.memory && c.memory.slotKey) || '');
         if (k.indexOf(prefix) !== 0 || (c.memory && c.memory.retired)) continue;
         if (c.spawning || c.ticksToLive == null || c.ticksToLive > lead) held[k] = true;
+        else dying[k] = Math.max(dying[k] || 0, c.ticksToLive);
     }
+    const left = plan.finishCheck === false ? null : focusFinish(d);
+    if (left) plan.finish = { at: Game.time, hits: left.hits, rate: left.rate, ticks: left.ticks };
     const out = [];
     const bmem = Object.assign({}, mem, { boostWait: true, boostWaitMax: Math.max(100, Number(plan.boostWaitMax) || 300) });
     for (let i = 0; i < slots; i++) {
         if (held[prefix + i]) continue;
+        if (left && left.rate > 0 && left.ticks <= (dying[prefix + i] != null ? dying[prefix + i] : lead)) continue;
         const own = sponsors[i % sponsors.length];
         const owner = ready.indexOf(own) >= 0 ? own : ready[i % ready.length];
         if (owner !== home.name) continue;

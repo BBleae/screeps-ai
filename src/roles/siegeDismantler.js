@@ -514,11 +514,12 @@ function endCheck(target) {
     let dir = null;
     for (const x of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (x && x.target === target && !x.completed) { dir = x; break; }
     let out = null;
-    if (dir && dir.handoff && Array.isArray(dir.handoff.tile)) {
+    if (dir && dir.handoff && (Array.isArray(dir.handoff.tile) || Array.isArray(dir.handoff.tiles))) {
         const h = dir.handoff;
         if (!h.at) {
             const room = Game.rooms[target];
-            if (room && !barrierAt(room, h.tile)) { h.at = Game.time; dir.pauseDismantlerSpawn = true; }
+            const tiles = Array.isArray(h.tiles) ? h.tiles : [h.tile];
+            if (room && tiles.every((t) => !barrierAt(room, t))) { h.at = Game.time; dir.pauseDismantlerSpawn = true; }
         }
         if (h.at) out = h;
     }
