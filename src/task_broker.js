@@ -434,7 +434,10 @@ function roomTasks(room) {
             addTask(tasks, { kind: 'deliver', id: structure.id, target: structure, backlog: free, weight: 10, tier: 1 });
         } else if (structure.structureType === towerType) {
             const urgent = towerUrgentNow;
-            if (free >= towerRefillAt || hostile) {
+            const alertRoom = (config.towerFullRooms || []).indexOf(room.name) >= 0;
+            if (alertRoom && free >= 50 && !hostile && !urgent) {
+                addTask(tasks, { kind: 'deliver', id: structure.id, target: structure, backlog: free, weight: 11, tier: 1 });
+            } else if (free >= towerRefillAt || hostile) {
                 const needsBudget = energyOf(structure.store) < (Number(config.towerRepairReserve) || 500) + (Number(config.towerMaintenanceBudget) || 0);
                 const towerRange = Number(config.towerCriticalRange) || (typeof TOWER_FALLOFF_RANGE !== 'undefined' ? TOWER_FALLOFF_RANGE : 20);
                 const criticalNear = !urgent && needsBudget && structure.pos && criticalWithin(room, structure.pos, towerRange);

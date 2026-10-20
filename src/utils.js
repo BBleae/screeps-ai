@@ -481,7 +481,8 @@ function repairTargetHits(room, structure) {
         const hitsPerEnergy = Math.max(1, Number(settings.hitsPerEnergy) || 80);
         const floorHits = Math.max(0, Number(settings.floorHits) || 0);
         const affordable = roomEnergyBudget(room) * share * raiseTicks * hitsPerEnergy / rampartCount(room);
-        return Math.max(0, Math.min(cap, Math.max(floorHits, affordable)));
+        const roomFloor = room && config.rampartFloorByRoom ? Math.min(structure.hitsMax, Number(config.rampartFloorByRoom[room.name]) || 0) : 0;
+        return Math.max(roomFloor, Math.max(0, Math.min(cap, Math.max(floorHits, affordable))));
     }
     return structure.hitsMax;
 }

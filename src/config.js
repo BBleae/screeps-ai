@@ -363,6 +363,8 @@ module.exports = {
     controllerFeedStorageBand: 1000,
     controllerFeedStorageStarved: 500,
     towerRefillAt: 300,
+    towerFullRooms: ['W37S5', 'W37S7', 'W38S7'],
+    rampartFloorByRoom: { W37S7: 300000 },
     towerMaintenanceBudget: 400,
     towerMaintenanceWeight: 5,
     towerCriticalRange: 20,
