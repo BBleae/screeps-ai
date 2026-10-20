@@ -444,8 +444,34 @@ function postRun(creep) {
         return true;
     }
     if (obj && creep.pos.getRangeTo(obj) <= 1) creep.dismantle(obj);
+    const key = creep.pos.x + ',' + creep.pos.y;
+    if (m.stIdle && m.stIdle.k === key) m.stIdle.n++; else m.stIdle = { k: key, n: 0 };
+    if (m.stIdle.n >= 3 && clearToward(creep, sp)) return true;
     movement.go(creep, sp, { range: 0, reusePath: 20 });
     return true;
+}
+
+function clearToward(creep, sp) {
+    const room = creep.room;
+    const res = PathFinder.search(creep.pos, { pos: sp, range: 0 }, {
+        maxRooms: 1,
+        maxOps: 4000,
+        roomCallback: (name) => {
+            if (name !== room.name) return false;
+            const cm = new PathFinder.CostMatrix();
+            for (const st of room.find(FIND_STRUCTURES)) {
+                if (!blocks(st)) continue;
+                cm.set(st.pos.x, st.pos.y, clearable(room, st) ? 20 : 255);
+            }
+            return cm;
+        },
+    });
+    if (res.incomplete || !res.path.length) return false;
+    const step = res.path[0];
+    const st = room.lookForAt(LOOK_STRUCTURES, step.x, step.y).find(blocks);
+    if (st && clearable(room, st)) { creep.dismantle(st); return true; }
+    if (!st) { creep.move(creep.pos.getDirectionTo(step)); return true; }
+    return false;
 }
 
 function retireUnboosted(creep) {
@@ -664,4 +690,4 @@ function run(creep) {
     if (creep.dismantle(tgt) === ERR_NOT_IN_RANGE) movement.go(creep, tgt, { range: 1, reusePath: 5 });
 }
 
-module.exports = { run, squadMates, power, openCheck, innerPosts, standAround, sideRun, unboostedTimeout, bucketHold, releaseSlot, strongerWaiting, handoff, freeBoostSlot };
+module.exports = { run, squadMates, power, openCheck, innerPosts, standAround, sideRun, unboostedTimeout, bucketHold, releaseSlot, strongerWaiting, handoff, freeBoostSlot, clearToward };
