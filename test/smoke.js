@@ -14778,6 +14778,17 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
 }
 
 {
+    console.log('== 10-20 15:24 关外矿 W29S1（W29S3）、W29S9（W31S8）：从 remote.assign 白名单去掉，停孵、在岗的回收 ==');
+    const rem = require('../src/remote');
+    const savedAssign = config.remote.assign;
+    config.remote.assign = liveRemoteAssign;
+    assert(JSON.stringify(liveRemoteAssign.W31S8) === '["W31S9"]' && JSON.stringify(liveRemoteAssign.W29S3) === '["W29S2"]', 'W31S8 只留 W31S9，W29S3 只留 W29S2');
+    assert(!rem.remoteWhitelist('W31S8').includes('W29S9') && !rem.remoteWhitelist('W29S3').includes('W29S1'), '白名单里没有 W29S9/W29S1（大脑回退不生效：assign 有数组就不读大脑）');
+    assert(!Object.keys(liveRemoteAssign).some((h) => liveRemoteAssign[h].includes('W29S9') || liveRemoteAssign[h].includes('W29S1')), '没有别的母房接手');
+    config.remote.assign = savedAssign;
+}
+
+{
     console.log('== 10-20 15:09 外矿 CPU 遥测（只记账）：抽样 tick 按外矿房 × 角色桶累加，1500 tick 一窗滚动，母房 remote 规划另记 ==');
     const cr = require('cpu_remote');
     const savedCR = Memory.cpuRemote, savedTime = world.time, savedUsed = Game.cpu.getUsed;
