@@ -503,6 +503,7 @@ function lootAvoidFor(creep, pos) {
         lootAvoidCache.set(key, set);
     } else {
         set = new Set(civilianDangerRooms());
+        for (const k of Object.keys(cfg)) if (Array.isArray(cfg[k]) && /^[WE]\d+[NS]\d+$/.test(k)) for (const r of cfg[k]) set.delete(r);
         for (const r of hard) set.add(r);
         for (const k of lootAvoidCache.keys()) if (k.charAt(0) === 'b') lootAvoidCache.delete(k);
         lootAvoidCache.set(key, set);
