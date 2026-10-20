@@ -92,6 +92,24 @@ function moveNear(creep, obj) {
     else movement.go(creep, obj, { range: 1, reusePath: 20 });
 }
 
+const DROP_REACH = 3;
+function topLoot(res, order) {
+    const list = Array.isArray(order) && order.length ? order : [];
+    const cut = list.indexOf('battery');
+    if (cut < 0) return false;
+    const i = list.indexOf(res);
+    return i >= 0 && i <= cut;
+}
+
+function topUpDrop(creep) {
+    if (!creep.store || creep.store.getFreeCapacity() <= 0) return false;
+    const drops = ((conquest.coverInfo(creep.room) || {}).dropped || []).filter((r) => r.resourceType === ENERGY && creep.pos.getRangeTo(r) <= DROP_REACH);
+    if (!drops.length) return false;
+    const dr = creep.pos.findClosestByRange(drops) || drops[0];
+    if (creep.pickup(dr) === ERR_NOT_IN_RANGE) movement.go(creep, dr, { range: 1, reusePath: 5 });
+    return true;
+}
+
 function routePickup(creep) {
     const m = creep.memory;
     if (!creep.store || creep.store.getFreeCapacity() <= 0) { delete m.pick; return false; }
@@ -274,6 +292,7 @@ function run(creep) {
         const cachedRuin = creep.memory.ruin && Game.getObjectById(creep.memory.ruin);
         if (cachedRuin && Game.time % 5 !== 0) {
             const r0 = conquest.salvagePickResource(cachedRuin.store, creep.memory.lootOrder);
+            if (r0 && carrying && !topLoot(r0, creep.memory.lootOrder) && topUpDrop(creep)) return;
             if (r0) {
                 if (creep.withdraw(cachedRuin, r0) === ERR_NOT_IN_RANGE) moveNear(creep, cachedRuin);
                 return;
@@ -308,6 +327,7 @@ function run(creep) {
         const c = creep.pos.findClosestByRange ? creep.pos.findClosestByRange(ruins.slice(0, Math.min(5, ruins.length))) || ruins[0] : ruins[0];
         const res = conquest.salvagePickResource(c.store, order);
         if (!res) { creep.memory.state = 'deliver'; return; }
+        if (carrying && !topLoot(res, order) && topUpDrop(creep)) return;
         creep.memory.ruin = c.id;
         if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) moveNear(creep, c);
         return;
@@ -320,4 +340,4 @@ function run(creep) {
     if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) movement.go(creep, c, { range: 1, reusePath: 5 });
 }
 
-module.exports = { run, freeStand };
+module.exports = { run, freeStand, topLoot, topUpDrop };

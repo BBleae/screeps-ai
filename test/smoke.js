@@ -15665,6 +15665,14 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
 }
 
 {
+    console.log('== 10-21 W37S2 抢运顺序：T3/battery → 地上能量（只在装完还有空位时顺手捡）→ L → storage 能量 ==');
+    const lh = require('roles_lootHauler');
+    const order = ['XUH2O', 'XKHO2', 'XLHO2', 'XGHO2', 'XZH2O', 'ZH2O', 'battery', 'L', 'energy'];
+    assert(lh.topLoot('XUH2O', order) && lh.topLoot('battery', order), 'T3 和 battery 排在地上能量前面');
+    assert(!lh.topLoot('L', order) && !lh.topLoot('energy', order) && !lh.topLoot('KHO2', order), 'L、storage 能量和其他排在地上能量后面');
+}
+
+{
     console.log('== 10-21 W33S7 分段修墙：每次挑最低的一面，补 1 万或补到 5 万就换下一面最低的 ==');
     const wf = require('wallfix');
     const savedTime = world.time;
