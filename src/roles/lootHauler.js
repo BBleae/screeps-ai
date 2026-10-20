@@ -1,9 +1,4 @@
 'use strict';
-/**
- * strongholdLoot 搬运兵（conquest 指令 type:'strongholdLoot' 派出，默认关闭）：
- * 等战利品格上的 rampart 拆掉后，进目标房从指定敌方容器取所有**非能量**资源，拉回母房（memory.home）的 storage。
- * 撤退态（conquest.retreatFor）或已取空则回家卸货/回收。核心、能量、其它结构一律不碰。
- */
 const movement = require('movement');
 const conquest = require('conquest');
 const retireMod = require('retire');
@@ -26,14 +21,12 @@ function run(creep) {
     const full = creep.store.getFreeCapacity ? creep.store.getFreeCapacity() <= 0 : false;
     const carrying = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
     const retreat = conquest.retreatFor(target);
-    // 10-17 硬规则：全队 boost 未装齐前，搬运兵也留在母房等待（不去目标房）
     if (conquest.boostGateHold(target)) {
         const carrying0 = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
         if (!carrying0 && creep.room.name !== home) { goRoom(creep, home); return; }
         if (!carrying0) return;
     }
 
-    // 卸货：满仓 / 撤退 / 目标已取空 → 回母房 storage
     if (full || retreat || creep.memory.state === 'deliver') {
         creep.memory.state = 'deliver';
         const room = Game.rooms[home];
@@ -44,7 +37,6 @@ function run(creep) {
         return;
     }
     if (retreat) { creep.memory.state = 'deliver'; return; }
-    // 取货：进目标房，从战利品容器取非能量资源
     if (creep.room.name !== target) { goRoom(creep, target); return; }
     const containers = conquest.lootContainersOf(creep.room, creep.memory.lootTiles);
     if (!containers.length) { creep.memory.state = 'deliver'; return; }
