@@ -22,7 +22,10 @@ function deliver(creep, home) {
     if (!carrying) return false;
     const order = creep.memory.lootOrder;
     const res = (creep.memory.salvageLoot ? conquest.salvagePickResource(creep.store, order) : null) || nonEnergyKey(creep.store) || ENERGY;
-    if (creep.transfer(room.storage, res) === ERR_NOT_IN_RANGE) movement.go(creep, room.storage, { range: 1, reusePath: 15 });
+    const term = room.terminal;
+    const used = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() : 0;
+    const dest = creep.memory.pullLoot && term && term.my !== false && term.store && typeof term.store.getFreeCapacity === 'function' && term.store.getFreeCapacity() >= used + 20000 ? term : room.storage;
+    if (creep.transfer(dest, res) === ERR_NOT_IN_RANGE) movement.go(creep, dest, { range: 1, reusePath: 15 });
     return true;
 }
 
