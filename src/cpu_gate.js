@@ -4,7 +4,7 @@ const config = require('config');
 const ring = { buf: [], i: 0, sum: 0, size: 0 };
 
 function settings() {
-    return Object.assign({ enabled: false, maxAvgCpu: 150, window: 100, holdUntilBucket: 9000, refillWindow: 3000, keepRefill: 10 }, config.pixel || {});
+    return Object.assign({ enabled: false, maxAvgCpu: 150, window: 100, holdUntilBucket: 9000, refillWindow: 3000, keepRefill: 10, minInterval: 2000 }, config.pixel || {});
 }
 
 function windowSize() {
@@ -74,8 +74,12 @@ function pixelReady() {
     const cfg = settings();
     const a = rollingAvg();
     const bucket = Number(Game.cpu && Game.cpu.bucket);
-    const ok = cfg.enabled === true && bucket >= 10000 && a.full && a.avg != null && a.avg < Number(cfg.maxAvgCpu);
-    return { ok, mean: a.avg, n: a.n, line: Number(cfg.maxAvgCpu), bucket };
+    const last = typeof Memory !== 'undefined' ? Number(Memory.pixelAt) : NaN;
+    const since = Number.isFinite(last) ? Game.time - last : null;
+    const gap = Number(cfg.minInterval) || 0;
+    const spaced = !(gap > 0 && since != null && since < gap);
+    const ok = cfg.enabled === true && bucket >= 10000 && spaced && a.full && a.avg != null && a.avg < Number(cfg.maxAvgCpu);
+    return { ok, mean: a.avg, n: a.n, line: Number(cfg.maxAvgCpu), bucket, since, wait: spaced ? 0 : gap - since };
 }
 
 module.exports = { settings, record, rollingAvg, avgOk, reset, track, notePixel, refilling, newWorkHeld, pixelReady };

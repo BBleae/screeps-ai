@@ -1366,12 +1366,27 @@ function applyAvoidHolds(homeName, remotes) {
     }
 }
 
+function detourStuckReserver(creep, record) {
+    let stuck = false;
+    try { stuck = require('movement').detourStuck(creep); } catch (e) { stuck = false; }
+    if (stuck) record.reserverDetourStuck = { at: Game.time, creep: creep.name, since: creep.memory.detour.first };
+    return stuck;
+}
+
 function reserverOnHold(home, record) {
     const map = config.remote && config.remote.holdReserver;
     const until = map && Number(map[record.room]);
     if (!until || record.reserverHoldReleased) return false;
     const stored = Number((home.storage && home.storage.store[RESOURCE_ENERGY]) || 0);
     if (stored >= until) { record.reserverHoldReleased = Game.time; return false; }
+    if (!record.reserverHoldSince) record.reserverHoldSince = Game.time;
+    const limit = Number(config.remote && config.remote.reserverHoldTimeout) || 0;
+    if (limit > 0 && Game.time - record.reserverHoldSince >= limit) {
+        record.reserverHoldReleased = Game.time;
+        record.reserverHoldTimeout = { at: Game.time, since: record.reserverHoldSince, stored };
+        delete record.reserverHoldSince;
+        return false;
+    }
     return true;
 }
 
@@ -1765,7 +1780,7 @@ function getDemands(home) {
         } else if (reserveDue && reserverCapReached(home.name, record.room)) {
             record.reserverCapped = Game.time;
         } else if (reserveDue && creepsHomeRole(home.name, 'reserver').some((creep) => !isRetiring(creep.memory) &&
-                creep.memory.remoteRoom === record.room && (creep.spawning || creep.ticksToLive > reserveLead) &&
+                creep.memory.remoteRoom === record.room && (creep.spawning || creep.ticksToLive > reserveLead) && !detourStuckReserver(creep, record) &&
                 bodyPartCount(creep.body, CLAIM_PART) >= reserveBody.filter((part) => part === CLAIM_PART).length)) {
             record.reserverEnRoute = Game.time;
         } else if (reserveDue) {
@@ -1886,7 +1901,7 @@ function reserverHandoffs(home, demands, blockingTicks) {
     });
 }
 
-module.exports = { newRemoteGate, dropHomeHold, refreshDropRoom, dropNeedsRefresh, reserverCapReached,
+module.exports = { reserverOnHold, detourStuckReserver, newRemoteGate, dropHomeHold, refreshDropRoom, dropNeedsRefresh, reserverCapReached,
     dropRoom,
     remoteWhitelist,
     canClearReservation,

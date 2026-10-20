@@ -327,8 +327,10 @@ module.exports.loop = function () {
         }
         cpuLap(cpuProf.mod, 'creeps');
         try { market.guardTick(); } catch (e) { logErr('market.guardTick', e); }
-        if (!(shed && (shed.active || shed.stopped)) && !cpuFused('terminal')) {
+        if (!(shed && shed.stopped) && !cpuFused('terminal')) {
             try { market.run(shed); } catch (e) { logErr('market.run', e); }
+        }
+        if (!(shed && (shed.active || shed.stopped)) && !cpuFused('terminal')) {
             try { terminalNetwork.run(shed); } catch (e) { logErr('terminal.run', e); }
             if (!cpuFused('deposit')) {
                 try { depositMod.run(); } catch (e) { logErr('deposit.run', e); }
@@ -352,6 +354,7 @@ module.exports.loop = function () {
                 log.mean = gate.mean;
                 log.line = gate.line;
                 log.n = gate.n;
+                log.wait = gate.wait;
             } else if (gate && typeof Game.cpu.generatePixel === 'function') {
                 if (Game.cpu.generatePixel() === OK) {
                     Memory.pixels = (Memory.pixels || 0) + 1;

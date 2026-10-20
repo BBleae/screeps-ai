@@ -436,6 +436,48 @@ function resetSafeRoutes() {
     safeRouteSig = '';
 }
 
+const detourRoutes = new Map();
+function routeHitsBlock(from, to, blocks) {
+    const map = typeof Game !== 'undefined' && Game.map;
+    if (!map || typeof map.findRoute !== 'function') return false;
+    const sig = Array.from(blocks).sort().join(',');
+    const key = from + '>' + to;
+    const hit = detourRoutes.get(key);
+    if (hit && hit.sig === sig && Game.time - hit.at < 100) return hit.hit;
+    let route = null;
+    try { route = map.findRoute(from, to); } catch (e) { route = null; }
+    const res = Array.isArray(route) && route.some((step) => step && blocks.has(step.room) && step.room !== to);
+    detourRoutes.set(key, { hit: res, at: Game.time, sig });
+    return res;
+}
+function noteDetour(creep, pos) {
+    const m = creep && creep.memory;
+    if (!m || isCombatCreep(creep)) return;
+    const blocks = highwayBlocks();
+    const detouring = pos.roomName !== creep.pos.roomName && blocks.size > 0 && routeHitsBlock(creep.pos.roomName, pos.roomName, blocks);
+    if (!detouring) {
+        if (m.detour) {
+            delete m.detour;
+            resetCreepPath(creep);
+            m.detourReset = { at: Game.time, why: 'cleared' };
+        }
+        return;
+    }
+    if (!m.detour || m.detour.to !== pos.roomName) { m.detour = { first: Game.time, since: Game.time, to: pos.roomName }; return; }
+    const limit = Number((config.pvp || {}).detourTimeout) || 300;
+    if (Game.time - m.detour.since >= limit) {
+        m.detour.since = Game.time;
+        m.detour.n = (Number(m.detour.n) || 0) + 1;
+        resetCreepPath(creep);
+        m.detourReset = { at: Game.time, why: 'timeout' };
+    }
+}
+function detourStuck(creep) {
+    const d = creep && creep.memory && creep.memory.detour;
+    const limit = Number((config.pvp || {}).detourTimeout) || 300;
+    return !!d && Game.time - Number(d.first) >= limit;
+}
+
 function go(creep, target, opts) {
     state.stats.calls += 1;
     const pos = toPos(creep, target, opts);
@@ -467,6 +509,7 @@ function go(creep, target, opts) {
     }
     applyDangerAvoidance(creep, pos, moveOpts);
     applyRangedAvoidance(creep, pos, moveOpts);
+    noteDetour(creep, pos);
 
     const loaded = loadEngine();
     if (loaded) {
@@ -799,7 +842,7 @@ api = {
     endTick,
     isWorkTile,
     invalidateRoom,
-    resetCreepPath,
+    resetCreepPath, noteDetour, detourStuck,
     keeperAvoidCallback,
     hostileTerritoryRooms,
     safeRouteExists, frozenOwnerRooms, civilianRefuge, rangedThreats, rangedAvoidCallback, highwayBlocks, civilianDangerRooms, civilianRouteOk, isHighwayRoom, isCombatCreep,

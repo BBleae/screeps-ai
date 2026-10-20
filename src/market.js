@@ -18,7 +18,6 @@ function settings() {
         priceFloorShare: 0.7,
         historyDays: 5,
         energyPrice: 0.02,
-        minBucket: 5000,
         maxScans: 3,
         tickCpuBudget: 5,
         priceBand: null,
@@ -1361,7 +1360,7 @@ function runFollow(cfg, shed) {
     const follow = mem && mem.follow;
     if (!follow || Game.time < follow.due) return null;
     if (Game.time >= follow.round + cfg.interval) { delete mem.follow; return null; }
-    if (!terminalNet.cpuAllows(cfg, shed)) return null;
+    if (shed && shed.stopped) return null;
     const market = marketApi();
     if (!market || typeof market.deal !== 'function' || typeof market.getAllOrders !== 'function') return null;
     delete mem.follow;
@@ -1400,8 +1399,7 @@ function run(shed) {
     const cfg = settings();
     if (cfg.enabled && cfg.interval > 0 && Game.time % cfg.interval !== 0) return runFollow(cfg, shed);
     if (!cfg.enabled || !(cfg.interval > 0) || Game.time % cfg.interval !== 0) return null;
-    if (!terminalNet.cpuAllows(cfg, shed)) return null;
-    try { const dep = require('deposit'); const dc = dep.settings(); if (!(dep.statsCpuOk ? dep.statsCpuOk(dc.cpuAvgMax, dc.cpuSamples, dc.minBucket) : dep.cpuOk(dc))) return null; } catch (error) {  }
+    if (shed && shed.stopped) return null;
     const market = marketApi();
     if (!market || typeof market.deal !== 'function' || typeof market.getAllOrders !== 'function') return null;
     cfg.energyPrice = energyPriceNow(cfg);

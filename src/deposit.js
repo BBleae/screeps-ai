@@ -142,7 +142,7 @@ function statsCpuOk(max, samples, minBucket) {
 function cpuOk(cfg) {
     const gate = require('cpu_gate');
     if (gate.newWorkHeld()) return false;
-    if (Game.cpu.bucket < cfg.minBucket) return false;
+    if (Game.cpu.bucket < (Number(cfg.newBucketMin) || 9000)) return false;
     return gate.avgOk(cfg.cpuAvgMax);
 }
 
@@ -358,7 +358,6 @@ function getDemands(home) {
     if (!cfg.enabled || !home || !home.controller || !home.controller.my) return [];
     const out = [];
     const gate = require('cpu_gate');
-    if (Game.cpu.bucket < cfg.minBucket && !gate.refilling()) return out;
     const m = Memory.deposits;
     if (m && m.list) {
         for (const id in m.list) {

@@ -1257,13 +1257,14 @@ try {
     main.loop();
     assert(Memory.rooms && Memory.rooms.W33S7, '空 Memory 自动初始化 rooms');
     assert((Memory.errors || []).length === 0, '空 Memory 启动无错误: ' + JSON.stringify(Memory.errors || []));
-    const pixelTick = (fill) => {
+    const pixelTick = (fill, keepAt) => {
         cpuGateMod.reset();
         for (const v of fill) cpuGateMod.record(v);
         world.time++;
         if (world.time % 30 === 0) world.time++;
         global.__pixelCalls = 0;
         delete Memory.pixelFill;
+        if (!keepAt) delete Memory.pixelAt;
         const before = (Memory.pixelGate && Memory.pixelGate.skip) || 0;
         main.loop();
         return { calls: global.__pixelCalls, skipped: ((Memory.pixelGate && Memory.pixelGate.skip) || 0) - before };
@@ -1276,6 +1277,12 @@ try {
     const lowUse = pixelTick(Array.from({ length: 100 }, () => 120));
     assert(lowUse.calls === 1 && lowUse.skipped === 0 && Memory.pixelAt === world.time && Memory.pixelFill && Memory.pixelFill.at === world.time,
         '100 tick 均值 120 < 150、bucket 10000：generatePixel，记 pixelAt 和 pixelFill（得 ' + JSON.stringify(lowUse) + '）');
+    const firstAt = Memory.pixelAt;
+    const tooSoon = pixelTick(Array.from({ length: 100 }, () => 120), true);
+    assert(config.pixel.minInterval === 2000 && tooSoon.calls === 0 && tooSoon.skipped === 1 && Memory.pixelGate.wait > 0 && Memory.pixelAt === firstAt, '16:59 距上次 pixel 不到 2000 tick：不产，记 wait（得 ' + JSON.stringify([tooSoon, Memory.pixelGate.wait]) + '）');
+    Memory.pixelAt = world.time - 2000;
+    const spaced = pixelTick(Array.from({ length: 100 }, () => 120), true);
+    assert(spaced.calls === 1 && Memory.pixelAt === world.time, '满 2000 tick：再产一个');
     const tight = pixelTick(Array.from({ length: 100 }, (x, i) => (i < 50 ? 140 : 160)));
     assert(tight.calls === 0 && tight.skipped === 1 && Memory.pixelGate.mean === 150 && Memory.pixelGate.n === 100, '均值 150（不是 < 150）：不产，记放弃与均值（得 ' + JSON.stringify(Memory.pixelGate) + '）');
     cpuGateMod.reset();
@@ -16457,9 +16464,10 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     world.time++;
     assert(mk.run({ active: false }) === null, '不在 interval 的 tick 不做');
     world.time += cfg.interval - 1;
-    assert(mk.run({ active: true }) === null && deals.length === 1, 'cpu_shed 降载中不做');
-    Game.cpu = Object.assign({}, savedCpu, { bucket: cfg.minBucket - 1 });
-    assert(mk.run({ active: false }) === null && deals.length === 1, 'bucket < minBucket 不做');
+    assert(mk.run({ active: true, stopped: true }) === null && deals.length === 1, 'tickLimit 硬停（shed.stopped）中不做');
+    Game.cpu = Object.assign({}, savedCpu, { bucket: 100 });
+    const lowB = mk.run({ active: true });
+    assert(lowB && deals.length === 2, '16:59 市场不看 bucket：bucket 100、cpu_shed 降载中照常成交（得 ' + JSON.stringify(lowB && lowB.result) + '）');
     Game.cpu = Object.assign({}, savedCpu, { bucket: 10000 });
     const starving = mkMRoom('W31S6', 5000, { L: 10000 }, 0);
     Memory.rooms.W31S6 = {};
@@ -16467,7 +16475,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     orderCalls = 0;
     const savedAnyRoom = config.market.anyRoom;
     config.market.anyRoom = false;
-    assert(mk.run({ active: false }) === null && deals.length === 1 && orderCalls === 0, 'anyRoom 关时：storage 不富余（storageRich 关）的房不卖、也不查单');
+    assert(mk.run({ active: false }) === null && deals.length === 2 && orderCalls === 0, 'anyRoom 关时：storage 不富余（storageRich 关）的房不卖、也不查单');
     config.market.anyRoom = savedAnyRoom;
     const many = {};
     ['K', 'U', 'O', 'Z', 'X', 'H'].forEach((r) => { many[r] = 9000; });
@@ -17719,7 +17727,8 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     gate.notePixel(); Game.cpu.bucket = 500;
     assert(dep.getDemands(home).some((x) => x.role === 'depositMiner'), '补桶期 bucket 500 < minBucket 3000：已分配的照常出需求（不撤）');
     delete Memory.pixelFill;
-    assert(dep.getDemands(home).every((x) => x.role !== 'depositMiner'), '不在补桶期、bucket 500：照旧不出');
+    assert(dep.getDemands(home).some((x) => x.role === 'depositMiner'), '16:59 已在采的 deposit：bucket 500 也照常补矿工（只有新开 deposit 要 bucket ≥9000）');
+    assert(dep.cpuOk(dep.settings()) === false, 'bucket 500：不开新 deposit');
     Game.creeps = { m1: { memory: { role: 'depositMiner', depositId: 'dw' } } };
     Game.cpu.bucket = 10000;
     dep.getDemands(home);
@@ -18056,9 +18065,42 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     reached = false;
     world.time += 100;
     try { mk.run({ active: false }); } catch (e) {}
-    assert(!reached, 'bucket 2500 < 3000：市场仍停');
+    assert(reached, '16:59 bucket 2500：市场照常（不看 bucket）');
     Memory.pixelFill = savedFill; Game.cpu = savedCpu; Memory.stats = savedStats; Game.market = savedMarket; Game.rooms = savedRooms;
     for (let i = 0; i < 100; i++) gate.record(10);
+}
+
+{
+    console.log('== 10-20 16:59 W31S9 reserver 死锁：绕路超时重新寻路，卡在绕路的 reserver 不算在途；holdReserver 超时解锁 ==');
+    const mv = require('movement');
+    const rm = require('remote');
+    const savedHB = Memory.highwayBlock, savedMap = Game.map, savedRooms = Game.rooms, savedTA = config.pvp.tempAvoid;
+    config.pvp.tempAvoid = {};
+    Game.rooms = {};
+    Memory.highwayBlock = { W30S8: { at: world.time, until: world.time + 5000, n: 1, user: 'Jumpp' } };
+    Game.map = Object.assign({}, savedMap || {}, { findRoute: () => [{ room: 'W30S8' }, { room: 'W31S9' }] });
+    let resets = 0;
+    const savedReset = mv.resetCreepPath;
+    const creep = { name: 'rs1', body: [{ type: 'claim' }, { type: 'move' }], pos: new RoomPosition(25, 25, 'W31S8'), memory: { role: 'reserver', remoteRoom: 'W31S9' } };
+    world.time += 1;
+    mv.noteDetour(creep, new RoomPosition(8, 37, 'W31S9'));
+    assert(creep.memory.detour && creep.memory.detour.first === world.time && !mv.detourStuck(creep), '自然路线经过被封的 W30S8：开始记绕路');
+    world.time += 300;
+    mv.noteDetour(creep, new RoomPosition(8, 37, 'W31S9'));
+    assert(creep.memory.detourReset && creep.memory.detourReset.why === 'timeout' && creep.memory.detour.n === 1 && mv.detourStuck(creep), '绕路 ≥300 tick：重新寻路（resetCreepPath），记为卡住');
+    const record = { room: 'W31S9' };
+    assert(rm.detourStuckReserver(creep, record) === true && record.reserverDetourStuck.creep === 'rs1', '卡在绕路的 reserver 不算在途 → 可以补新的');
+    Memory.highwayBlock = {};
+    world.time += 1;
+    mv.noteDetour(creep, new RoomPosition(8, 37, 'W31S9'));
+    assert(!creep.memory.detour && creep.memory.detourReset.why === 'cleared', '封锁解除：立刻丢掉旧绕路重新寻路');
+    const home = { name: 'W31S8', storage: { store: { energy: 15000 } } };
+    const rec = { room: 'W31S9' };
+    world.time += 1;
+    assert(rm.reserverOnHold(home, rec) === true && rec.reserverHoldSince === world.time, 'storage 1.5 万 < 2 万：holdReserver 先挡');
+    world.time += config.remote.reserverHoldTimeout;
+    assert(config.remote.reserverHoldTimeout === 3000 && rm.reserverOnHold(home, rec) === false && rec.reserverHoldReleased === world.time && rec.reserverHoldTimeout, '挡满 3000 tick：解锁（避免外矿没 reserver → 收入低 → storage 不到 2 万的死锁）');
+    Memory.highwayBlock = savedHB; Game.map = savedMap; Game.rooms = savedRooms; config.pvp.tempAvoid = savedTA;
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
