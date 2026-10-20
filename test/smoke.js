@@ -10663,6 +10663,17 @@ console.log('== 10-17 02:08 军事 boost lab 补能量链路（默认关）==');
     assert(tb.labEnergyWant(room, l, false, Memory.rooms.W33S3) > 0, '军事 lab：storageRich=false 也补能量，boostCreep 不断粮');
     const poor = { name: 'W33S3', storage: { my: true, store: { energy: 500, [C.RESOURCE_ENERGY]: 500 } } };
     assert(tb.labEnergyWant(poor, l, false, Memory.rooms.W33S3) === 0, 'storage < energyFloorMinStorage：军事 lab 也不补（不抽干穷房）');
+    const w7 = { name: 'W33S7', storage: { my: true, store: { energy: 48000, [C.RESOURCE_ENERGY]: 48000 } } };
+    Memory.rooms.W33S7 = { industryState: { labs: { boostLab: 'b7' } } };
+    const b7 = lab('b7');
+    const savedBU = config.industry.boostUpgraders; config.industry.boostUpgraders = true;
+    assert(tb.upgraderBoostRoom(w7) === true && tb.upgraderBoostRoom(room) === false, '10-20 C：只有 upgraderBoostByRoom 里的房（W33S7）走升级 boost 补能');
+    assert(tb.labEnergyWant(w7, b7, true, Memory.rooms.W33S7) === 2000, 'W33S7 storage 4.8 万（< terminalFillStorageAbove 5 万）：boost lab 照样补能到 2000（得 ' + tb.labEnergyWant(w7, b7, true, Memory.rooms.W33S7) + '）');
+    const w7p = { name: 'W33S7', storage: { my: true, store: { energy: 19000, [C.RESOURCE_ENERGY]: 19000 } } };
+    assert(tb.labEnergyWant(w7p, b7, true, Memory.rooms.W33S7) === 0, 'W33S7 storage < boostLabEnergyFloor 2 万：不给 boost lab 补能');
+    config.industry.boostUpgraders = false;
+    assert(tb.upgraderBoostRoom(w7) === false, 'boostUpgraders 关：W33S7 也不补');
+    config.industry.boostUpgraders = savedBU;
     Memory.rooms = savedMemR;
 }
 

@@ -355,6 +355,11 @@ function terminalDrainKeepBase(room, storageRich) {
     return Math.max(0, Number((config.terminalNetwork || {}).feeReserve) || 0);
 }
 
+function upgraderBoostRoom(room) {
+    const cfg = config.industry || {};
+    return !!(cfg.boostUpgraders && room && cfg.upgraderBoostByRoom && Array.isArray(cfg.upgraderBoostByRoom[room.name]));
+}
+
 function labEnergyWant(room, lab, storageRich, roomMemory) {
     const cfg = config.industry || {};
     const target = Math.max(0, Number(cfg.labEnergyTarget) || 0);
@@ -370,7 +375,8 @@ function labEnergyWant(room, lab, storageRich, roomMemory) {
     if (!storageRich) return 0;
     const labsState = roomMemory && roomMemory.industryState && roomMemory.industryState.labs;
     if (!labsState || labsState.boostLab !== lab.id) return 0;
-    const surplus = energyOf(storage.store) - Math.max(0, Number(cfg.terminalFillStorageAbove) || 0);
+    const floor = upgraderBoostRoom(room) ? Math.max(0, Number(cfg.boostLabEnergyFloor) || 0) : Math.max(0, Number(cfg.terminalFillStorageAbove) || 0);
+    const surplus = energyOf(storage.store) - floor;
     return Math.max(0, Math.min(target - energyOf(lab.store), surplus));
 }
 
@@ -452,7 +458,7 @@ function roomTasks(room) {
             }
         } else if (structure.structureType === labType) {
             const want = labEnergyWant(room, structure, storageRich, roomMemory);
-            if (want > 0 && boostingOn()) {
+            if (want > 0 && (boostingOn() || upgraderBoostRoom(room))) {
                 addTask(tasks, { kind: 'deliver', id: structure.id, target: structure, backlog: Math.min(free, want), weight: 0.4, tier: 4, roles: ['hauler'] });
                 if (roomMemory) roomMemory.labEnergy = { at: Game.time, want, lab: structure.id, energy: energyOf(structure.store) };
             } else if (want > 0 && roomMemory) {
@@ -1237,7 +1243,7 @@ function flush() {
     }
 }
 
-module.exports = { terminalFloorWant, terminalFillWant, terminalEnergyWant, terminalDrainKeep, feeReserveFillAllowed, labEnergyWant,
+module.exports = { upgraderBoostRoom, terminalFloorWant, terminalFillWant, terminalEnergyWant, terminalDrainKeep, feeReserveFillAllowed, labEnergyWant,
     forceReplan,
     controllerFeedLink,
     controllerFeedMode,
