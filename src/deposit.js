@@ -205,7 +205,7 @@ function workable(d, cfg) {
     if (!d || cfg.types.indexOf(d.type) < 0) return false;
     if ((cfg.avoidRooms || []).indexOf(d.room) >= 0) return false;
     const allow = cfg.allowRooms || [];
-    if (allow.length && allow.indexOf(d.room) < 0) return false;
+    if (allow.indexOf(d.room) < 0) return false;
     if (require('utils').pvpDangerRoom(d.room)) return false;
     if (recentlyPvpDeposit(d.room, cfg)) return false;
     if (threatNear(d.room, cfg)) return false;
@@ -329,6 +329,7 @@ function patrolTargets(home, cfg) {
         const name = ew + x + ns + y;
         if (!isHighway(name)) continue;
         if ((cfg.avoidRooms || []).indexOf(name) >= 0) continue;
+        if ((cfg.allowRooms || []).indexOf(name) < 0) continue;
         if (Game.time - (m.visits[name] || 0) < cfg.scoutRevisit) continue;
         if (hops(home, name, cfg) === Infinity) continue;
         out.push(name);
@@ -375,7 +376,7 @@ function getDemands(home) {
                 bodyFor: (b) => minerBody(b, cfg) });
         }
     }
-    if (cfg.scout && scoutHome(cfg) === home.name && cpuOk(cfg) && patrolTargets(home.name, cfg).length) {
+    if (cfg.scout && (cfg.allowRooms || []).length && scoutHome(cfg) === home.name && cpuOk(cfg) && patrolTargets(home.name, cfg).length) {
         out.push({ role: 'depositScout', slot: 'depositScout', body: ['move'],
             memory: { role: 'depositScout', slotKey: 'depositScout', home: home.name }, lead: 0, priority: 1, cls: 'opportunistic' });
     }

@@ -31,7 +31,7 @@ function run(creep) {
     }
     const travel = m.travel || 150;
     if (!cfg.enabled || !info) m.done = true;
-    if (!m.done && creep.ticksToLive < travel + 30) m.done = true;
+    if (!m.done && creep.ticksToLive < travel + (Number(cfg.returnMargin) || 50)) m.done = true;
     if (m.done || m.state === 'deliver') {
         goHome(creep);
         if (m.state === 'deliver' && creep.store.getUsedCapacity() === 0 && !m.done) m.state = 'harvest';
@@ -41,7 +41,7 @@ function run(creep) {
         movement.go(creep, new RoomPosition(info.x, info.y, m.depositRoom), { range: 1, reusePath: 50 });
         return;
     }
-    if (m.travel == null) m.travel = 1500 - creep.ticksToLive - creep.body.length * 3;
+    if (m.travel == null) m.travel = Math.max(0, 1500 - creep.ticksToLive);
     if (Game.time % 10 === 0) deposit.note(creep.room);
     const target = Game.getObjectById(m.depositId);
     const fresh = Memory.deposits.list[m.depositId];

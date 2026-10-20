@@ -17640,9 +17640,13 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(ind.labsAllowed(labRoom) === false, '不在补桶期、bucket 低、均值 160 > 145：lab 照旧停');
     Memory.stats = savedStats;
     const cfg = dep.settings();
-    assert(cfg.cpuAvgMax === 152 && JSON.stringify(cfg.allowRooms) === JSON.stringify(['W30S5']) && JSON.stringify(cfg.avoidRooms) === JSON.stringify(['W30S9']) && cfg.pvpSkipTicks === 3000 &&
+    assert(cfg.maxCooldown === 40 && cfg.returnMargin === 50 && JSON.stringify(cfg.allowRooms) === JSON.stringify([]), '15:48 先发：maxCooldown 40、回程余量 50、allowRooms 空（不开采）');
+    const savedAllowDep = config.deposit.allowRooms;
+    config.deposit.allowRooms = ['W30S5'];
+    cfg.allowRooms = ['W30S5'];
+    assert(cfg.cpuAvgMax === 152 && JSON.stringify(cfg.avoidRooms) === JSON.stringify(['W30S9']) && cfg.pvpSkipTicks === 3000 &&
         cfg.maxActive === 1 && cfg.minHomeStorage === 30000 && cfg.preferHome === 'W33S7' && cfg.preferHomeRatio === 1.5 && cfg.spawnWaitTicks === 300 && cfg.withdrawAvg === 150,
-        '配置：deposit 闸 152、只采 W30S5、只 1 处、母房 storage ≥3 万、W33S7 路长 ≤1.5 倍优先、等孵 300 报警、均值 >150 不孵新矿工');
+        '配置：deposit 闸 152、启用时只采 W30S5（一行改 allowRooms）、只 1 处、母房 storage ≥3 万、W33S7 路长 ≤1.5 倍优先、等孵 300 报警、均值 >150 不孵新矿工');
     const exits = { W30S5: { 1: 'W30S4', 3: 'W29S5', 5: 'W30S6', 7: 'W31S5' } };
     Game.map = Object.assign({}, savedMap, { describeExits: (n) => exits[n] || {} });
     Memory.highwayBlock = {}; Memory.pvpThreat = {};
@@ -17713,6 +17717,39 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     Game.cpu.bucket = 10000;
     dep.getDemands(home);
     assert(!Memory.deposits.wait.dw && !Memory.deposits.spawnWait, '矿工出来了：等孵记录和报警清掉');
+    Game.creeps = {};
+    config.deposit.allowRooms = [];
+    assert(dep.workable({ room: 'W30S5', type: 'silicon', at: world.time, cd: 0, decayAt: world.time + 40000 }, dep.settings()) === false && dep.getDemands(home).length === 0,
+        'allowRooms 空：任何 deposit 都不采、侦察也不出（不再是"空=全开"）');
+    config.deposit.allowRooms = ['W30S5'];
+    assert(dep.workable({ room: 'W30S5', type: 'silicon', at: world.time, cd: 41, decayAt: world.time + 40000 }, dep.settings()) === false, 'lastCooldown 41 > 40：不采');
+    const sc = require('roles_depositScout');
+    let killed = false;
+    config.deposit.allowRooms = [];
+    sc.run({ name: 'sc', room: { name: 'W29S3', controller: { my: true }, find: () => [] }, memory: { role: 'depositScout', home: 'W29S3' }, suicide: () => { killed = true; } });
+    assert(killed, 'allowRooms 空：在岗侦察自杀（不再巡逻烧 CPU）');
+    config.deposit.allowRooms = ['W30S5'];
+    Game.map = Object.assign({}, Game.map, { getRoomLinearDistance: () => 2, findRoute: () => [{ room: 'x' }, { room: 'W30S5' }] });
+    Memory.deposits = { list: {}, routes: {}, visits: {} };
+    const pt = dep.patrolTargets('W29S3', dep.settings());
+    assert(JSON.stringify(pt) === JSON.stringify(['W30S5']), '侦察只看 allowRooms 里的房（得 ' + JSON.stringify(pt) + '）');
+    const mr = require('roles_depositMiner');
+    Memory.deposits = { list: { dt: { room: 'W30S5', type: 'silicon', x: 10, y: 10, at: world.time, cd: 0, decayAt: world.time + 40000, home: 'W33S7' } }, routes: {}, visits: {} };
+    Memory.highwayBlock = {}; Memory.pvpThreat = {}; Game.rooms = {};
+    world.time += 1;
+    const tgt = { id: 'dt', cooldown: 1 };
+    const savedGOI = Game.getObjectById; Game.getObjectById = (id) => (id === 'dt' ? tgt : savedGOI(id));
+    const arr = { name: 'dm2', room: { name: 'W30S5', find: () => [] }, pos: { isNearTo: () => true }, ticksToLive: 1380, body: Array.from({ length: 50 }, () => ({ type: 'move' })),
+        memory: { role: 'depositMiner', home: 'W33S7', depositId: 'dt', depositRoom: 'W30S5' }, store: { getUsedCapacity: () => 40, getFreeCapacity: () => 460 }, getActiveBodyparts: () => 15, harvest: () => 0 };
+    mr.run(arr);
+    assert(arr.memory.travel === 120 && !arr.memory.done, '到达时 travel = 1500 − ttl = 120（spawn 时间不再重复扣，50 部件旧算法得 −30）（得 ' + arr.memory.travel + '）');
+    arr.ticksToLive = 169;
+    const savedGo2 = require('movement').go; require('movement').go = () => 0;
+    mr.run(arr);
+    require('movement').go = savedGo2;
+    Game.getObjectById = savedGOI;
+    assert(arr.memory.done === true, 'ttl 169 < travel 120 + 余量 50：没装满（40/500）也收工回家');
+    config.deposit.allowRooms = savedAllowDep;
     Game.creeps = world.creeps;
     const mk = require('market');
     const savedMM = Memory.market, savedGM = Game.market;
