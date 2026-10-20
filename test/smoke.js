@@ -17162,6 +17162,13 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const term = require('terminal');
     assert(term.settings().mineralWantByRoom.W33S3.X === 0 && term.settings().mineralWantByRoom.W33S3.UL === 0, 'W33S3 不再从别房要 X');
     assert(config.industry.labTechClass === 'development' && config.industry.labTechStayWhileReacting === true, 'labTech 孵化提到 development 级，反应中不退役');
+    const savedStats = Memory.stats; const savedBucket = Game.cpu.bucket;
+    Memory.stats = Array.from({ length: 10 }, () => ({ cpu: 150 }));
+    Game.cpu.bucket = 10000;
+    assert(ind.labsAllowed(r3) === true, '10 tick 平均 CPU 150 > 145 但 bucket 满（≥9000）：lab 照跑');
+    Game.cpu.bucket = 8000;
+    assert(ind.labsAllowed(r3) === false, 'bucket 8000 且平均 CPU 超 145：lab 照旧停');
+    Memory.stats = savedStats; Game.cpu.bucket = savedBucket;
     config.industry.labOpportunistic = savedOpp;
     global.REACTIONS = savedReactions;
 }

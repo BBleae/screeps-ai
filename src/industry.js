@@ -103,6 +103,8 @@ function labsAllowed(room) {
     if (!Array.isArray(cfg.labRooms)) return canSpend(room);
     if (cfg.labRooms.indexOf(room.name) < 0) return false;
     if (storageEnergy(room) < Number(cfg.labStorageReserve || 0)) return false;
+    const bypass = Number(cfg.labCpuBucketBypass) || 0;
+    if (bypass > 0 && Game.cpu && Game.cpu.bucket >= bypass) return true;
     try { const dep = require('deposit'); return dep.cpuOk(dep.settings()); } catch (e) { return true; }
 }
 

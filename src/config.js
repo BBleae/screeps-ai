@@ -409,6 +409,7 @@ module.exports = {
         labFullOutputs: ['W32S4', 'W33S3'],
         labTechClass: 'development',
         labTechStayWhileReacting: true,
+        labCpuBucketBypass: 9000,
         labOpportunistic: false,
         labRooms: ['W32S4', 'W33S3'],
         labStorageReserve: 8000,
