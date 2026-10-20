@@ -15687,6 +15687,15 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
 }
 
 {
+    console.log('== 10-21 拆迁者改派到别的房时让出原指令的 boost 槽名 ==');
+    const sd = require('roles_siegeDismantler');
+    const c = { name: '拆墙', memory: { role: 'siegeDismantler', slotKey: 'siegeBoost:W37S2:0', targetRoom: 'W35S1' } };
+    assert(sd.releaseSlot(c) === true && c.memory.slotKey === 'moved:W35S1:拆墙' && c.memory.slotFrom === 'siegeBoost:W37S2:0', '去 W35S1 的不再占 siegeBoost:W37S2:0');
+    const d = { name: '拆墙壬', memory: { role: 'siegeDismantler', slotKey: 'siegeBoost:W37S2:0', targetRoom: 'W37S2' } };
+    assert(sd.releaseSlot(d) === false && d.memory.slotKey === 'siegeBoost:W37S2:0', '留在 W37S2 的照旧占槽（接替照常预孵）');
+}
+
+{
     console.log('== 10-21 W33S7 分段修墙：每次挑最低的一面，补 1 万或补到 5 万就换下一面最低的 ==');
     const wf = require('wallfix');
     const savedTime = world.time;

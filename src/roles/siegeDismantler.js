@@ -339,6 +339,26 @@ function sideRun(creep, posts) {
     return true;
 }
 
+function strongerWaiting(creep, mine) {
+    for (const c of squadMates(creep)) {
+        if (c.name === creep.name || c.memory.post || c.memory.retired || !c.room || c.room.name !== creep.room.name) continue;
+        if (c.memory.role !== 'siegeDismantler') continue;
+        const p = power(c);
+        if (p > mine || (p === mine && c.name < creep.name)) return true;
+    }
+    return false;
+}
+
+function releaseSlot(creep) {
+    const m = creep.memory;
+    const k = String(m.slotKey || '');
+    const mt = k.match(/^(siegeBoost|siegeLoot|siege):([^:]+):/);
+    if (!mt || !m.targetRoom || mt[2] === m.targetRoom) return false;
+    m.slotFrom = k;
+    m.slotKey = 'moved:' + m.targetRoom + ':' + creep.name;
+    return true;
+}
+
 function postUsable(room, dir, e, open) {
     if (!barrierAt(room, e.t)) return false;
     const inner = Array.isArray(e.after) && e.after.length;
@@ -372,7 +392,7 @@ function postRun(creep) {
         for (const e of posts) {
             if (upgrade && e.side) continue;
             if (!postUsable(creep.room, dir, e, open)) continue;
-            let s = (e.s || []).find((p) => { const h = taken.get(p[0] + ',' + p[1]); return !h || !Game.creeps[h.name]; });
+            let s = strongerWaiting(creep, mine) ? null : (e.s || []).find((p) => { const h = taken.get(p[0] + ',' + p[1]); return !h || !Game.creeps[h.name]; });
             if (!s) {
                 let low = null;
                 for (const p of e.s || []) {
@@ -446,7 +466,51 @@ function bucketHold(creep) {
     return true;
 }
 
+const endCache = { tick: -1, by: {} };
+function endCheck(target) {
+    if (endCache.tick !== Game.time) { endCache.tick = Game.time; endCache.by = {}; }
+    if (target in endCache.by) return endCache.by[target];
+    let dir = null;
+    for (const x of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (x && x.target === target && !x.completed) { dir = x; break; }
+    let out = null;
+    if (dir && dir.handoff && Array.isArray(dir.handoff.tile)) {
+        const h = dir.handoff;
+        if (!h.at) {
+            const room = Game.rooms[target];
+            if (room && !barrierAt(room, h.tile)) { h.at = Game.time; dir.pauseDismantlerSpawn = true; }
+        }
+        if (h.at) out = h;
+    }
+    endCache.by[target] = out;
+    return out;
+}
+
+function handoff(creep) {
+    const m = creep.memory;
+    if (m.retired || !m.targetRoom || creep.spawning) return false;
+    const h = endCheck(m.targetRoom);
+    if (!h) return false;
+    const next = h.to;
+    let nd = null;
+    for (const x of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (x && x.target === next && !x.completed) { nd = x; break; }
+    if (nd && creep.ticksToLive != null && creep.ticksToLive > (Number(h.minTtl) || 500)) {
+        m.handoffFrom = m.targetRoom;
+        m.targetRoom = next;
+        m.lootTiles = Array.isArray(nd.lootTiles) ? nd.lootTiles.map((p) => [p[0], p[1]]) : [];
+        m.squad = 1;
+        for (const k of ['post', 'q', 'side', 'tgt', 'pushed', 'enteredAt', 'launched', 'stagedAt', 'idleFocus']) delete m[k];
+        releaseSlot(creep);
+        return false;
+    }
+    m.retired = true;
+    delete m.post;
+    delete m.q;
+    return true;
+}
+
 function run(creep) {
+    if (handoff(creep)) { retire.retireAtSpawn(creep); return; }
+    releaseSlot(creep);
     retireUnboosted(creep);
     if (creep.memory.retired) { retire.retireAtSpawn(creep); return; }
     if (bucketHold(creep)) return;
@@ -584,4 +648,4 @@ function run(creep) {
     if (creep.dismantle(tgt) === ERR_NOT_IN_RANGE) movement.go(creep, tgt, { range: 1, reusePath: 5 });
 }
 
-module.exports = { run, squadMates, power, openCheck, innerPosts, standAround, sideRun, unboostedTimeout, bucketHold };
+module.exports = { run, squadMates, power, openCheck, innerPosts, standAround, sideRun, unboostedTimeout, bucketHold, releaseSlot, strongerWaiting, handoff };
