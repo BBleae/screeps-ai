@@ -188,7 +188,7 @@ function labSettings(room) {
         boostLabTargets: room && cfg.boostCompoundsByRoom && Array.isArray(cfg.boostCompoundsByRoom[room.name]) ? cfg.boostCompoundsByRoom[room.name] : boostTargets,
         boostMinLoad: Math.max(1, num(room && cfg.boostMinLoadByRoom && cfg.boostMinLoadByRoom[room.name], num(cfg.labBoostStock, 1000))),
         boostGoal: Math.max(1, num(cfg.boostGoal, 3000)),
-        boostStock: Math.max(1, num(cfg.labBoostStock, 1000)),
+        boostStock: Math.max(1, num(room && cfg.labBoostStockByRoom && cfg.labBoostStockByRoom[room.name], num(cfg.labBoostStock, 1000))),
         opportunistic: cfg.labOpportunistic !== false,
         noMake: room && cfg.labNoMakeByRoom && Array.isArray(cfg.labNoMakeByRoom[room.name]) ? cfg.labNoMakeByRoom[room.name] : [],
         switchBatch: Math.max(0, num(cfg.labSwitchBatch, 0)),

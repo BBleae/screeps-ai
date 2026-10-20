@@ -4,7 +4,7 @@ const { roomDistance, isAlly, isAllyName } = require('utils');
 
 function settings() {
     return Object.assign({
-        dismantlerBudget: 1800,
+        dismantlerBudget: 3750,
         downgraderBudget: 1300,
         guardBudget: 2200,
         minCapacity: 1300,
@@ -15,7 +15,7 @@ function settings() {
         towerAvoidWeight: 6,
         boosts: { dismantler: [], guard: [] },
         boostMaxWait: 100,
-        lootBudget: 1600,
+        lootBudget: 2500,
         lootRetreatBelowHalf: true,
     }, config.conquest || {});
 }
@@ -156,6 +156,7 @@ function boostPlanDemands(d, home, sponsors, body, mem) {
         const c = Game.creeps[name];
         const m = c.memory || {};
         if (m.role !== 'siegeDismantler' || m.targetRoom !== d.target) continue;
+        if (plan.countOthers === false) break;
         if (String(m.slotKey || '').indexOf(prefix) === 0) continue;
         if (!isBoosted(c)) continue;
         if (c.ticksToLive != null && c.ticksToLive <= lead) continue;

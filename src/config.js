@@ -117,7 +117,8 @@ module.exports = {
         autoClaimCpuSamples: 5,
     },
     conquest: {
-        dismantlerBudget: 1800,
+        dismantlerBudget: 3750,
+        lootBudget: 2500,
         downgraderBudget: 1300,
         guardBudget: 2200,
         storageFloor: 15000,
@@ -435,6 +436,7 @@ module.exports = {
         boostMinLoadByRoom: { W33S7: 150 }, boostLabEnergyFloor: 20000, siegeLabEnergyFloor: 10000, upgraderBoostMinParts: 5,
         boostGoal: 3000,
         labBoostStock: 1000,
+        labBoostStockByRoom: { W37S5: 2000, W37S7: 2000 },
         labEnergyTarget: 2000,
         productHold: { OH: { on: 5000, off: 2000 } },
         labIdleFallback: 500,
