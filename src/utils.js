@@ -395,11 +395,13 @@ function surplusBodyPlan(room, tier) {
     const cfg = (config.energy || {}).upgradeSurplus || {};
     const per = Math.max(1, Number(cfg.workPerMove) || 5);
     const cap = Math.max(300, Number(room && room.energyCapacityAvailable) || 300);
-    let limit = Math.max(1, Number(cfg.maxWorkPerCreep) || 25);
-    while (limit > 1 && limit * 100 + Math.ceil(limit / per) * 50 + 100 > cap) limit--;
-    const k = Math.max(1, Math.ceil(tier / limit));
-    const work = Math.ceil(tier / k);
-    return { work, move: Math.ceil(work / per) };
+    const slots = Math.max(0, Number((cfg.maxCreepsByRoom || {})[room && room.name]) || 0);
+    let limit = slots ? 50 : Math.max(1, Number(cfg.maxWorkPerCreep) || 25);
+    while (limit > 1 && (limit * 100 + Math.ceil(limit / per) * 50 + 100 > cap || limit + Math.ceil(limit / per) + 2 > 50)) limit--;
+    let k = Math.max(1, Math.ceil(tier / limit));
+    if (slots) k = Math.min(k, slots);
+    const work = Math.min(limit, Math.ceil(tier / k));
+    return { work, move: Math.ceil(work / per), slots: slots || null };
 }
 
 function upgraderWorkCap(room, mem) {

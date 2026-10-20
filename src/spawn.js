@@ -1112,9 +1112,10 @@ function upgraderTarget(room, mem) {
             have += bodyPartCount(creep.body, 'work');
             n++;
         }
-        const want = Math.min(max, n + Math.ceil(Math.max(0, surplusWork - have) / perBody));
+        const slots = utils.surplusBodyPlan(room, surplusWork).slots;
+        const want = Math.min(max, slots || Infinity, n + Math.ceil(Math.max(0, surplusWork - have) / perBody));
         supply.surplus = { at: Game.time, work: surplusWork, have, n, want };
-        return Math.max(base, want);
+        return slots ? want : Math.max(base, want);
     }
     const planned = mem.plan && mem.plan.containers && mem.plan.containers.ctrl;
     const container = structureAt(room, planned, STRUCTURE_CONTAINER);

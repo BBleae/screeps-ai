@@ -17196,6 +17196,8 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     ust.store.energy = 100000; sw();
     assert(utils.upgraderWorkCap(ur, Memory.rooms.W32S4) === 45 && utils.upgraderSupplyWork(ur, Memory.rooms.W32S4) === 45, '富余档绕过 bankRooms 0.6 的 12 WORK 限流');
     const spawnU = require('../src/spawn');
+    const savedSlots = config.energy.upgradeSurplus.maxCreepsByRoom;
+    config.energy.upgradeSurplus.maxCreepsByRoom = {};
     const ub = spawnU.upgraderBody(ur, Memory.rooms.W32S4, 5600);
     assert(utils.bodyPartCount(ub, 'work') === 23 && utils.bodyPartCount(ub, 'move') === 5 && utils.bodyCost(ub) <= 5600, '45/t 拆成 2 只 W23M5（得 W' + utils.bodyPartCount(ub, 'work') + 'M' + utils.bodyPartCount(ub, 'move') + '）');
     const old = makeCreep(ur, 'oldUp', Array(12).fill('work').concat(['carry', 'carry', 'move']), { home: 'W32S4', role: 'upgrader' }, { ticksToLive: 800 });
@@ -17203,12 +17205,19 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     world.time++;
     const ut = spawnU.upgraderTarget(ur, Memory.rooms.W32S4);
     assert(ut === 3 && Memory.rooms.W32S4.upgradeSupply.surplus.have === 12, '在岗 W12、目标 45：补 2 只 W23（共 3 只，不超 maxUpgradersRich 3）（得 ' + ut + '）');
+    config.energy.upgradeSurplus.maxCreepsByRoom = savedSlots;
     const wr = makeRoom('W29S3', { rcl: 6, energy: 2300, cap: 2300, owner: 'me' });
     makeStructure(wr, C.STRUCTURE_STORAGE, 24, 22, { id: 'wsStore', capacity: 1000000, energy: 120000 });
     Memory.rooms.W29S3 = {};
     world.time++;
     const wb = spawnU.upgraderBody(wr, Memory.rooms.W29S3, 2300);
     assert(utils.bodyPartCount(wb, 'work') === 15 && utils.bodyCost(wb) <= 2300, 'W29S3（RCL6、2300）45/t 拆 3 只 W15（得 W' + utils.bodyPartCount(wb, 'work') + ' 成本 ' + utils.bodyCost(wb) + '）');
+    const tightPlan = utils.surplusBodyPlan(ur, 45);
+    assert(config.energy.upgradeSurplus.maxCreepsByRoom.W32S4 === 1 && tightPlan.work === 40 && tightPlan.slots === 1, 'W32S4 控制器旁只有 1~3 格站位：45/t 改 1 只 W40（50 部件上限）（得 ' + JSON.stringify(tightPlan) + '）');
+    const tb = spawnU.upgraderBody(ur, Memory.rooms.W32S4, 5600);
+    assert(utils.bodyPartCount(tb, 'work') === 40 && tb.length <= 50 && utils.bodyCost(tb) <= 5600, 'W32S4 身体 W40、≤50 部件（得 W' + utils.bodyPartCount(tb, 'work') + '/' + tb.length + '）');
+    world.time++;
+    assert(spawnU.upgraderTarget(ur, Memory.rooms.W32S4) === 1, 'W32S4 站位只够 1 只：目标 1（在岗那只死了再换大的）');
     const xr = makeRoom('W33S3', { rcl: 7, energy: 5600, cap: 5600, owner: 'me' });
     makeStructure(xr, C.STRUCTURE_STORAGE, 24, 22, { id: 'xsStore', capacity: 1000000, energy: 200000 });
     assert(utils.upgradeSurplusWork(xr, {}) === 0, '名单外的房不受影响');

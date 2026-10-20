@@ -630,7 +630,7 @@ module.exports = {
     },
     brain: { retired: true },
     energy: {
-        upgradeSurplus: { reserve: 50000, tiers: [[60000, 30], [100000, 45]], exitBelow: 45000, rooms: ['W32S4', 'W37S5', 'W33S8', 'W31S6', 'W29S3'], maxWorkPerCreep: 25, workPerMove: 5 },
+        upgradeSurplus: { reserve: 50000, tiers: [[60000, 30], [100000, 45]], exitBelow: 45000, rooms: ['W32S4', 'W37S5', 'W33S8', 'W31S6', 'W29S3'], maxWorkPerCreep: 25, workPerMove: 5, maxCreepsByRoom: { W32S4: 1, W31S6: 1 } },
     },
     policy: {
         stage1Fallback: { lowStorage: 2000, lowRooms: 4, storageDownDays: 2, interval: 500 },
