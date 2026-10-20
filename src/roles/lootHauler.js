@@ -15,6 +15,7 @@ function nonEnergyKey(store) {
 }
 
 function deliver(creep, home) {
+    if (creep.memory.deliverTo) home = creep.memory.deliverTo;
     const room = Game.rooms[home];
     if (!room || creep.room.name !== home || !room.storage) { goRoom(creep, home); return true; }
     const carrying = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
@@ -47,6 +48,22 @@ function run(creep) {
     }
     if (retreat) { creep.memory.state = 'deliver'; return; }
     if (creep.room.name !== target) { goRoom(creep, target); return; }
+    if (creep.memory.pullLoot) {
+        let src = creep.memory.src && Game.getObjectById(creep.memory.src);
+        if (!src || !(src.store && src.store.getUsedCapacity() > 0)) {
+            src = null;
+            for (const id of creep.memory.pull || []) {
+                const o = Game.getObjectById(id);
+                if (o && o.store && o.store.getUsedCapacity() > 0) { src = o; break; }
+            }
+            creep.memory.src = src ? src.id : null;
+        }
+        if (!src) { if (carrying) creep.memory.state = 'deliver'; else retireMod.retireAtSpawn(creep); return; }
+        const res = conquest.salvagePickResource(src.store, creep.memory.lootOrder);
+        if (!res) { creep.memory.state = 'deliver'; return; }
+        if (creep.withdraw(src, res) === ERR_NOT_IN_RANGE) movement.go(creep, src, { range: 1, reusePath: 50 });
+        return;
+    }
     if (salvage) {
         const cachedRuin = creep.memory.ruin && Game.getObjectById(creep.memory.ruin);
         if (cachedRuin && Game.time % 5 !== 0) {
