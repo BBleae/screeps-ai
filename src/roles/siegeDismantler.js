@@ -111,7 +111,7 @@ function run(creep) {
         }
         if (squad <= 1 || creep.memory.launched || staging === target) {
             const laneW = conquest.settings().entryLaneWidth;
-            const avoidTowers = conquest.towerAvoidCallback(target, creep.memory.avoidTowers);
+            const avoidTowers = creep.memory.salvageLoot ? undefined : conquest.towerAvoidCallback(target, creep.memory.avoidTowers);
             if (laneW > 0) {
                 const entry = stagePos(target, staging);
                 movement.go(creep, conquest.laneTile(entry, creep.name, laneW, entry.x === 25), { range: 5, reusePath: 20, costCallback: avoidTowers });
@@ -119,7 +119,7 @@ function run(creep) {
                 movement.go(creep, new RoomPosition(25, 25, target), { range: 20, reusePath: 40, costCallback: avoidTowers });
             }
         } else {
-            movement.go(creep, stagePos(staging, target), { range: 3, reusePath: 40, avoidRooms: avoid, costCallback: conquest.towerAvoidCallback(target, creep.memory.avoidTowers) });
+            movement.go(creep, stagePos(staging, target), { range: 3, reusePath: 40, avoidRooms: avoid, costCallback: creep.memory.salvageLoot ? undefined : conquest.towerAvoidCallback(target, creep.memory.avoidTowers) });
         }
         return;
     }
