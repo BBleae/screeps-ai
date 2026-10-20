@@ -44,6 +44,94 @@ function ledger() {
     return mem.ledger;
 }
 
+function pendingDeals() {
+    const mem = Memory.market || (Memory.market = {});
+    return Array.isArray(mem.pendingDeals) ? mem.pendingDeals : (mem.pendingDeals = []);
+}
+
+function addPending(entry) {
+    pendingDeals().push(Object.assign({ at: Game.time }, entry));
+}
+
+function pendingSum(kind, res) {
+    let sum = 0;
+    for (const p of pendingDeals()) {
+        if (res != null && p.res !== res) continue;
+        if (kind === 'buyCredits' && (p.kind === 'mineral' || (p.kind === 'energy' && !p.outside))) sum += p.amount * p.price;
+        else if (kind === 'emergency' && p.kind === 'energy' && p.emergency) sum += p.amount;
+        else if (kind === 'sold' && p.kind === 'sell') sum += p.amount;
+        else if (kind === 'military' && p.kind === 'military') sum += p.amount * p.price;
+    }
+    return sum;
+}
+
+function applyDeal(led, p, amount) {
+    const credits = amount * p.price;
+    const mem = Memory.market || (Memory.market = {});
+    if (p.kind === 'sell') {
+        mem.deals = (Number(mem.deals) || 0) + 1;
+        mem.sold = (Number(mem.sold) || 0) + amount;
+        led.sold[p.res] = (led.sold[p.res] || 0) + amount;
+        led.soldCredits = Math.round(led.soldCredits + credits);
+        led.deals++;
+        if (p.depth) {
+            const rec = dailyBook(p.res);
+            rec.sold = (rec.sold || 0) + amount;
+            rec.deals = (rec.deals || 0) + 1;
+        }
+    } else if (p.kind === 'energy') {
+        led.bought[p.res] = (led.bought[p.res] || 0) + amount;
+        if (!p.outside) led.buyCredits = Math.round(led.buyCredits + credits);
+        else led.emergencyCredits = Math.round((Number(led.emergencyCredits) || 0) + credits);
+        if (p.emergency) led.boughtEnergyEmergency = (Number(led.boughtEnergyEmergency) || 0) + amount;
+        led.deals++;
+    } else if (p.kind === 'mineral') {
+        led.bought[p.res] = (led.bought[p.res] || 0) + amount;
+        led.buyCredits = Math.round(led.buyCredits + credits);
+        noteBuyBy(led, p.res, credits);
+        led.deals++;
+    } else if (p.kind === 'military') {
+        const spentBy = led.militaryBy || (led.militaryBy = {});
+        const cost = Math.round(credits);
+        spentBy[p.res] = (spentBy[p.res] || 0) + cost;
+        led.militaryCredits = Math.round((led.militaryCredits || 0) + cost);
+        mem.lastMilitary = { at: Game.time, resource: p.res, amount, cost, price: p.price, room: p.room };
+    }
+}
+
+function confirmDeals(market) {
+    const list = pendingDeals();
+    if (!list.length) return 0;
+    const led = ledger();
+    const out = market && Array.isArray(market.outgoingTransactions) ? market.outgoingTransactions : [];
+    const inc = market && Array.isArray(market.incomingTransactions) ? market.incomingTransactions : [];
+    const used = new Set();
+    const ttl = Math.max(1, Number(settings().dealConfirmTicks) || 20);
+    const keep = [];
+    let confirmed = 0;
+    for (const p of list) {
+        const txs = p.kind === 'sell' ? out : inc;
+        const tx = txs.find((t) => t && !used.has(t.transactionId) && t.order && t.order.id === p.id && t.resourceType === p.res &&
+            Number(t.time) >= Number(p.at) && (p.kind === 'sell' ? t.from === p.room : t.to === p.room));
+        if (tx) {
+            used.add(tx.transactionId);
+            applyDeal(led, p, Math.min(Number(tx.amount) || 0, p.amount));
+            confirmed++;
+            continue;
+        }
+        if (Game.time - Number(p.at) > ttl) {
+            const miss = led.dealUnconfirmed || (led.dealUnconfirmed = { n: 0, credits: 0 });
+            miss.n++;
+            miss.credits = Math.round(miss.credits + p.amount * p.price);
+            miss.last = { at: p.at, kind: p.kind, res: p.res, amount: p.amount, price: p.price, room: p.room, id: p.id };
+            continue;
+        }
+        keep.push(p);
+    }
+    Memory.market.pendingDeals = keep;
+    return confirmed;
+}
+
 function utcKey(day) {
     return new Date(Number(day) * 86400000).toISOString().slice(0, 10);
 }
@@ -290,7 +378,7 @@ function sellable(room, cfg, hold) {
         const accountKeep = cfg.keepAccount && cfg.keepAccount[key];
         if (accountKeep != null) can = Math.min(can, accountStock(key) - Number(accountKeep));
         const cap = cfg.dailySellUnits && cfg.dailySellUnits[key];
-        if (cap != null) can = Math.min(can, Number(cap) - Number((ledger().sold || {})[key] || 0));
+        if (cap != null) can = Math.min(can, Number(cap) - Number((ledger().sold || {})[key] || 0) - pendingSum('sold', key));
         if (can <= 0) continue;
         out.push({ resource: key, amount: can });
     }
@@ -404,12 +492,12 @@ function tryBuyEnergy(cfg, market, countScan) {
     if (!be.enabled && !emergencyOn) return null;
     if (!(Number(market.credits) >= cfg.creditFloor)) return null;
     const led = ledger();
-    const left = cfg.dailyBuyCredits - led.buyCredits;
+    const left = cfg.dailyBuyCredits - led.buyCredits - pendingSum('buyCredits');
     const emergOutside = !!be.emergencyOutsideDaily;
     if (!(left > 0) && !(emergencyOn && emergOutside)) return null;
     const waitTicks = Number(be.emergencyWaitTicks) || 200;
     const dailyEmerg = Number(be.emergencyDailyEnergy) || 10000;
-    const emergBought = Number(led.boughtEnergyEmergency) || 0;
+    const emergBought = (Number(led.boughtEnergyEmergency) || 0) + pendingSum('emergency');
     const emergLeft = Math.max(0, dailyEmerg - emergBought);
 
     const candidates = [];
@@ -479,11 +567,8 @@ function tryBuyEnergy(cfg, market, countScan) {
         effective: Math.round(best.eff * 100) / 100, buy: true, emergency: best.mode === 'emergency', result: ret };
     Memory.market.lastBuy = rec;
     if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
-        led.bought[ENERGY] = (led.bought[ENERGY] || 0) + best.amount;
-        if (!(best.mode === 'emergency' && emergOutside)) led.buyCredits = Math.round(led.buyCredits + best.amount * best.o.price);
-        else led.emergencyCredits = Math.round((Number(led.emergencyCredits) || 0) + best.amount * best.o.price);
-        if (best.mode === 'emergency') led.boughtEnergyEmergency = (Number(led.boughtEnergyEmergency) || 0) + best.amount;
-        led.deals++;
+        addPending({ kind: 'energy', id: best.o.id, room: best.room.name, res: ENERGY, amount: best.amount, price: best.o.price,
+            emergency: best.mode === 'emergency', outside: best.mode === 'emergency' && emergOutside });
     }
     return rec;
 }
@@ -496,7 +581,7 @@ function tryBuy(cfg, market, countScan) {
     if (!b || !Array.isArray(b.resources) || !b.resources.length || cfg.priceBand == null) return null;
     if (!(Number(market.credits) >= cfg.creditFloor)) return null;
     const led = ledger();
-    const left = cfg.dailyBuyCredits - led.buyCredits;
+    const left = cfg.dailyBuyCredits - led.buyCredits - pendingSum('buyCredits');
     if (!(left > 0)) return null;
     const rooms = (b.rooms || []).map((n) => Game.rooms[n]).filter((r) => r && r.terminal && r.terminal.my !== false && !(r.terminal.cooldown > 0) && !terminalNet.usedThisTick(r.name));
     for (const room of rooms) {
@@ -527,10 +612,7 @@ function tryBuy(cfg, market, countScan) {
             const mem = Memory.market;
             mem.lastBuy = rec;
             if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
-                led.bought[res] = (led.bought[res] || 0) + amount;
-                led.buyCredits = Math.round(led.buyCredits + amount * best.price);
-                noteBuyBy(led, res, amount * best.price);
-                led.deals++;
+                addPending({ kind: 'mineral', id: best.id, room: room.name, res, amount, price: best.price });
             }
             return rec;
         }
@@ -637,6 +719,7 @@ function guardTick() {
     const own = ownSettings(cfg);
     const e = own && own.energy;
     const market = marketApi();
+    if (market) { try { confirmDeals(market); } catch (error) { utils.logErr('market.confirmDeals', error); } }
     if (!e || !market) return false;
     const led = ledger();
     scanEnergyTx(led, market);
@@ -1119,7 +1202,7 @@ function buyMilitaryBoosts(cfg, market) {
     for (const res of mb.compounds) {
         const have = Number(room.terminal.store[res] || 0) + Number((room.storage && room.storage.store && room.storage.store[res]) || 0);
         if (have >= amountEach) continue;
-        if ((spentBy[res] || 0) >= budgetEach) continue;
+        if ((spentBy[res] || 0) + pendingSum('military', res) >= budgetEach) continue;
         let orders = [];
         try { orders = market.getAllOrders({ type: typeof ORDER_SELL !== 'undefined' ? ORDER_SELL : 'sell', resourceType: res }) || []; }
         catch (error) { utils.logErr('market.militaryBoost getAllOrders', error); continue; }
@@ -1128,18 +1211,14 @@ function buyMilitaryBoosts(cfg, market) {
         const viable = orders.filter((o) => o.amount > 0 && o.price <= ceil).sort((a, b) => a.price - b.price);
         if (!viable.length) continue;
         const o = viable[0];
-        const budgetLeft = budgetEach - (spentBy[res] || 0);
+        const budgetLeft = budgetEach - (spentBy[res] || 0) - pendingSum('military', res);
         const maxByBudget = Math.floor(budgetLeft / o.price);
         const amount = Math.min(amountEach - have, o.amount, maxByBudget, Math.floor(cfg.maxOrderCredits / o.price));
         if (amount < cfg.minDeal) continue;
         const ret = market.deal(o.id, amount, room.name);
         terminalNet.markUsed(room.name);
         if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
-            const cost = Math.round(amount * o.price);
-            spentBy[res] = (spentBy[res] || 0) + cost;
-            led.militaryCredits = Math.round((led.militaryCredits || 0) + cost);
-            const mem = Memory.market || (Memory.market = {});
-            mem.lastMilitary = { at: Game.time, resource: res, amount, cost, price: o.price, room: room.name };
+            addPending({ kind: 'military', id: o.id, room: room.name, res, amount, price: o.price });
         }
         return { result: ret, resource: res, amount };
     }
@@ -1156,17 +1235,8 @@ function sellOnce(cfg, market, room, entry, orders, floor) {
     const mem = Memory.market || (Memory.market = {});
     mem.last = record;
     if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
-        mem.deals = (Number(mem.deals) || 0) + 1;
-        mem.sold = (Number(mem.sold) || 0) + pick.amount;
-        const led = ledger();
-        led.sold[entry.resource] = (led.sold[entry.resource] || 0) + pick.amount;
-        led.soldCredits = Math.round(led.soldCredits + pick.amount * pick.order.price);
-        led.deals++;
-        if (Array.isArray(cfg.depthTrack) && cfg.depthTrack.includes(entry.resource)) {
-            const rec = dailyBook(entry.resource);
-            rec.sold = (rec.sold || 0) + pick.amount;
-            rec.deals = (rec.deals || 0) + 1;
-        }
+        addPending({ kind: 'sell', id: pick.order.id, room: room.name, res: entry.resource, amount: pick.amount, price: pick.order.price,
+            depth: Array.isArray(cfg.depthTrack) && cfg.depthTrack.includes(entry.resource) });
     }
     return record;
 }
@@ -1288,4 +1358,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
+module.exports = { confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };

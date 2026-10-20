@@ -10674,6 +10674,7 @@ console.log('== 10-17 02:00 军事 boost 买入（默认关，不占日额度）
     assert(mk.buyMilitaryBoosts(off, market) === null, '默认关：不买军事 boost');
     const r = mk.buyMilitaryBoosts(cfg, market);
     assert(r && dealt && dealt.room === 'W33S3', '开启后向 W33S3 买 XZH2O');
+    fakeConfirm(mk);
     assert(Memory.market.ledger.militaryCredits > 0 && Memory.market.ledger.buyCredits === 0, '花费记 ledger.militaryCredits，不占日买额度 buyCredits');
     Game.rooms = savedRooms; Memory.market = savedMem;
 }
@@ -15741,6 +15742,7 @@ console.log('== 10-18 12:04 #3：ZH2O 一轮可卖两笔（合格深度 ≥2000�
     world.time = 77711;
     const r2 = mk.runFollow(cfg);
     assert(r2 && r2.follow && deals.length === 1 && deals[0][1] === 1000 && r2.effective >= r2.floor, '到点做第二笔：1000，到手价不低于下限（得 ' + JSON.stringify(r2) + '）');
+    fakeConfirm(mk);
     assert(!Memory.market.follow && Memory.market.ledger.sold.ZH2O === 1000, '做完清掉，计入当天卖出');
     world.time = 77790;
     assert(mk.planFollow(cfg, 'ZH2O', depth) === null, '离下一轮不到 11 tick：不排');
@@ -16230,6 +16232,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     const rec = mk.run({ active: false });
     assert(rec && rec.result === C.OK && deals.length === 1 && deals[0].id === 'o2' && deals[0].roomName === 'W33S7',
         'run 成交一单并记 Memory.market.last（得 ' + JSON.stringify(rec) + '）');
+    fakeConfirm(mk);
     assert(Memory.market.deals === 1 && Memory.market.sold === rec.amount && orderCalls === 1, '累计成交、同一资源一轮只查一次 getAllOrders（得 ' + JSON.stringify({ deals: Memory.market.deals, orderCalls }) + '）');
     assert(term.usedThisTick('W33S7'), '市场用过的 terminal 本 tick 终端网络不再用');
     world.time++;
@@ -16377,7 +16380,21 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     Game.market.credits = 2300000;
     const b = mk.tryBuy(cfg, Game.market, () => 0);
     assert(b && b.resource === 'X' && deals[0] && deals[0][0] === 's2' && deals[0][1] === 1000, '买 X（Z 已停买）、取价带内最便宜、单笔按 50k credits 截到 1000（得 ' + JSON.stringify(deals) + '）');
+    assert(Memory.market.ledger.buyCredits === 0 && mk.pendingDeals().length === 1 && mk.pendingSum('buyCredits') === 50000, '10-20 deal 返回 OK 先挂 pending，不入账，但占日买额度');
+    const pendingCopy = JSON.parse(JSON.stringify(mk.pendingDeals()));
+    fakeConfirm(mk);
     assert(Memory.market.ledger.buyCredits === 50000, '账本记买入 credits（得 ' + Memory.market.ledger.buyCredits + '）');
+    Memory.market.pendingDeals = pendingCopy;
+    const ledBefore = Memory.market.ledger.buyCredits;
+    mk.confirmDeals({ incomingTransactions: [], outgoingTransactions: [] });
+    assert(Memory.market.pendingDeals.length === 1 && Memory.market.ledger.buyCredits === ledBefore, '10-20 没看到成交：不入账，继续等');
+    world.time += 25;
+    mk.confirmDeals({ incomingTransactions: [], outgoingTransactions: [] });
+    assert(Memory.market.pendingDeals.length === 0 && Memory.market.ledger.buyCredits === ledBefore && Memory.market.ledger.dealUnconfirmed.n === 1, '10-20 超过 20 tick 没成交：丢弃、记 dealUnconfirmed，不入账');
+    Memory.market.pendingDeals = [{ kind: 'sell', id: 'ox', room: 'W32S4', res: 'L', amount: 2250, price: 233.7, at: world.time }];
+    mk.confirmDeals({ outgoingTransactions: [{ transactionId: 't1', time: world.time, order: { id: 'ox', price: 233.7 }, resourceType: 'L', amount: 1000, from: 'W32S4', to: 'W1N1' }], incomingTransactions: [] });
+    assert(Memory.market.ledger.sold.L === 1000 && Memory.market.pendingDeals.length === 0, '10-20 卖出按 outgoingTransactions 的实际成交量入账');
+    world.time -= 25;
     deals = [];
     Memory.market = {};
     sells.energy = [{ id: 'e1', type: 'sell', resourceType: 'energy', amount: 20000, price: 5.5, roomName: 'W1N1' }];
@@ -16867,7 +16884,16 @@ console.log('== 10-19 13:44 第三批：修路每房各一条、只拦第一波�
     assert(ind.labPlan(lr).product === null, '空转 499 tick：还等');
     world.time += 1;
     const fb = ind.labPlan(lr);
-    assert(fb.product === 'OH' && Memory.rooms.W33S3.labFallbackAt === Game.time && Memory.rooms.W33S3.productHold.OH, '空转满 500 tick：退回做 OH（OH 停做标记不动）（得 ' + fb.product + '）');
+    assert(fb.product === null && Memory.rooms.W33S3.labIdleReason.reason === 'noFeasible' && Memory.rooms.W33S3.productHold.OH, '10-20 空转满 500 tick、OH 超 hold、别的都做不了：不做 OH，闲着记 reason（得 ' + fb.product + '）');
+    world.time++;
+    t.store.U = 3460; t.store.L = 4125; t.store.K = 2030; t.store.GH2O = 1020;
+    const fb2 = ind.labPlan(lr);
+    assert(fb2.product === 'UL' && Memory.rooms.W33S3.labFallback.product === 'UL' && !Memory.rooms.W33S3.labIdleReason, '10-20 退回时改做链上、做得出来、没超 hold 的 UL（得 ' + fb2.product + '）');
+    world.time++;
+    t.store.UL = 200;
+    assert(ind.labPlan(lr).product === 'UL', '10-20 退回的反应粘住，不来回切');
+    delete t.store.U; delete t.store.L; delete t.store.K; delete t.store.UL; delete t.store.GH2O;
+    world.time++;
     world.time++;
     t.store.G = 1000;
     const back = ind.labPlan(lr);
@@ -17019,5 +17045,69 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(rw.hold.concat(rw.routes).every((r) => r.indexOf('W32S5') < 0), 'W31S5→W32S5 不在修路名单');
 }
 
+{
+    console.log('\n10-20 W32S4：XGH2O 余料不足一批时让位给链上 G');
+    resetWorld(95500);
+    Memory.rooms = {};
+    const ind = require('../src/industry');
+    const savedReactions = global.REACTIONS;
+    global.REACTIONS = { H: { O: 'OH', G: 'GH' }, O: { H: 'OH' }, G: { H: 'GH' }, GH: { OH: 'GH2O' }, OH: { GH: 'GH2O' }, GH2O: { X: 'XGH2O' }, X: { GH2O: 'XGH2O' },
+        U: { L: 'UL' }, L: { U: 'UL' }, Z: { K: 'ZK' }, K: { Z: 'ZK' }, UL: { ZK: 'G' }, ZK: { UL: 'G' } };
+    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic };
+    config.industry.boostTargets = ['XGH2O'];
+    config.industry.labOpportunistic = false;
+    const wr = makeRoom('W32S4', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
+    makeStructure(wr, C.STRUCTURE_STORAGE, 24, 22, { id: 'wStore', capacity: 1000000, energy: 100000 });
+    const wt = makeStructure(wr, C.STRUCTURE_TERMINAL, 25, 22, { id: 'wTerm', capacity: 300000, energy: 20000, extraStore: { H: 61000, OH: 8895, UL: 4000, ZK: 7020, X: 93 } });
+    makeStructure(wr, C.STRUCTURE_LAB, 35, 21, { id: 'wA', capacity: 5000, energy: 0, extraStore: { GH2O: 255 } });
+    makeStructure(wr, C.STRUCTURE_LAB, 36, 21, { id: 'wB', capacity: 5000, energy: 0, extraStore: { X: 488 } });
+    makeStructure(wr, C.STRUCTURE_LAB, 37, 21, { id: 'wC', capacity: 5000, energy: 0, extraStore: { XGH2O: 240 } });
+    Memory.rooms.W32S4 = { labRoles: { inputs: ['wA', 'wB'], outputs: ['wC'], boost: null, at: 1, step: { product: 'XGH2O', target: 'XGH2O' } } };
+    const p1 = ind.labPlan(wr);
+    assert(p1.product === 'G' && p1.drains.length >= 2, '10-20 GH2O 只剩 255（不足一批 500）、UL/ZK 够：改做 G，旧料排空（得 ' + p1.product + '）');
+    world.time++;
+    wt.store.GH2O = 2000;
+    const p2 = ind.labPlan(wr);
+    assert(p2.product === 'XGH2O', '10-20 GH2O 够一批：照常续做 XGH2O（得 ' + p2.product + '）');
+    global.REACTIONS = savedReactions;
+    config.industry.boostTargets = savedInd.boostTargets; config.industry.labOpportunistic = savedInd.labOpportunistic;
+}
+
+{
+    console.log('\n10-20 W33S7 builder 迟滞：墙 <2 万 → 2 只满配，≥2.75 万 → 恢复');
+    resetWorld(96000);
+    Memory.rooms = {};
+    const wf = require('../src/wallfix');
+    const br = makeRoom('W33S7', { rcl: 8, energy: 5000, cap: 12900, owner: 'me' });
+    const ram = makeStructure(br, C.STRUCTURE_RAMPART, 20, 20, { hits: 30000, hitsMax: 1000000 });
+    const other = makeRoom('W31S4', { rcl: 8, energy: 5000, cap: 12900, owner: 'me' });
+    makeStructure(other, C.STRUCTURE_RAMPART, 20, 20, { hits: 1000, hitsMax: 1000000 });
+    Memory.rooms.W31S4 = { wallFixOn: 1 };
+    assert(wf.builderSurge(other) === 0 && !Memory.rooms.W31S4.builderSurge, '没在 config 里开的房不受影响');
+    assert(config.wallFix.builderSurge.W33S7.on === 20000 && config.wallFix.builderSurge.W33S7.off === 27500 && config.wallFix.builderSurge.W33S7.max === 2, '配置 wallFix.builderSurge.W33S7 = 2 万 / 2.75 万 / 2 只');
+    ram.hits = 19000;
+    world.time++;
+    assert(wf.builderSurge(br) === 0, 'wallFix 没开：不加');
+    Memory.rooms.W33S7 = { wallFixOn: Game.time };
+    world.time++;
+    assert(wf.builderSurge(br) === 2 && Memory.rooms.W33S7.builderSurge, 'wallFix 开着、最低墙 1.9 万 < 2 万：2 只');
+    ram.hits = 25000;
+    world.time++;
+    assert(wf.builderSurge(br) === 2, '2.5 万：在 2 万~2.75 万之间保持 2 只（迟滞）');
+    ram.hits = 27600;
+    world.time++;
+    assert(wf.builderSurge(br) === 0 && !Memory.rooms.W33S7.builderSurge, '≥2.75 万：恢复');
+    ram.hits = 25000;
+    world.time++;
+    assert(wf.builderSurge(br) === 0, '回到 2.5 万：没跌破 2 万不再加（不来回切）');
+    const spawnSrc = fs.readFileSync(require.resolve('../src/spawn.js'), 'utf8');
+    assert(/builderSurge\(room\)/.test(spawnSrc) && /full \? cap/.test(spawnSrc), 'spawn：surge 时 builder 数 = 2、身体按能量上限配');
+}
+
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);
+
+function fakeConfirm(mod) {
+    const txs = mod.pendingDeals().map((p, i) => ({ transactionId: 'fx' + Game.time + '_' + i + '_' + p.id, time: Game.time, order: { id: p.id, price: p.price }, resourceType: p.res, amount: p.amount, from: p.room, to: p.room }));
+    mod.confirmDeals({ outgoingTransactions: txs, incomingTransactions: txs });
+}

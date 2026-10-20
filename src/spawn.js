@@ -1914,7 +1914,8 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
             vital: vitalBuilder,
             memory: { home: room.name, role: 'builder' },
             body: (budget) => {
-                const body = makeBody('builder', Math.min(cap, Math.max(200, budget)));
+                const full = !!(Memory.rooms && Memory.rooms[room.name] && Memory.rooms[room.name].builderSurge);
+                const body = makeBody('builder', full ? cap : Math.min(cap, Math.max(200, budget)));
                 return bodyCost(body) <= budget ? body : [];
             },
         });
@@ -2252,6 +2253,8 @@ function runQueue(room) {
         targets.builder = Math.max(1, Number(targets.builder) || 0);
         mem.wallFixBuilder = { at: Game.time };
     }
+    const surge = require('wallfix').builderSurge(room);
+    if (surge > 0) targets.builder = surge;
     const survivalTargets = {
         harvester: Math.min(survival.harvester || 0, sourceHarvesters) || sourceHarvesters,
         hauler: Math.min(survival.hauler || 0, targets.hauler),

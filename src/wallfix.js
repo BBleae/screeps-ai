@@ -49,6 +49,33 @@ function activeRamparts(room) {
     return list;
 }
 
+function builderSurge(room) {
+    if (!room || !room.name) return 0;
+    const rules = settings().builderSurge || {};
+    const rule = rules[room.name];
+    const rooms = Memory.rooms || (Memory.rooms = {});
+    const mem = rooms[room.name] || (rooms[room.name] = {});
+    if (!rule || !enabled()) {
+        if (mem.builderSurge) delete mem.builderSurge;
+        return 0;
+    }
+    const on = Number(rule.on) > 0 ? Number(rule.on) : 20000;
+    const off = Math.max(on, Number(rule.off) > 0 ? Number(rule.off) : 27500);
+    const max = Math.max(1, Number(rule.max) || 2);
+    const low = lowRamparts(room, Infinity)[0];
+    const hits = low ? low.hits : Infinity;
+    if (mem.builderSurge) {
+        if (hits >= off) { delete mem.builderSurge; return 0; }
+        mem.builderSurge.hits = hits;
+        return max;
+    }
+    if (mem.wallFixOn && hits < on) {
+        mem.builderSurge = { at: Game.time, hits };
+        return max;
+    }
+    return 0;
+}
+
 function enabled() {
     return settings().enabled !== false;
 }
@@ -215,4 +242,4 @@ function run(creep) {
     return true;
 }
 
-module.exports = { run, lowRamparts, activeRamparts, needsWorker, eligible, targetHits, triggerHits, fillHits, releaseHits, roadTargets };
+module.exports = { builderSurge, run, lowRamparts, activeRamparts, needsWorker, eligible, targetHits, triggerHits, fillHits, releaseHits, roadTargets };
