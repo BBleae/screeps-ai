@@ -3156,6 +3156,11 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
     assert(!tech.memory.retired && tech.memory.labIdleSince === Game.time, '没活先等，不立刻退役');
     world.time += config.industry.labTechIdleTicks;
     ROLES.labTech.run(tech);
+    assert(!tech.memory.retired, '反应在跑时空闲超过 labTechIdleTicks 也不退役（labTechStayWhileReacting）');
+    const stayCfg = config.industry.labTechStayWhileReacting;
+    config.industry.labTechStayWhileReacting = false;
+    ROLES.labTech.run(tech);
+    config.industry.labTechStayWhileReacting = stayCfg;
     assert(tech.memory.retired === true, '空闲超过 labTechIdleTicks 退役回收');
     delete world.creeps[tech.name];
     world.time++;
@@ -16741,7 +16746,7 @@ console.log('== 10-19 13:14 第二批：hold 不收新生 upgrader、送到一�
     const ind = require('../src/industry');
     const savedReactions = global.REACTIONS;
     global.REACTIONS = { H: { O: 'OH', G: 'GH' }, O: { H: 'OH' }, G: { H: 'GH' }, GH: { OH: 'GH2O' }, OH: { GH: 'GH2O' }, GH2O: { X: 'XGH2O' }, X: { GH2O: 'XGH2O' } };
-    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic };
+    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic }; savedInd.chain = config.industry.chainTargetsByRoom; savedInd.full = config.industry.labFullOutputs; delete config.industry.chainTargetsByRoom; delete config.industry.labFullOutputs;
     config.industry.boostTargets = ['XGH2O'];
     config.industry.labOpportunistic = false;
     const lr = makeRoom('W32S4', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
@@ -16761,7 +16766,7 @@ console.log('== 10-19 13:14 第二批：hold 不收新生 upgrader、送到一�
     const p3 = ind.labPlan(lr);
     assert(!Memory.rooms.W32S4.productHold.OH && p3.product === 'OH', 'OH 1500 < 2000：放开，回到 OH（得 ' + p3.product + '）');
     config.industry.boostTargets = savedInd.boostTargets;
-    config.industry.labOpportunistic = savedInd.labOpportunistic;
+    config.industry.labOpportunistic = savedInd.labOpportunistic; config.industry.chainTargetsByRoom = savedInd.chain; config.industry.labFullOutputs = savedInd.full;
     global.REACTIONS = savedReactions;
 }
 {
@@ -16871,7 +16876,7 @@ console.log('== 10-19 13:44 第三批：修路每房各一条、只拦第一波�
     const savedReactions = global.REACTIONS;
     global.REACTIONS = { H: { O: 'OH', G: 'GH' }, O: { H: 'OH' }, G: { H: 'GH' }, GH: { OH: 'GH2O' }, OH: { GH: 'GH2O' }, GH2O: { X: 'XGH2O' }, X: { GH2O: 'XGH2O' },
         U: { L: 'UL' }, L: { U: 'UL' }, Z: { K: 'ZK' }, K: { Z: 'ZK' }, UL: { ZK: 'G' }, ZK: { UL: 'G' } };
-    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic };
+    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic }; savedInd.chain = config.industry.chainTargetsByRoom; savedInd.full = config.industry.labFullOutputs; delete config.industry.chainTargetsByRoom; delete config.industry.labFullOutputs;
     config.industry.boostTargets = ['XGH2O'];
     config.industry.labOpportunistic = false;
     const lr = makeRoom('W33S3', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
@@ -16904,7 +16909,7 @@ console.log('== 10-19 13:44 第三批：修路每房各一条、只拦第一波�
     assert(ind.labPlan(lr).product === 'G', '有 ZK 和 UL：做 G');
     assert(config.industry.labIdleFallback === 500 && config.industry.productHold.OH.off === 2000, '配置：空转 500 tick 保底；OH 回切线 2000 不动');
     config.industry.boostTargets = savedInd.boostTargets;
-    config.industry.labOpportunistic = savedInd.labOpportunistic;
+    config.industry.labOpportunistic = savedInd.labOpportunistic; config.industry.chainTargetsByRoom = savedInd.chain; config.industry.labFullOutputs = savedInd.full;
     global.REACTIONS = savedReactions;
 }
 
@@ -17053,7 +17058,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const savedReactions = global.REACTIONS;
     global.REACTIONS = { H: { O: 'OH', G: 'GH' }, O: { H: 'OH' }, G: { H: 'GH' }, GH: { OH: 'GH2O' }, OH: { GH: 'GH2O' }, GH2O: { X: 'XGH2O' }, X: { GH2O: 'XGH2O' },
         U: { L: 'UL' }, L: { U: 'UL' }, Z: { K: 'ZK' }, K: { Z: 'ZK' }, UL: { ZK: 'G' }, ZK: { UL: 'G' } };
-    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic };
+    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic }; savedInd.chain = config.industry.chainTargetsByRoom; savedInd.full = config.industry.labFullOutputs; delete config.industry.chainTargetsByRoom; delete config.industry.labFullOutputs;
     config.industry.boostTargets = ['XGH2O'];
     config.industry.labOpportunistic = false;
     const wr = makeRoom('W32S4', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
@@ -17070,7 +17075,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const p2 = ind.labPlan(wr);
     assert(p2.product === 'XGH2O', '10-20 GH2O 够一批：照常续做 XGH2O（得 ' + p2.product + '）');
     global.REACTIONS = savedReactions;
-    config.industry.boostTargets = savedInd.boostTargets; config.industry.labOpportunistic = savedInd.labOpportunistic;
+    config.industry.boostTargets = savedInd.boostTargets; config.industry.labOpportunistic = savedInd.labOpportunistic; config.industry.chainTargetsByRoom = savedInd.chain; config.industry.labFullOutputs = savedInd.full;
 }
 
 {
@@ -17102,6 +17107,63 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(wf.builderSurge(br) === 0, '回到 2.5 万：没跌破 2 万不再加（不来回切）');
     const spawnSrc = fs.readFileSync(require.resolve('../src/spawn.js'), 'utf8');
     assert(/builderSurge\(room\)/.test(spawnSrc) && /full \? cap/.test(spawnSrc), 'spawn：surge 时 builder 数 = 2、身体按能量上限配');
+}
+
+{
+    console.log('\n10-20 09:33 lab：闲 lab 改输出、W33S3 主线只到 GH2O、X 只给 W32S4 买、labTech 反应中不退役');
+    resetWorld(97000);
+    Memory.rooms = {};
+    const ind = require('../src/industry');
+    const savedReactions = global.REACTIONS;
+    global.REACTIONS = { H: { O: 'OH', G: 'GH' }, O: { H: 'OH' }, G: { H: 'GH' }, GH: { OH: 'GH2O' }, OH: { GH: 'GH2O' }, GH2O: { X: 'XGH2O' }, X: { GH2O: 'XGH2O' },
+        U: { L: 'UL' }, L: { U: 'UL' }, Z: { K: 'ZK' }, K: { Z: 'ZK' }, UL: { ZK: 'G' }, ZK: { UL: 'G' } };
+    const savedOpp = config.industry.labOpportunistic;
+    config.industry.labOpportunistic = false;
+    assert(JSON.stringify(config.industry.labFullOutputs) === JSON.stringify(['W32S4', 'W33S3']) && JSON.stringify(config.industry.chainTargetsByRoom) === JSON.stringify({ W33S3: ['GH2O'] }) &&
+        JSON.stringify(config.industry.boostTargets) === JSON.stringify(['XGH2O']), '配置：两个 lab 房全输出；W33S3 主线目标 GH2O，其余仍 XGH2O');
+    assert(config.industry.productHold.OH.on === 5000 && config.market.dailyBuyCredits === 500000, 'OH hold 5000、原料日额度 50 万不动');
+    const r3 = makeRoom('W33S3', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
+    const st3 = makeStructure(r3, C.STRUCTURE_STORAGE, 28, 10, { id: 's3Store', capacity: 1000000, energy: 200000 });
+    const t3 = makeStructure(r3, C.STRUCTURE_TERMINAL, 27, 9, { id: 's3Term', capacity: 300000, energy: 20000, extraStore: { U: 3460, L: 4125, H: 29000, O: 3700, X: 115, OH: 7200, GH2O: 1020 } });
+    const L3 = {};
+    for (const [id, x, y, ex] of [['a1', 25, 14, { OH: 460 }], ['a2', 27, 14, { H: 545 }], ['a3', 24, 14, { O: 545 }], ['a4', 27, 16, {}], ['a5', 24, 15, {}], ['a6', 24, 16, {}]]) {
+        L3[id] = makeStructure(r3, C.STRUCTURE_LAB, x, y, { id, capacity: 3000, energy: 2000, extraStore: ex });
+    }
+    Memory.rooms.W33S3 = { labRoles: { inputs: ['a2', 'a3'], outputs: ['a1'], boost: 'a4', at: 1 } };
+    const q1 = ind.labPlan(r3);
+    assert(q1.outputs.length === 2 && q1.outputs.indexOf('a1') >= 0 && q1.inputs.indexOf('a3') >= 0 && q1.boost === 'a4',
+        'W33S3 按位置重排：(24,14) 保留做输入，2 个输出 lab（原输出留用），boost lab 不动（得 ' + JSON.stringify({ i: q1.inputs, o: q1.outputs, b: q1.boost }) + '）');
+    assert(q1.product === 'UL' && q1.target === 'GH2O', 'W33S3 主线只到 GH2O：GH2O 1020 < 3000，走链做 UL（得 ' + q1.product + '/' + q1.target + '）');
+    assert(q1.drains.some((d) => d.labId === 'a2' && d.mineral === 'H'), '退出分工的旧输入 lab 里的 H 也清走（得 ' + JSON.stringify(q1.drains) + '）');
+    assert(ind.labPlan(r3).outputs.join() === q1.outputs.join(), '分工稳定，不每 tick 重排');
+    world.time++;
+    for (const id of Object.keys(L3)) { const lab = L3[id]; for (const k of Object.keys(lab.store)) if (k !== 'energy') delete lab.store[k]; }
+    const roles3 = Memory.rooms.W33S3.labRoles;
+    L3[roles3.inputs[0]].store.U = 1000; L3[roles3.inputs[1]].store.L = 1000;
+    ind.run(r3);
+    const ran = roles3.outputs.filter((id) => L3[id].actions.some((a) => a.action === 'runReaction')).length;
+    assert(ran === 2 && Memory.rooms.W33S3.industryState.labs.ran === 2, '两个输出 lab 同一 tick 都 runReaction（得 ' + ran + '）');
+    world.time++;
+    t3.store.GH2O = 3500; t3.store.X = 2000; t3.store.G = 0;
+    for (const id of Object.keys(L3)) { const lab = L3[id]; for (const k of Object.keys(lab.store)) if (k !== 'energy') delete lab.store[k]; }
+    delete Memory.rooms.W33S3.labFallback;
+    const q2 = ind.labPlan(r3);
+    assert(q2.product !== 'XGH2O' && q2.target !== 'XGH2O', 'W33S3 GH2O 3500、X 2000：也不做 XGH2O（得 ' + q2.product + '/' + q2.target + '）');
+    const r4 = makeRoom('W32S4', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
+    makeStructure(r4, C.STRUCTURE_STORAGE, 26, 14, { id: 's4Store', capacity: 1000000, energy: 200000 });
+    makeStructure(r4, C.STRUCTURE_TERMINAL, 27, 15, { id: 's4Term', capacity: 300000, energy: 20000, extraStore: { GH2O: 3500, X: 2000 } });
+    for (const [id, x, y] of [['b1', 31, 11], ['b2', 31, 9], ['b3', 32, 12], ['b4', 33, 9], ['b5', 33, 12], ['b6', 34, 9]]) makeStructure(r4, C.STRUCTURE_LAB, id === 'b1' ? x : x, y, { id, capacity: 3000, energy: 2000 });
+    Memory.rooms.W32S4 = { labRoles: { inputs: ['b2', 'b3'], outputs: ['b1'], boost: 'b4', at: 1 } };
+    const q4 = ind.labPlan(r4);
+    assert(q4.outputs.length === 1 && q4.inputs.join() === 'b2,b3' && q4.product === 'XGH2O', 'W32S4 的布局任何一对输入只够 1 个输出：分工不变，照做 XGH2O（得 ' + JSON.stringify({ o: q4.outputs, p: q4.product }) + '）');
+    const mk = require('../src/market');
+    const b = config.market.buy;
+    assert(mk.buyRoomOk(b, 'W32S4', 'X') && !mk.buyRoomOk(b, 'W33S3', 'X') && mk.buyRoomOk(b, 'W33S3', 'U'), 'X 只给 W32S4 买，W33S3 别的原料照买');
+    const term = require('terminal');
+    assert(term.settings().mineralWantByRoom.W33S3.X === 0 && term.settings().mineralWantByRoom.W33S3.UL === 0, 'W33S3 不再从别房要 X');
+    assert(config.industry.labTechClass === 'development' && config.industry.labTechStayWhileReacting === true, 'labTech 孵化提到 development 级，反应中不退役');
+    config.industry.labOpportunistic = savedOpp;
+    global.REACTIONS = savedReactions;
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);

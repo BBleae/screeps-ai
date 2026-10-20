@@ -170,9 +170,13 @@ function num(value, fallback) {
     return Number.isFinite(n) ? n : fallback;
 }
 
-function labSettings() {
+function labSettings(room) {
     const cfg = industryConfig();
+    const boostTargets = Array.isArray(cfg.boostTargets) ? cfg.boostTargets : [];
+    const byRoom = cfg.chainTargetsByRoom || {};
+    const own = room && Array.isArray(byRoom[room.name]) ? byRoom[room.name] : null;
     return {
+        chainTargets: own || boostTargets,
         minBatch: Math.max(1, num(cfg.labMinBatch, 500)),
         fill: Math.max(1, num(cfg.labFill, 1000)),
         boostTargets: Array.isArray(cfg.boostTargets) ? cfg.boostTargets : [],
@@ -259,7 +263,7 @@ function inChain(product, targets) {
 }
 
 function wantedTarget(stock, cfg) {
-    const targets = Array.isArray(cfg.boostTargets) ? cfg.boostTargets : [];
+    const targets = Array.isArray(cfg.chainTargets) ? cfg.chainTargets : Array.isArray(cfg.boostTargets) ? cfg.boostTargets : [];
     const goal = Math.max(1, num(cfg.boostGoal, 3000));
     for (const target of targets) {
         if (num(stock[target], 0) < goal) return target;
@@ -299,6 +303,52 @@ function rolesValid(roles, labsById) {
         inputs.every((input) => chebyshev(input.pos, labsById[id].pos) <= 2));
 }
 
+function fullOutputRoom(room) {
+    const list = industryConfig().labFullOutputs;
+    return Array.isArray(list) && list.indexOf(room.name) >= 0;
+}
+
+function bestLayout(labs, current) {
+    const sorted = labs.slice().sort(byId);
+    const curIn = current && Array.isArray(current.inputs) ? current.inputs : [];
+    const curOut = current && Array.isArray(current.outputs) ? current.outputs : [];
+    let best = null;
+    for (let i = 0; i < sorted.length; i++) {
+        for (let j = i + 1; j < sorted.length; j++) {
+            const a = sorted[i];
+            const b = sorted[j];
+            let outs = sorted.filter((lab) => lab !== a && lab !== b && chebyshev(lab.pos, a.pos) <= 2 && chebyshev(lab.pos, b.pos) <= 2);
+            if (!outs.length) continue;
+            if (outs.length + 2 === sorted.length && sorted.length >= 4) {
+                const keep = outs.filter((lab) => curOut.indexOf(lab.id) >= 0);
+                const drop = outs.filter((lab) => curOut.indexOf(lab.id) < 0);
+                outs = keep.concat(drop).slice(0, outs.length - 1);
+            }
+            const keepIn = (curIn.indexOf(a.id) >= 0 ? 1 : 0) + (curIn.indexOf(b.id) >= 0 ? 1 : 0);
+            const keepOut = outs.filter((lab) => curOut.indexOf(lab.id) >= 0).length;
+            const score = [outs.length, keepIn, keepOut];
+            const better = !best || score[0] > best.score[0] || (score[0] === best.score[0] && (score[1] > best.score[1] || (score[1] === best.score[1] && score[2] > best.score[2])));
+            if (better) best = { inputs: [a.id, b.id], outputs: outs.map((lab) => lab.id), score };
+        }
+    }
+    return best;
+}
+
+function widenRoles(room, roles, labs, labsById) {
+    if (roles.configured || !fullOutputRoom(room)) return false;
+    if (roles.full === labs.length) return false;
+    roles.full = labs.length;
+    const best = bestLayout(labs, roles);
+    if (!best || best.outputs.length <= roles.outputs.length) return true;
+    const sameInputs = best.inputs.every((id) => roles.inputs.indexOf(id) >= 0);
+    roles.inputs = sameInputs ? roles.inputs.slice() : best.inputs;
+    roles.outputs = best.outputs;
+    roles.at = Game.time;
+    roles.widened = Game.time;
+    if (roles.boost && (roles.inputs.indexOf(roles.boost) >= 0 || roles.outputs.indexOf(roles.boost) >= 0)) delete roles.boost;
+    return true;
+}
+
 function labRoles(room, mem, labs) {
     const labsById = {};
     for (const lab of labs) labsById[lab.id] = lab;
@@ -316,6 +366,7 @@ function labRoles(room, mem, labs) {
         roles = { inputs: picked.inputs, outputs: picked.outputs, at: Game.time };
         fresh = true;
     }
+    if (widenRoles(room, roles, labs, labsById)) fresh = true;
     const used = roles.inputs.concat(roles.outputs);
     if (!roles.boost || !labsById[roles.boost] || used.indexOf(roles.boost) >= 0) {
         const spare = labs.filter((lab) => used.indexOf(lab.id) < 0).sort(byId)[0];
@@ -377,7 +428,7 @@ function fallbackReaction(room, mem, roles, labsById, cfg, held) {
         for (let j = i + 1; j < types.length; j++) {
             const product = REACTIONS[types[i]] && REACTIONS[types[i]][types[j]];
             if (!product || held.has(product)) continue;
-            const chain = inChain(product, cfg.boostTargets) ? 0 : 1;
+            const chain = inChain(product, cfg.chainTargets || cfg.boostTargets) ? 0 : 1;
             const have = num(stock[product], 0);
             if (!best || chain < best.chain || (chain === best.chain && have < best.have)) best = { a: types[i], b: types[j], product, chain, have };
         }
@@ -396,10 +447,9 @@ function orient(roles, labsById, pick) {
 
 function pickReaction(room, mem, roles, labsById, cfg, held, forced) {
     const inputs = roles.inputs.map((id) => labsById[id]);
-    const output = labsById[roles.outputs[0]];
     const ta = labMineral(inputs[0]);
     const tb = labMineral(inputs[1]);
-    const outType = labMineral(output);
+    const outTypes = roles.outputs.map((id) => labMineral(labsById[id])).filter(Boolean);
     const saved = mem.labRoles && mem.labRoles.step;
     const stock = mineralStock(room);
     for (const lab of inputs) addStock(stock, lab.store);
@@ -408,7 +458,7 @@ function pickReaction(room, mem, roles, labsById, cfg, held, forced) {
     if (ta && tb && ta !== tb && num(stock[ta], 0) >= reactAmount && num(stock[tb], 0) >= reactAmount &&
         typeof REACTIONS !== 'undefined' && REACTIONS && REACTIONS[ta] && REACTIONS[ta][tb]) {
         const product = REACTIONS[ta][tb];
-        if (!held.has(product) && (!outType || outType === product) && (cfg.opportunistic !== false || inChain(product, cfg.boostTargets))) {
+        if (!held.has(product) && outTypes.every((t) => t === product) && (cfg.opportunistic !== false || inChain(product, cfg.chainTargets || cfg.boostTargets))) {
             const cont = { a: ta, b: tb, product, target: saved && saved.product === product ? saved.target || null : null, continued: true, stock };
             const tail = num(stock[ta], 0) < cfg.minBatch || num(stock[tb], 0) < cfg.minBatch;
             if (!tail || forced) return cont;
@@ -457,7 +507,7 @@ function computeLabPlan(room) {
     if (!roles) return null;
     const labsById = {};
     for (const lab of labs) labsById[lab.id] = lab;
-    const cfg = labSettings();
+    const cfg = labSettings(room);
     const reaction = chooseReaction(room, mem, roles, labsById, cfg);
     const wants = [];
     const drains = [];
@@ -485,6 +535,12 @@ function computeLabPlan(room) {
     }
     const boostWant = boostLabJob(room, roles, labsById, cfg, reaction, wants, drains);
     const militaryLabs = militaryBoostStaging(room, roles, labsById, cfg, wants, drains);
+    const roleIds = roles.inputs.concat(roles.outputs, roles.boost ? [roles.boost] : [], militaryLabs ? Object.values(militaryLabs) : []);
+    for (const id of Object.keys(labsById).sort()) {
+        if (roleIds.indexOf(id) >= 0) continue;
+        const held = labMineral(labsById[id]);
+        if (held) drains.push({ labId: id, mineral: held, amount: storeOf(labsById[id], held) });
+    }
     return {
         product: reaction ? reaction.product : null,
         target: reaction ? reaction.target : null,
@@ -594,7 +650,7 @@ function runLabs(room, mem, state, spendAllowed) {
         state.labs.active = true;
         state.labs.lastOutput = output.id;
         state.labs.result = ret;
-        if (ret === OK) return;
+        if (ret === OK) state.labs.ran = (state.labs.ran || 0) + 1;
     }
 }
 

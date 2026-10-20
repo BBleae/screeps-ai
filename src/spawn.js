@@ -1952,7 +1952,7 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
         requests.push({
             key: 'core:labTech:' + n,
             role: 'labTech',
-            priority: settings.classes.opportunistic,
+            priority: (config.industry || {}).labTechClass ? settings.classes[(config.industry || {}).labTechClass] : settings.classes.opportunistic,
             grace: 0,
             opportunistic: true,
             memory: { home: room.name, role: 'labTech' },

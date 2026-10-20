@@ -36,8 +36,9 @@ function note(creep, key, amount) {
     rec.at = Game.time;
 }
 
-function idle(creep) {
+function idle(creep, plan) {
     if (creep.memory.labIdleSince == null) creep.memory.labIdleSince = Game.time;
+    if (plan && plan.product && (config.industry || {}).labTechStayWhileReacting !== false) return;
     const wait = Math.max(0, Number((config.industry || {}).labTechIdleTicks) || 0);
     if (Game.time - creep.memory.labIdleSince >= wait) {
         creep.memory.retired = true;
@@ -81,7 +82,7 @@ function run(creep) {
         }
     }
     const want = plan && plan.wants && plan.wants.find((entry) => sourceFor(room, entry.mineral));
-    if (!want) { idle(creep); return; }
+    if (!want) { idle(creep, plan); return; }
     delete creep.memory.labIdleSince;
     const from = sourceFor(room, want.mineral);
     creep.memory.labId = want.labId;

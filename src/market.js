@@ -573,6 +573,11 @@ function tryBuyEnergy(cfg, market, countScan) {
     return rec;
 }
 
+function buyRoomOk(b, roomName, res) {
+    const only = b && b.onlyRooms && b.onlyRooms[res];
+    return !Array.isArray(only) || only.indexOf(roomName) >= 0;
+}
+
 function tryBuy(cfg, market, countScan) {
     const e = tryBuyEnergy(cfg, market, countScan);
     if (e) return e;
@@ -586,7 +591,7 @@ function tryBuy(cfg, market, countScan) {
     const rooms = (b.rooms || []).map((n) => Game.rooms[n]).filter((r) => r && r.terminal && r.terminal.my !== false && !(r.terminal.cooldown > 0) && !terminalNet.usedThisTick(r.name));
     for (const room of rooms) {
         for (const res of b.resources) {
-            if (buyStopped(cfg, res)) continue;
+            if (buyStopped(cfg, res) || !buyRoomOk(b, room.name, res)) continue;
             const have = Number(room.terminal.store[res] || 0) + Number((room.storage && room.storage.store[res]) || 0);
             const want = Number(b.target || 3000) - have;
             if (want < cfg.minDeal) continue;
@@ -1058,7 +1063,7 @@ function runOwnOrders(cfg, market) {
             try { labsOk = require('industry').labsAllowed(room); } catch (error) { labsOk = true; }
             if (!labsOk) continue;
             for (const res of b.resources) {
-                if (book['buy:' + roomName + ':' + res] || buyStopped(cfg, res)) continue;
+                if (book['buy:' + roomName + ':' + res] || buyStopped(cfg, res) || !buyRoomOk(b, roomName, res)) continue;
                 const have = Number(room.terminal.store[res] || 0) + Number((room.storage && room.storage.store[res]) || 0);
                 const avg = recentAvgPrice(res, cfg);
                 if (avg == null) continue;
@@ -1358,4 +1363,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
+module.exports = { buyRoomOk, confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
