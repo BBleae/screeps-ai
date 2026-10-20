@@ -421,7 +421,7 @@ module.exports = {
         boostOnlyRooms: ['W33S7'],
         upgraderBoostByRoom: { W33S7: ['XGH2O', 'GH2O'] },
         boostCompoundsByRoom: { W33S7: ['XGH2O', 'GH2O'] },
-        boostMinLoadByRoom: { W33S7: 450 }, boostLabEnergyFloor: 20000,
+        boostMinLoadByRoom: { W33S7: 150 }, boostLabEnergyFloor: 20000, upgraderBoostMinParts: 5,
         boostGoal: 3000,
         labBoostStock: 1000,
         labEnergyTarget: 2000,

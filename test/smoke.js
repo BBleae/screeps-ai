@@ -14778,6 +14778,62 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
 }
 
 {
+    console.log('== 10-20 升级 boost 改部分强化：lab 的 XGH2O 够几个 WORK 就上几个（30/WORK），至少 5 个（150）才上；100 tick 放弃不变 ==');
+    const bo = require('../src/boost');
+    const savedBoosts = global.BOOSTS, savedRooms = Memory.rooms;
+    global.BOOSTS = { work: { XGH2O: { upgradeController: 2 }, GH2O: { upgradeController: 1.8 }, XZH2O: { dismantle: 4 } } };
+    Memory.rooms = { W33S7: { labRoles: { boost: 'pbLab' } } };
+    const mkLab = (amount, energy) => {
+        const lab = { id: 'pbLab', structureType: STRUCTURE_LAB, pos: new RoomPosition(10, 40, 'W33S7'), store: { XGH2O: amount, energy }, calls: [] };
+        lab.boostCreep = (creep, count) => {
+            lab.calls.push(count);
+            const parts = creep.body.filter((p) => p.type === 'work' && !p.boost);
+            const n = count == null ? parts.length : Math.min(count, parts.length);
+            parts.slice(0, n).forEach((p) => { p.boost = 'XGH2O'; });
+            lab.store.XGH2O -= n * 30; lab.store.energy -= n * 20;
+            return OK;
+        };
+        return lab;
+    };
+    const mkRoom = (lab) => ({ name: 'W33S7', controller: { my: true }, find: () => [lab] });
+    const mkUp = (room, extra) => ({ name: 'pbUp', room, pos: new RoomPosition(11, 40, 'W33S7'),
+        body: Array.from({ length: 15 }, () => ({ type: 'work', hits: 100 })).concat([{ type: 'carry', hits: 100 }, { type: 'move', hits: 100 }]),
+        memory: Object.assign({ role: 'upgrader', home: 'W33S7', boosts: ['XGH2O', 'GH2O'], boostMinParts: 5 }, extra || {}) });
+    const minLoad = ((global.__savedBoost && global.__savedBoost.min) || config.industry.boostMinLoadByRoom || {}).W33S7;
+    assert(minLoad === 150 && config.industry.upgraderBoostMinParts === 5, 'W33S7 boost lab 有 150 就装（不等 450），升级者至少 5 WORK（得 ' + minLoad + '）');
+    let lab = mkLab(360, 2000);
+    let up = mkUp(mkRoom(lab));
+    let job = bo.nextJob(up);
+    assert(job && job.parts === 12 && job.partial === true, '360 XGH2O：15 WORK 的升级者上 12 个（得 ' + JSON.stringify(job && { parts: job.parts, partial: job.partial }) + '）');
+    assert(bo.run(up) === true && lab.calls[0] === 12 && up.body.filter((p) => p.boost === 'XGH2O').length === 12 && lab.store.XGH2O === 0 && lab.store.energy === 2000 - 240,
+        'boostCreep 传 12：12 个 WORK 上 XGH2O，lab 扣 360 化合物 + 240 能量');
+    assert(Memory.rooms.W33S7.boostLog && Memory.rooms.W33S7.boostLog[0].parts === 12, 'boostLog 记 12 个');
+    assert(bo.wanted(up).indexOf('XGH2O') < 0 && bo.pending(up) === false, '部分上过的 XGH2O 不再重试，lab 空了就放行');
+    lab = mkLab(149, 2000);
+    up = mkUp(mkRoom(lab));
+    assert(bo.nextJob(up) === null && bo.pending(up) === false && bo.run(up) === false && lab.calls.length === 0, '149 XGH2O（不够 5 WORK）：不强化、不等');
+    lab = mkLab(150, 2000);
+    up = mkUp(mkRoom(lab));
+    job = bo.nextJob(up);
+    assert(job && job.parts === 5, '150 XGH2O：刚好 5 WORK');
+    lab = mkLab(450, 2000);
+    up = mkUp(mkRoom(lab));
+    job = bo.nextJob(up);
+    assert(job && job.parts === 15 && job.partial === false, '450 XGH2O：15 WORK 全上');
+    assert(bo.run(up) === true && lab.calls[0] === undefined && up.body.filter((p) => p.boost === 'XGH2O').length === 15, '全量时 boostCreep 不传数量（同原来）');
+    lab = mkLab(360, 99);
+    up = mkUp(mkRoom(lab));
+    assert(bo.nextJob(up) === null, '能量只够 4 个（99 能量）：不强化');
+    lab = mkLab(360, 2000);
+    up = mkUp(mkRoom(lab), { boostSince: Game.time - 100 });
+    assert(bo.pending(up) === false && up.memory.boostDone === true, '等满 100 tick 照旧整份放弃');
+    lab = mkLab(360, 2000);
+    up = mkUp(mkRoom(lab), { role: 'siegeDismantler', boosts: ['XGH2O'], boostMinParts: undefined });
+    assert(bo.nextJob(up) === null, '没设 boostMinParts 的 creep（攻城）仍要求全量');
+    global.BOOSTS = savedBoosts; Memory.rooms = savedRooms;
+}
+
+{
     console.log('== 10-20 无主墙清线：W38S6 3 段 + W38S5 x=38 整列，一只拆机顺序拆完自动退休；W38S6 墙全拆完、复量 ≤105 才并入 W37S5 外矿 ==');
     const wb = require('wall_breach');
     const role = require('roles_wallBreaker');
@@ -17362,18 +17418,23 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     Memory.rooms.W33S7 = {};
     world.time++;
     const bp1 = ind.labPlan(br);
-    assert(bp1.product === null && !bp1.wants.length, 'W33S7 只做 boost 不做反应；XGH2O 300 不够一只 W15（450）：不装、不 boost');
+    const bw1 = bp1.wants.find((w) => w.boost);
+    assert(bp1.product === null && bw1 && bw1.mineral === 'XGH2O' && bw1.amount === 300 && bp1.wants.length === 1, 'W33S7 只做 boost 不做反应；10-20 XGH2O 300 ≥ 150（够 5 WORK）：装进 boost lab（得 ' + JSON.stringify(bp1.wants) + '）');
+    world.time++;
+    bterm.store.XGH2O = 149;
+    const bp0 = ind.labPlan(br);
+    assert(bp0.product === null && !bp0.wants.length, 'XGH2O 149 不够 5 WORK（150）：不装');
     world.time++;
     bterm.store.GH2O = 600;
     const bp2 = ind.labPlan(br);
     const bw = bp2.wants.find((w) => w.boost);
-    assert(bp2.product === null && bw && bw.mineral === 'GH2O' && bw.amount === 600 && bp2.wants.length === 1, 'GH2O 600 ≥ 450：装进 boost lab（得 ' + JSON.stringify(bp2.wants) + '）');
+    assert(bp2.product === null && bw && bw.mineral === 'GH2O' && bw.amount === 600 && bp2.wants.length === 1, 'XGH2O 149 不够、GH2O 600 ≥ 150：装 GH2O（得 ' + JSON.stringify(bp2.wants) + '）');
     assert(require('../src/spawn').labTechTarget(br, Memory.rooms.W33S7) === 1, 'W33S7 不在 labRooms 也给 boost lab 孵 labTech');
     global.REACTIONS = savedR;
     const upC = makeCreep(br, 'bUp', Array(15).fill('work').concat(['carry', 'move']), { home: 'W33S7', role: 'upgrader' });
     world.creeps[upC.name] = upC;
     try { ROLES.upgrader.run(upC); } catch (e) {}
-    assert(JSON.stringify(upC.memory.boosts) === JSON.stringify(['XGH2O', 'GH2O']), 'W33S7 upgrader 要 XGH2O 优先、GH2O 其次');
+    assert(JSON.stringify(upC.memory.boosts) === JSON.stringify(['XGH2O', 'GH2O']) && upC.memory.boostMinParts === 5, 'W33S7 upgrader 要 XGH2O 优先、GH2O 其次，至少 5 WORK 就上');
     const boostMod = require('../src/boost');
     assert(boostMod.pending(upC) === false, 'boost lab 空着：不等待，不卡升级/孵化');
 

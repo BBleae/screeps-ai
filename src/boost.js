@@ -27,20 +27,21 @@ function partTypeFor(compound) {
     return null;
 }
 
-function labFor(room, compound, parts) {
-    const need = Math.max(1, parts) * MINERAL_PER_PART;
-    const needEnergy = Math.max(1, parts) * ENERGY_PER_PART;
+function usableParts(lab, compound, parts, minParts) {
+    const store = lab && lab.store;
+    if (!store) return 0;
+    const want = Math.max(1, parts);
+    const n = Math.min(want, Math.floor(Number(store[compound] || 0) / MINERAL_PER_PART), Math.floor(Number(store[RESOURCE_ENERGY] || 0) / ENERGY_PER_PART));
+    const floor = Number(minParts) > 0 ? Math.min(want, Math.floor(Number(minParts))) : want;
+    return n >= floor ? n : 0;
+}
+
+function labFor(room, compound, parts, minParts) {
     const labs = room.find(FIND_MY_STRUCTURES).filter((s) => s.structureType === STRUCTURE_LAB);
     const roles = typeof Memory !== 'undefined' && Memory.rooms && Memory.rooms[room.name] && Memory.rooms[room.name].labRoles;
     const preferred = roles && roles.boost;
     if (preferred) labs.sort((a, b) => (b.id === preferred) - (a.id === preferred));
-    for (const lab of labs) {
-        const store = lab.store;
-        if (!store) continue;
-        if (Number(store[compound] || 0) < need) continue;
-        if (Number(store[RESOURCE_ENERGY] || 0) < needEnergy) continue;
-        return lab;
-    }
+    for (const lab of labs) if (usableParts(lab, compound, parts, minParts) > 0) return lab;
     return null;
 }
 
@@ -54,8 +55,9 @@ function nextJob(creep) {
         if (!partType) continue;
         const parts = (creep.body || []).filter((part) => part.type === partType && !part.boost).length;
         if (!parts) continue;
-        const lab = labFor(room, compound, parts);
-        if (lab) return { compound, partType, parts, lab };
+        const minParts = creep.memory && creep.memory.boostMinParts;
+        const lab = labFor(room, compound, parts, minParts);
+        if (lab) return { compound, partType, parts: usableParts(lab, compound, parts, minParts), lab, partial: usableParts(lab, compound, parts, minParts) < parts };
     }
     return null;
 }
@@ -86,7 +88,7 @@ function noteBoost(creep, compound, partType, parts) {
 function apply(creep) {
     const job = nextJob(creep);
     if (!job) return false;
-    const ret = job.lab.boostCreep(creep);
+    const ret = job.partial ? job.lab.boostCreep(creep, job.parts) : job.lab.boostCreep(creep);
     if (ret === ERR_NOT_IN_RANGE) { movement.go(creep, job.lab, { range: 1, reusePath: 10 }); return true; }
     if (ret === OK) { noteBoost(creep, job.compound, job.partType, job.parts); return true; }
     const mem = creep.memory;
@@ -100,4 +102,4 @@ function run(creep) {
     return apply(creep);
 }
 
-module.exports = { wanted, partTypeFor, labFor, nextJob, pending, apply, run, noteBoost, MINERAL_PER_PART, ENERGY_PER_PART };
+module.exports = { wanted, partTypeFor, usableParts, labFor, nextJob, pending, apply, run, noteBoost, MINERAL_PER_PART, ENERGY_PER_PART };
