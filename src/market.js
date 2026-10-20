@@ -388,6 +388,35 @@ function recentAvgPrice(resource, cfg) {
     return avg;
 }
 
+function labUsedToday(resource) {
+    const use = typeof Memory !== 'undefined' ? Memory.labUse : null;
+    if (!use || use.day !== Math.floor(Date.now() / 86400000) || !use.used) return 0;
+    return Math.max(0, Number(use.used[resource]) || 0);
+}
+
+function sellCapFor(resource, cfg) {
+    const base = cfg.dailySellUnits && cfg.dailySellUnits[resource];
+    if (base == null) return null;
+    const minus = Array.isArray(cfg.sellCapMinusLabUse) && cfg.sellCapMinusLabUse.indexOf(resource) >= 0;
+    return Math.max(0, Number(base) - (minus ? labUsedToday(resource) : 0));
+}
+
+function sellStopped(resource, cfg) {
+    const floor = cfg.sellStopAccountBelow && Number(cfg.sellStopAccountBelow[resource]);
+    if (!(floor > 0)) return false;
+    const total = accountStock(resource);
+    const alerts = Memory.strategistAlerts || (Memory.strategistAlerts = {});
+    const key = 'sellStop_' + resource;
+    if (total < floor) {
+        const rec = alerts[key];
+        if (!rec || rec.clearedAt != null) alerts[key] = { at: Game.time, resource, total, floor, msg: resource + ' account stock below floor, selling stopped' };
+        else rec.total = total;
+        return true;
+    }
+    if (alerts[key] && alerts[key].clearedAt == null) { alerts[key].clearedAt = Game.time; alerts[key].total = total; }
+    return false;
+}
+
 function sellable(room, cfg, hold) {
     const terminal = room && room.terminal;
     const store = terminal && terminal.my !== false && terminal.store;
@@ -404,7 +433,8 @@ function sellable(room, cfg, hold) {
         if (roomKeep != null) can = Math.min(can, amount + Number((room.storage && room.storage.store && room.storage.store[key]) || 0) - roomKeep);
         const accountKeep = cfg.keepAccount && cfg.keepAccount[key];
         if (accountKeep != null) can = Math.min(can, accountStock(key) - Number(accountKeep));
-        const cap = cfg.dailySellUnits && cfg.dailySellUnits[key];
+        if (sellStopped(key, cfg)) continue;
+        const cap = sellCapFor(key, cfg);
         if (cap != null) can = Math.min(can, Number(cap) - Number((ledger().sold || {})[key] || 0) - pendingSum('sold', key));
         if (can <= 0) continue;
         out.push({ resource: key, amount: can });
@@ -1168,7 +1198,8 @@ function runOwnOrders(cfg, market) {
         }
         const have = Number(room.terminal.store[s.resource] || 0);
         let amount = have - keepFor(s.resource, cfg);
-        const cap = cfg.dailySellUnits && cfg.dailySellUnits[s.resource];
+        if (sellStopped(s.resource, cfg)) continue;
+        const cap = sellCapFor(s.resource, cfg);
         if (cap != null) amount = Math.min(amount, Number(cap) - Number(sold[s.resource] || 0));
         const avg = recentAvgPrice(s.resource, cfg);
         if (avg == null) continue;
@@ -1392,4 +1423,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { pixelPrice, notePixel, buyRoomOk, confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
+module.exports = { pixelPrice, notePixel, labUsedToday, sellCapFor, sellStopped, buyRoomOk, confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };

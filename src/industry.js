@@ -188,6 +188,8 @@ function labSettings(room) {
         boostGoal: Math.max(1, num(cfg.boostGoal, 3000)),
         boostStock: Math.max(1, num(cfg.labBoostStock, 1000)),
         opportunistic: cfg.labOpportunistic !== false,
+        noMake: room && cfg.labNoMakeByRoom && Array.isArray(cfg.labNoMakeByRoom[room.name]) ? cfg.labNoMakeByRoom[room.name] : [],
+        switchBatch: Math.max(0, num(cfg.labSwitchBatch, 0)),
     };
 }
 
@@ -396,9 +398,11 @@ function carriedStock(room, out) {
 }
 
 function chooseReaction(room, mem, roles, labsById, cfg) {
-    const held = heldProducts(room, mem);
+    const holds = heldProducts(room, mem);
+    const held = new Set(holds);
+    for (const product of cfg.noMake || []) held.add(product);
     const picked = pickReaction(room, mem, roles, labsById, cfg, held);
-    if (picked || !held.size) {
+    if (picked || !holds.size) {
         delete mem.labIdleSince;
         delete mem.labFallback;
         if (picked) delete mem.labIdleReason;
@@ -439,6 +443,7 @@ function fallbackReaction(room, mem, roles, labsById, cfg, held) {
             const product = REACTIONS[types[i]] && REACTIONS[types[i]][types[j]];
             if (!product || held.has(product)) continue;
             const chain = inChain(product, cfg.chainTargets || cfg.boostTargets) ? 0 : 1;
+            if (chain && (cfg.noMake || []).length) continue;
             const have = num(stock[product], 0);
             if (!best || chain < best.chain || (chain === best.chain && have < best.have)) best = { a: types[i], b: types[j], product, chain, have };
         }
@@ -471,13 +476,17 @@ function pickReaction(room, mem, roles, labsById, cfg, held, forced) {
         if (!held.has(product) && outTypes.every((t) => t === product) && (cfg.opportunistic !== false || inChain(product, cfg.chainTargets || cfg.boostTargets))) {
             const cont = { a: ta, b: tb, product, target: saved && saved.product === product ? saved.target || null : null, continued: true, stock };
             const tail = num(stock[ta], 0) < cfg.minBatch || num(stock[tb], 0) < cfg.minBatch;
-            if (!tail || forced) return cont;
+            if (forced) return cont;
             const boostLab = roles.boost && labsById[roles.boost];
             const ts = Object.assign({}, stock);
             if (boostLab) addStock(ts, boostLab.store);
             const goal = wantedTarget(ts, cfg);
+            const down = goal && cfg.switchBatch > 0 ? nextReactionFor(goal, stock, cfg.switchBatch, 0, held) : null;
+            const goDown = !!down && down.product !== product && inChain(product, [down.product]);
+            if (goDown) mem.labSwitch = { at: Game.time, from: product, to: down.product };
+            if (!tail && !goDown) return cont;
             const next = goal ? nextReactionFor(goal, stock, cfg.minBatch, 0, held) : null;
-            if (!next || next.product === product) return cont;
+            if (!goDown && (!next || next.product === product)) return cont;
         }
     }
     const boost = roles.boost && labsById[roles.boost];
@@ -608,6 +617,14 @@ function boostLabJob(room, roles, labsById, cfg, reaction, wants, drains) {
     let want = null;
     if (held) {
         const have = storeOf(lab, held);
+        const minLoad = Math.min(cfg.boostStock, cfg.boostMinLoad);
+        const better = targets.slice(0, targets.indexOf(held)).find((type) => num(stock[type], 0) >= minLoad);
+        const spent = have < minLoad && have + num(stock[held], 0) < minLoad && targets.some((type) => type !== held && num(stock[type], 0) >= minLoad);
+        if ((better && !boostWaiting(room)) || spent) {
+            drains.push({ labId: lab.id, mineral: held, amount: have });
+            roomMem(room).boostSwitch = { at: Game.time, from: held, to: better || targets.find((type) => type !== held && num(stock[type], 0) >= minLoad), left: have };
+            return null;
+        }
         if (have < cfg.boostStock / 2 && num(stock[held], 0) > 0) want = { labId: lab.id, mineral: held, amount: cfg.boostStock - have, boost: true };
     } else {
         const compound = targets.find((type) => num(stock[type], 0) >= Math.min(cfg.boostStock, cfg.boostMinLoad));
@@ -615,6 +632,15 @@ function boostLabJob(room, roles, labsById, cfg, reaction, wants, drains) {
     }
     if (want) wants.push(want);
     return want;
+}
+
+function boostWaiting(room) {
+    const kind = typeof FIND_MY_CREEPS !== 'undefined' ? FIND_MY_CREEPS : null;
+    if (kind == null || typeof room.find !== 'function') return false;
+    return (room.find(kind) || []).some((creep) => {
+        const m = creep && creep.memory;
+        return !!m && Array.isArray(m.boosts) && m.boosts.length > 0 && !m.boostDone && m.boostSince != null;
+    });
 }
 
 function runLabs(room, mem, state, spendAllowed) {
@@ -661,8 +687,42 @@ function runLabs(room, mem, state, spendAllowed) {
         state.labs.active = true;
         state.labs.lastOutput = output.id;
         state.labs.result = ret;
-        if (ret === OK) state.labs.ran = (state.labs.ran || 0) + 1;
+        if (ret === OK) {
+            state.labs.ran = (state.labs.ran || 0) + 1;
+            noteLabUse(room.name, plan.need[plan.inputs[0]], plan.need[plan.inputs[1]], plan.product);
+        }
     }
+}
+
+function labDay() {
+    return Math.floor(Date.now() / 86400000);
+}
+
+function noteLabUse(roomName, a, b, product) {
+    const amount = typeof LAB_REACTION_AMOUNT !== 'undefined' ? LAB_REACTION_AMOUNT : 5;
+    const day = labDay();
+    let use = Memory.labUse;
+    if (!use || typeof use !== 'object') use = Memory.labUse = { day, used: {}, made: {}, first: {} };
+    if (use.day !== day) {
+        use.prev = { day: use.day, used: use.used || {}, made: use.made || {} };
+        use.day = day;
+        use.used = {};
+        use.made = {};
+    }
+    const used = use.used || (use.used = {});
+    for (const type of [a, b]) if (type) used[type] = (used[type] || 0) + amount;
+    const made = use.made || (use.made = {});
+    const mine = made[roomName] || (made[roomName] = {});
+    if (product) mine[product] = (mine[product] || 0) + amount;
+    const first = use.first || (use.first = {});
+    const key = roomName + ':' + product;
+    if (product && first[key] == null) first[key] = Game.time;
+}
+
+function labUsedToday(type) {
+    const use = typeof Memory !== 'undefined' ? Memory.labUse : null;
+    if (!use || use.day !== labDay() || !use.used) return 0;
+    return num(use.used[type], 0);
 }
 
 function runFactory(room, mem, state, spendAllowed) {
@@ -781,4 +841,4 @@ function run(room) {
     }
 }
 
-module.exports = { boostOnlyRoom, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS };
+module.exports = { boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS };

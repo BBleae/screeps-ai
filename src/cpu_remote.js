@@ -22,6 +22,25 @@ function round(table) {
     return out;
 }
 
+function addInto(out, table) {
+    for (const key of Object.keys(table || {})) {
+        const value = table[key];
+        if (value && typeof value === 'object') addInto(out[key] && typeof out[key] === 'object' ? out[key] : (out[key] = {}), value);
+        else out[key] = Math.round(((Number(out[key]) || 0) + (Number(value) || 0)) * 1000) / 1000;
+    }
+    return out;
+}
+
+function fold(m, done, now) {
+    const tot = m.tot && typeof m.tot === 'object' ? m.tot : (m.tot = { from: done.from, to: done.from, ticks: 0, rooms: {}, plan: {}, self: 0 });
+    tot.ticks += done.ticks;
+    tot.to = now;
+    addInto(tot.rooms || (tot.rooms = {}), done.rooms);
+    addInto(tot.plan || (tot.plan = {}), done.plan);
+    tot.self = Math.round(((Number(tot.self) || 0) + (Number(done.self) || 0)) * 1000) / 1000;
+    return tot;
+}
+
 function state() {
     const now = Game.time;
     const m = Memory.cpuRemote || (Memory.cpuRemote = { window: windowTicks(), cur: blank(now), prev: null });
@@ -45,6 +64,7 @@ function tick() {
         const done = m.cur;
         m.prev = { from: done.from, to: Game.time, ticks: done.ticks, rooms: round(done.rooms), plan: round(done.plan),
             self: Math.round(done.self * 1000) / 1000, probe: done.probe };
+        fold(m, m.prev, Game.time);
         m.cur = blank(Game.time);
     }
     const cur = m.cur;
@@ -72,4 +92,4 @@ function notePlan(homeName, cpu) {
     cur.plan[homeName] = (cur.plan[homeName] || 0) + cpu;
 }
 
-module.exports = { tick, note, notePlan, remoteKey, windowTicks, BUCKET };
+module.exports = { fold, tick, note, notePlan, remoteKey, windowTicks, BUCKET };

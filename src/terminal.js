@@ -120,7 +120,7 @@ function planSenders(rooms, cfg) {
         const budget = energyOf(from.terminal.store) - Math.max(feeKeep, feeReserveOf(from));
         const below = Number(rule.receiverBelow) || Infinity;
         const targets = (rule.to || []).map((n) => byName[n]).filter((to) => to && to.name !== name && freeOf(to.terminal.store) > 0 && roomEnergy(to) < below)
-            .sort((a, b) => roomEnergy(a) - roomEnergy(b));
+            .sort((a, b) => (burnRoom(cfg, b) - burnRoom(cfg, a)) || (roomEnergy(a) - roomEnergy(b)));
         for (const to of targets) {
             let amount = Math.min(spare, Number(rule.maxSend) || cfg.maxSend, freeOf(to.terminal.store), budget, left);
             let cost = transactionCost(amount, from.name, to.name);
@@ -134,6 +134,11 @@ function planSenders(rooms, cfg) {
         }
     }
     return null;
+}
+
+function burnRoom(cfg, room) {
+    const list = Array.isArray(cfg.burnRooms) ? cfg.burnRooms : [];
+    return room && list.indexOf(room.name) >= 0 && !(room.controller && room.controller.level >= 8) ? 1 : 0;
 }
 
 function planStarving(rooms, cfg, rich) {
@@ -151,14 +156,18 @@ function planStarving(rooms, cfg, rich) {
     const senders = rooms.slice().sort((a, b) => roomEnergy(b) - roomEnergy(a)).filter((room) =>
         !(room.terminal.cooldown > 0) && !usedThisTick(room.name) && energyOf(room.terminal.store) > feeReserve &&
         storageSpare(room) > 0 && (isPeer(room) ? peerMin > 0 && roomEnergy(room) >= peerMin : roomEnergy(room) >= sendAbove && rich(room)));
-    for (const name of order) {
+    const urgentFirst = order.filter((name) => byName[name] && roomEnergy(byName[name]) < below);
+    const queue = urgentFirst.concat(order.filter((name) => urgentFirst.indexOf(name) < 0));
+    for (const name of queue) {
         const to = byName[name];
         const until = Math.max(below, Number(cfg.starvingUntil && cfg.starvingUntil[name]) || 0);
         if (!to || (to.controller && to.controller.level >= 8) || roomEnergy(to) >= until || freeOf(to.terminal.store) <= 0) continue;
+        const burn = burnRoom(cfg, to) && roomEnergy(to) >= below;
         for (const from of senders) {
             if (from.name === to.name) continue;
             const peer = isPeer(from);
-            const spare = Math.min(roomEnergy(from) - (peer ? peerKeep : keep) - feeReserveOf(from), storageSpare(from));
+            if (burn && (peer || roomEnergy(from) < cfg.sendAbove)) continue;
+            const spare = Math.min(roomEnergy(from) - (burn ? cfg.keep : peer ? peerKeep : keep) - feeReserveOf(from), storageSpare(from));
             const terminalBudget = energyOf(from.terminal.store) - Math.max(feeReserve, feeReserveOf(from));
             const budget = peer ? Math.min(terminalBudget, spare) : terminalBudget;
             let amount = Math.min(spare, Number(cfg.starveMaxSend) || cfg.maxSend, freeOf(to.terminal.store), budget);
@@ -170,7 +179,7 @@ function planStarving(rooms, cfg, rich) {
             }
             const minSend = until > below ? Math.min(cfg.minSend, Number(cfg.starveMinSend) || cfg.minSend) : cfg.minSend;
             if (amount < minSend) continue;
-            return { from, to, amount, cost, starving: true, peer };
+            return { from, to, amount, cost, starving: true, peer, burn: !!burn };
         }
     }
     return null;
@@ -425,6 +434,10 @@ function run(shed) {
     const isRich = (room) => utils.storageRichState(room, Memory.rooms && Memory.rooms[room.name], config.upgrading || {});
     const plan = planTransfer(rooms, cfg, isRich);
     if (!plan) return runMineral(rooms, cfg);
+    if (plan.burn) {
+        const mineral = runMineral(rooms, cfg);
+        if (mineral) return mineral;
+    }
     const ret = plan.from.terminal.send(RESOURCE, plan.amount, plan.to.name, 'balance');
     markUsed(plan.from.name);
     const record = { at: Game.time, from: plan.from.name, to: plan.to.name, amount: plan.amount, cost: plan.cost, result: ret };
@@ -467,4 +480,4 @@ function runMineral(rooms, cfg) {
     return record;
 }
 
-module.exports = { planSenders, storageSpare, planForward, runForward, run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };
+module.exports = { burnRoom, planStarving, planSenders, storageSpare, planForward, runForward, run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };

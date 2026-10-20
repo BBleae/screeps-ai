@@ -365,6 +365,18 @@ function bankingWorkCap(room) {
     return Math.max(1, Math.floor(sourceSupply(room) * share));
 }
 
+function linkSupplyWork(room, m, cfg) {
+    const links = m && m.plan && m.plan.links;
+    const a = links && links.store;
+    const b = links && links.ctrl;
+    const cap = Math.max(1, Number(cfg && cfg.linkWorkCap) || 75);
+    if (!a || !b) return Math.min(cap, 30);
+    const loss = typeof LINK_LOSS_RATIO !== 'undefined' ? LINK_LOSS_RATIO : 0.03;
+    const size = typeof LINK_CAPACITY !== 'undefined' ? LINK_CAPACITY : 800;
+    const d = Math.max(1, Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+    return Math.max(1, Math.min(cap, Math.floor(size * (1 - loss) / d)));
+}
+
 function upgradeSurplusWork(room, mem) {
     const cfg = (config.energy || {}).upgradeSurplus;
     if (!cfg || !room || !Array.isArray(cfg.rooms) || cfg.rooms.indexOf(room.name) < 0) return 0;
@@ -374,8 +386,11 @@ function upgradeSurplusWork(room, mem) {
     const prev = m.upgradeSurplus;
     const now = typeof Game !== 'undefined' ? Game.time : 0;
     if (prev && prev.t === now) return prev.work;
-    const tiers = (Array.isArray(cfg.tiers) ? cfg.tiers : []).slice().sort((a, b) => a[0] - b[0]);
-    const exitBelow = Math.max(Number(cfg.exitBelow) || 0, 0);
+    const own = room.controller && room.controller.level < 8 && cfg.tiersByRoom && Array.isArray(cfg.tiersByRoom[room.name]) ? cfg.tiersByRoom[room.name] : null;
+    const rawTiers = own || (Array.isArray(cfg.tiers) ? cfg.tiers : []);
+    const tiers = rawTiers.map(([at, w]) => [at, w === 'link' ? linkSupplyWork(room, m, cfg) : Number(w) || 0]).sort((a, b) => a[0] - b[0]);
+    const ownExit = own && cfg.exitBelowByRoom && Number(cfg.exitBelowByRoom[room.name]);
+    const exitBelow = Math.max((ownExit > 0 ? ownExit : Number(cfg.exitBelow)) || 0, 0);
     const reserve = Math.max(Number(cfg.reserve) || 0, 0);
     const band = tiers.length ? Math.max(0, tiers[0][0] - exitBelow) : 0;
     const was = prev ? Number(prev.work) || 0 : 0;
@@ -1155,6 +1170,7 @@ function pvpDangerRoom(name) {
 
 module.exports = {
     upgradeSurplusWork,
+    linkSupplyWork,
     surplusBodyPlan,
     placeSite,
     siteAllowed,
