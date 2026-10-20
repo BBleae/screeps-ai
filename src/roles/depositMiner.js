@@ -22,6 +22,13 @@ function run(creep) {
     if (require('pvp').fleeHighThreat(creep)) return;
     const m = creep.memory;
     const info = Memory.deposits && Memory.deposits.list && Memory.deposits.list[m.depositId];
+    const threat = info ? deposit.threatNear(m.depositRoom, cfg) : null;
+    if (threat) {
+        m.retreat = { at: Game.time, room: threat.room, why: threat.why };
+        if (creep.store.getUsedCapacity() > 0) goHome(creep);
+        else if (creep.room.name !== m.home) movement.go(creep, new RoomPosition(25, 25, m.home), { range: 20, reusePath: 20 });
+        return;
+    }
     const travel = m.travel || 150;
     if (!cfg.enabled || !info) m.done = true;
     if (!m.done && creep.ticksToLive < travel + 30) m.done = true;

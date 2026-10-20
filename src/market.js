@@ -163,15 +163,42 @@ function energyBudget(e) {
     const led = ledger();
     const b = (e && e.budget) || {};
     const n = Number(b.days) || 7;
-    if (led.energyBudget && led.energyBudget.day === led.day && led.energyBudget.div === n) return led.energyBudget;
-    const s = salesAvg(led.day, n);
-    const from = !(e && e.budget) ? Infinity : b.from ? Math.floor(Date.parse(b.from + 'T00:00:00Z') / 86400000) : 0;
-    const legacy = !(led.day >= from);
-    const lo = Number(b.min) || 0;
-    const hi = Number(b.max) || Infinity;
-    const budget = legacy ? (Number(e && e.actualStopCredits) || Number(e && e.dailyBuyCredits) || 0) : Math.round(Math.min(hi, Math.max(lo, s.avg)));
-    led.energyBudget = { day: led.day, budget, salesAvg: s.avg, days: s.days, legacy, div: n };
-    return led.energyBudget;
+    let eb = led.energyBudget;
+    if (!(eb && eb.day === led.day && eb.div === n && eb.base != null)) {
+        const s = salesAvg(led.day, n);
+        const from = !(e && e.budget) ? Infinity : b.from ? Math.floor(Date.parse(b.from + 'T00:00:00Z') / 86400000) : 0;
+        const legacy = !(led.day >= from);
+        const lo = Number(b.min) || 0;
+        const hi = Number(b.max) || Infinity;
+        const base = legacy ? (Number(e && e.actualStopCredits) || Number(e && e.dailyBuyCredits) || 0) : Math.round(Math.min(hi, Math.max(lo, s.avg)));
+        eb = led.energyBudget = { day: led.day, base, budget: base, salesAvg: s.avg, days: s.days, legacy, div: n };
+    }
+    const pixels = Number(led.pixels) || 0;
+    const credits = pixels > 0 && !(e && e.pixelCredits === false) ? Math.round(pixels * pixelPrice()) : 0;
+    eb.pixels = pixels;
+    eb.pixelCredits = credits;
+    eb.budget = eb.base + credits;
+    return eb;
+}
+
+function pixelPrice() {
+    const mem = Memory.market || (Memory.market = {});
+    const c = mem.pixelPx;
+    if (c && Game.time - c.at < 1500) return Number(c.price) || 0;
+    let price = c ? Number(c.price) || 0 : 0;
+    try {
+        const h = typeof Game !== 'undefined' && Game.market && typeof Game.market.getHistory === 'function' ? Game.market.getHistory(typeof PIXEL !== 'undefined' ? PIXEL : 'pixel') || [] : [];
+        const last = h[h.length - 1];
+        if (last && Number(last.avgPrice) > 0) price = Number(last.avgPrice);
+    } catch (error) { utils.logErr('market.pixelPrice', error); }
+    mem.pixelPx = { at: Game.time, price };
+    return price;
+}
+
+function notePixel() {
+    const led = ledger();
+    led.pixels = (Number(led.pixels) || 0) + 1;
+    return led.pixels;
 }
 
 function buyShareOk(cfg, led, res, commit) {
@@ -1365,4 +1392,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { buyRoomOk, confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
+module.exports = { pixelPrice, notePixel, buyRoomOk, confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };

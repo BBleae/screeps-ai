@@ -17,7 +17,7 @@ const MODULE_MAP = {
     defense: 'defense.js', roles_defender: 'roles/defender.js', retire: 'retire.js',
     cpu_shed: 'cpu_shed.js', spawn_exit: 'spawn_exit.js', pvp: 'pvp.js',
     deposit: 'deposit.js', roles_depositMiner: 'roles/depositMiner.js', roles_depositScout: 'roles/depositScout.js',
-    wall_breach: 'wall_breach.js', cpu_remote: 'cpu_remote.js', wallfix: 'wallfix.js', roles_wallBreaker: 'roles/wallBreaker.js',
+    wall_breach: 'wall_breach.js', cpu_remote: 'cpu_remote.js', cpu_gate: 'cpu_gate.js', wallfix: 'wallfix.js', roles_wallBreaker: 'roles/wallBreaker.js',
     conquest: 'conquest.js', roles_siegeDismantler: 'roles/siegeDismantler.js', roles_siegeGuard: 'roles/siegeGuard.js', roles_downgrader: 'roles/downgrader.js', roles_lootHauler: 'roles/lootHauler.js',
 };
 const origResolve = Module._resolveFilename;
@@ -730,6 +730,8 @@ const remoteMod = require('../src/remote');
 const industry = require('../src/industry');
 const taskBroker = require('../src/task_broker');
 const main = require('../src/main');
+const cpuGateMod = require('cpu_gate');
+for (let i = 0; i < 100; i++) cpuGateMod.record(10);
 const ROLES = {
     harvester: require('../src/roles/harvester'),
     hauler: require('../src/roles/hauler'),
@@ -1255,28 +1257,29 @@ try {
     main.loop();
     assert(Memory.rooms && Memory.rooms.W33S7, '空 Memory 自动初始化 rooms');
     assert((Memory.errors || []).length === 0, '空 Memory 启动无错误: ' + JSON.stringify(Memory.errors || []));
-    const pixelTick = (stats) => {
-        Memory.stats = stats;
+    const pixelTick = (fill) => {
+        cpuGateMod.reset();
+        for (const v of fill) cpuGateMod.record(v);
         world.time++;
         if (world.time % 30 === 0) world.time++;
         global.__pixelCalls = 0;
+        delete Memory.pixelFill;
         const before = (Memory.pixelGate && Memory.pixelGate.skip) || 0;
         main.loop();
         return { calls: global.__pixelCalls, skipped: ((Memory.pixelGate && Memory.pixelGate.skip) || 0) - before };
     };
-    const livePixelShare = config.pixel.maxCpuShare;
-    config.pixel.maxCpuShare = 0.75;
+    assert(config.pixel.enabled === true && config.pixel.maxAvgCpu === 150 && config.pixel.window === 100, '10-20 15:38 pixel 重开：bucket 满且近 100 tick 实测均值 < 150');
     const noSamples = pixelTick([]);
-    assert(noSamples.calls === 0 && noSamples.skipped === 1 && Memory.pixelGate.n === 0,
-        '没有 CPU 样本（刚 respawn）时不产 pixel、记一次放弃（得 ' + JSON.stringify(noSamples) + '、' + JSON.stringify(Memory.pixelGate) + '）');
-    const lowUse = pixelTick([{ cpu: 60 }, { cpu: 70 }, { cpu: 80 }]);
-    assert(lowUse.calls === 1 && lowUse.skipped === 0, 'CPU 桶满且近期用量低时 generatePixel 被调用（得 ' + JSON.stringify(lowUse) + '）');
-    const pixelLine = Game.cpu.limit * config.pixel.maxCpuShare;
-    const tight = pixelTick([{ cpu: 60 }, { cpu: 130 }, { cpu: 135 }, { cpu: 140 }, { cpu: 138 }, { cpu: 136 }]);
-    assert(tight.calls === 0 && tight.skipped === 1 && Memory.pixelGate.mean > pixelLine && Memory.pixelGate.n === config.pixel.samples && Memory.pixelGate.at === world.time,
-        '近期用量均值高于 limit × maxCpuShare：不产 pixel、记放弃次数/tick/均值（得 ' + JSON.stringify(tight) + '、' + JSON.stringify(Memory.pixelGate) + '）');
-    assert(main.pixelGate().n === config.pixel.samples && main.pixelGate().mean === 135.8, '均值取最近 ' + config.pixel.samples + ' 条（得 ' + JSON.stringify(main.pixelGate()) + '）');
-    config.pixel.maxCpuShare = livePixelShare;
+    assert(noSamples.calls === 0 && noSamples.skipped === 1, '刚重载（近 100 tick 样本不满）：不产 pixel、记一次放弃（得 ' + JSON.stringify(noSamples) + '）');
+    const partial = pixelTick(Array.from({ length: 99 }, () => 60));
+    assert(partial.calls === 0 && partial.skipped === 1, '只有 99 tick 样本：不产');
+    const lowUse = pixelTick(Array.from({ length: 100 }, () => 120));
+    assert(lowUse.calls === 1 && lowUse.skipped === 0 && Memory.pixelAt === world.time && Memory.pixelFill && Memory.pixelFill.at === world.time,
+        '100 tick 均值 120 < 150、bucket 10000：generatePixel，记 pixelAt 和 pixelFill（得 ' + JSON.stringify(lowUse) + '）');
+    const tight = pixelTick(Array.from({ length: 100 }, (x, i) => (i < 50 ? 140 : 160)));
+    assert(tight.calls === 0 && tight.skipped === 1 && Memory.pixelGate.mean === 150 && Memory.pixelGate.n === 100, '均值 150（不是 < 150）：不产，记放弃与均值（得 ' + JSON.stringify(Memory.pixelGate) + '）');
+    cpuGateMod.reset();
+    for (let i = 0; i < 100; i++) cpuGateMod.record(10);
 } catch (e) {
     fails++;
     console.log('  ✗ 空 Memory loop throw: ' + e.stack.split('\n').slice(0, 3).join(' | '));
@@ -16528,7 +16531,11 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     assert(routeCalls.length === before, '跳数有缓存');
     world.time = Math.ceil((world.time + 1) / 20) * 20;
     const savedAllow = config.deposit.allowRooms;
+    const savedMinHome = config.deposit.minHomeStorage;
     config.deposit.allowRooms = ['W30S7'];
+    config.deposit.minHomeStorage = 0;
+    cpuGateMod.reset();
+    for (let i = 0; i < 100; i++) cpuGateMod.record(120);
     dep.run();
     const list = Memory.deposits.list;
     assert(list.d1 && !list.d2 && list.d3, '只记 silicon/mist（得 ' + Object.keys(list).join(',') + '）');
@@ -16539,10 +16546,13 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     list.d1.at = world.time - 5000;
     assert(!dep.getDemands(home).some((d) => d.role === 'depositMiner'), '情报过期（没看见）不出采集者');
     list.d1.at = world.time;
-    Memory.stats = [{ cpu: 150 }, { cpu: 152 }];
+    for (let i = 0; i < 100; i++) cpuGateMod.record(153);
     list.d1.home = null;
     world.time += 20; dep.run();
-    assert(!Memory.deposits.list.d1.home && Memory.deposits.gate && Memory.deposits.gate.cpuOk === false, 'CPU 均值 > 145：不开新工');
+    assert(!Memory.deposits.list.d1.home && Memory.deposits.gate && Memory.deposits.gate.cpuOk === false, 'CPU 近 100 tick 均值 153 > 152：不开新工');
+    cpuGateMod.reset();
+    for (let i = 0; i < 100; i++) cpuGateMod.record(10);
+    config.deposit.minHomeStorage = savedMinHome;
     config.deposit.enabled = false;
     assert(dep.getDemands(home).length === 0, 'enabled:false ⇒ 无需求');
     config.deposit.enabled = true;
@@ -17585,6 +17595,135 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     Date.now = realNow;
     const twSrc = fs.readFileSync(require.resolve('../src/tower.js'), 'utf8');
     assert(/fallbackCoreShare: 0\.5/.test(twSrc), 'safeMode 逻辑未改（tower.js 兜底 0.5 照旧）');
+}
+
+{
+    console.log('== 10-20 15:38 pixel 重开 + deposit W30S5 + 新外矿 CPU 闸 150：100 tick 实测均值、补桶期规则、邻房撤退、母房选择、等孵报警 ==');
+    const gate = require('cpu_gate');
+    const dep = require('deposit');
+    const rem = require('remote');
+    const savedBucket = Game.cpu.bucket, savedMap = Game.map, savedRooms = Game.rooms, savedDep = Memory.deposits, savedHB = Memory.highwayBlock, savedPT = Memory.pvpThreat;
+    gate.reset();
+    for (let i = 0; i < 50; i++) gate.record(100);
+    assert(gate.rollingAvg().n === 50 && !gate.rollingAvg().full && !gate.avgOk(200), '不满 100 tick：不算数（新工一律不开）');
+    for (let i = 0; i < 100; i++) gate.record(i < 50 ? 140 : 160);
+    assert(gate.rollingAvg().avg === 150 && gate.rollingAvg().n === 100 && gate.avgOk(150) && !gate.avgOk(149.9), '环形 100 tick：只算最近 100 个');
+    delete Memory.pixelFill; delete Memory.pixelRefill;
+    Game.cpu.bucket = 10000;
+    world.time = 500000;
+    gate.notePixel();
+    assert(Memory.pixelAt === 500000 && gate.newWorkHeld() && gate.refilling(), 'pixel 后：记 pixelAt，进入补桶期，新外矿/新 deposit 暂停');
+    world.time += 1; Game.cpu.bucket = 0; gate.track();
+    assert(gate.newWorkHeld(), 'bucket 0：暂停中');
+    gate.reset(); for (let i = 0; i < 100; i++) gate.record(100);
+    assert(rem.newRemoteGate().ok === false && rem.newRemoteGate().why === 'pixelRefill', '补桶期：新外矿不收');
+    assert(dep.cpuOk(dep.settings()) === false, '补桶期：新 deposit 不分配');
+    world.time += 900; Game.cpu.bucket = 9000; gate.track();
+    assert(!gate.newWorkHeld() && gate.refilling() && Memory.pixelFill.at9k === 500901, 'bucket 回到 9000：放开新工；补桶记到 9000 的时间');
+    assert(rem.newRemoteGate().ok === true && config.remote.newCpuMax === 150, '新外矿闸：100 tick 均值 ≤ 150 收');
+    for (let i = 0; i < 100; i++) gate.record(151);
+    assert(rem.newRemoteGate().ok === false && rem.newRemoteGate().why === 'cpu', '均值 151 > 150：新外矿不收');
+    world.time += 99; Game.cpu.bucket = 10000; gate.track();
+    assert(!Memory.pixelFill && Memory.pixelRefill.length === 1 && Memory.pixelRefill[0].ticks === 1000 && Memory.pixelRefill[0].to9k === 901, '补满 10000：记 pixelRefill（1000 tick），观察猫查 >2000 规则');
+    gate.notePixel(); world.time += 3001; Game.cpu.bucket = 5000; gate.track();
+    assert(!gate.refilling() && Memory.pixelFill.expired, '补桶超过 refillWindow 3000：补桶期豁免失效（守卫恢复正常），仍继续计时');
+    delete Memory.pixelFill;
+    const ind = require('../src/industry');
+    const labRoom = { name: 'W32S4', storage: { store: { energy: 100000 } }, controller: { my: true, level: 8 } };
+    gate.notePixel(); Game.cpu.bucket = 100;
+    assert(ind.labsAllowed(labRoom) === true, '补桶期 bucket 100：lab 照跑（labCpuBucketBypass 自动关不算数）');
+    delete Memory.pixelFill;
+    const savedStats = Memory.stats;
+    Memory.stats = Array.from({ length: 10 }, () => ({ cpu: 160 }));
+    assert(ind.labsAllowed(labRoom) === false, '不在补桶期、bucket 低、均值 160 > 145：lab 照旧停');
+    Memory.stats = savedStats;
+    const cfg = dep.settings();
+    assert(cfg.cpuAvgMax === 152 && JSON.stringify(cfg.allowRooms) === JSON.stringify(['W30S5']) && JSON.stringify(cfg.avoidRooms) === JSON.stringify(['W30S9']) && cfg.pvpSkipTicks === 3000 &&
+        cfg.maxActive === 1 && cfg.minHomeStorage === 30000 && cfg.preferHome === 'W33S7' && cfg.preferHomeRatio === 1.5 && cfg.spawnWaitTicks === 300 && cfg.withdrawAvg === 150,
+        '配置：deposit 闸 152、只采 W30S5、只 1 处、母房 storage ≥3 万、W33S7 路长 ≤1.5 倍优先、等孵 300 报警、均值 >150 不孵新矿工');
+    const exits = { W30S5: { 1: 'W30S4', 3: 'W29S5', 5: 'W30S6', 7: 'W31S5' } };
+    Game.map = Object.assign({}, savedMap, { describeExits: (n) => exits[n] || {} });
+    Memory.highwayBlock = {}; Memory.pvpThreat = {};
+    Game.rooms = {};
+    world.time += 1;
+    assert(dep.threatNear('W30S5', cfg) === null, '邻房都没敌情：不撤');
+    world.time += 1;
+    Memory.highwayBlock.W30S6 = { at: world.time - 10, until: world.time + 100, user: 'Jumpp' };
+    assert(dep.threatNear('W30S5', cfg).room === 'W30S6', '邻房 W30S6 有 Jumpp 封路记录：撤');
+    world.time += 1;
+    Memory.highwayBlock = {};
+    Memory.pvpThreat.W30S4 = { until: world.time + 50, user: 'Jumpp', at: world.time };
+    assert(dep.threatNear('W30S5', cfg).why === 'pvp', '邻房 pvpThreat：撤');
+    world.time += 1;
+    Memory.pvpThreat = {};
+    Game.rooms = { W29S5: { name: 'W29S5', find: () => [{ owner: { username: 'someone' }, body: [{ type: RANGED_ATTACK, hits: 100 }] }] } };
+    assert(dep.threatNear('W30S5', cfg).why === 'hostile', '邻房看得见带远程攻击部件的敌人：撤');
+    world.time += 1;
+    Game.rooms = { W29S5: { name: 'W29S5', find: () => [{ owner: { username: 'Jumpp' }, body: [{ type: CARRY, hits: 100 }] }] } };
+    assert(dep.threatNear('W30S5', cfg), 'Jumpp 的矿车也算');
+    assert(dep.workable({ room: 'W30S5', type: 'silicon', at: world.time, cd: 0, decayAt: world.time + 40000 }, cfg) === false, '有邻房威胁：不分配');
+    world.time += 1;
+    Game.rooms = {};
+    const minerRun = require('roles_depositMiner');
+    Memory.deposits = { list: { dz: { room: 'W30S5', type: 'silicon', x: 10, y: 10, at: world.time, cd: 0, decayAt: world.time + 40000, home: 'W33S7' } }, routes: {}, visits: {} };
+    Memory.highwayBlock = { W31S5: { until: world.time + 100 } };
+    const moves = [];
+    const mc = { name: 'dm', room: { name: 'W30S5', controller: null, find: () => [] }, pos: new RoomPosition(10, 11, 'W30S5'), ticksToLive: 1000, body: [],
+        memory: { role: 'depositMiner', home: 'W33S7', depositId: 'dz', depositRoom: 'W30S5' }, store: { getUsedCapacity: () => 0, getFreeCapacity: () => 500 },
+        moveTo: () => 0, getActiveBodyparts: () => 0 };
+    const mv = require('movement'); const savedGo = mv.go;
+    mv.go = (c, target) => { moves.push(target.roomName || (target.pos && target.pos.roomName)); return 0; };
+    minerRun.run(mc);
+    mv.go = savedGo;
+    assert(mc.memory.retreat && mc.memory.retreat.room === 'W31S5' && moves[0] === 'W33S7' && !mc.memory.done, '在途矿工：邻房 W31S5 有威胁 → 空车直接撤回母房，不收工（得 ' + JSON.stringify({ r: mc.memory.retreat, moves }) + '）');
+    Memory.highwayBlock = {};
+    const H = (name, storageE, cap) => ({ name, controller: { my: true, level: 8, owner: { username: 'BBleae' } }, terminal: { store: {} }, storage: { store: { energy: storageE } }, energyCapacityAvailable: cap || 5600, find: () => [] });
+    const d = { room: 'W30S5', x: 10, y: 10 };
+    const savedPL = dep.pathLen;
+    Memory.deposits = { list: {}, routes: {}, visits: {}, paths: {} };
+    Game.map = Object.assign({}, Game.map, { getRoomLinearDistance: () => 2, findRoute: (a) => (a === 'W33S7' ? -2 : [{ room: 'x' }, { room: 'W30S5' }]) });
+    const setLens = (lens) => { Memory.deposits.paths = {}; for (const k of Object.keys(lens)) Memory.deposits.paths[k + ':W30S5:10:10'] = { len: lens[k], at: world.time }; Memory.deposits.routes = {}; };
+    setLens({ W33S7: 150, W31S6: 110, W31S5: 60 });
+    let pick = dep.pickHome([H('W33S7', 200000), H('W31S6', 50000), H('W31S5', 29000)], d, cfg);
+    assert(pick.home.name === 'W33S7' && pick.log.nearest === 'W31S6' && pick.log.skipped.W31S5 === 'storage' && pick.log.lens.W33S7 === 150 && pick.log.lens.W31S6 === 110,
+        'W31S5 storage 2.9 万 < 3 万不算；W33S7 150 ≤ 1.5×110：选 W33S7（得 ' + JSON.stringify(pick.log) + '）');
+    setLens({ W33S7: 170, W31S6: 110 });
+    pick = dep.pickHome([H('W33S7', 200000), H('W31S6', 50000)], d, cfg);
+    assert(pick.home.name === 'W31S6' && pick.log.rule === 'nearest', 'W33S7 170 > 1.5×110=165：选最近的 W31S6');
+    world.time = Math.ceil((world.time + 1) / 20) * 20;
+    Memory.deposits = { list: { dw: { room: 'W30S5', type: 'silicon', x: 10, y: 10, at: world.time, cd: 0, decayAt: world.time + 40000, home: 'W33S7' } }, routes: {}, visits: {} };
+    const home = H('W33S7', 200000);
+    gate.reset(); for (let i = 0; i < 100; i++) gate.record(120);
+    Game.creeps = {};
+    Game.cpu.bucket = 10000;
+    assert(dep.getDemands(home).some((x) => x.role === 'depositMiner') && Memory.deposits.wait.dw.since === world.time, '有分配、没矿工：出需求并开始记等孵');
+    world.time += 301;
+    dep.getDemands(home);
+    assert(Memory.deposits.spawnWait && Memory.deposits.spawnWait.id === 'dw' && Memory.deposits.spawnWait.ticks === 301, '等孵 > 300 tick：Memory.deposits.spawnWait 报警给巡检');
+    for (let i = 0; i < 100; i++) gate.record(151);
+    assert(!dep.getDemands(home).some((x) => x.role === 'depositMiner') && Memory.deposits.wait.dw.why === 'cpu', '近 100 tick 均值 > 150：不孵新矿工（撤回）');
+    gate.reset(); for (let i = 0; i < 100; i++) gate.record(120);
+    gate.notePixel(); Game.cpu.bucket = 500;
+    assert(dep.getDemands(home).some((x) => x.role === 'depositMiner'), '补桶期 bucket 500 < minBucket 3000：已分配的照常出需求（不撤）');
+    delete Memory.pixelFill;
+    assert(dep.getDemands(home).every((x) => x.role !== 'depositMiner'), '不在补桶期、bucket 500：照旧不出');
+    Game.creeps = { m1: { memory: { role: 'depositMiner', depositId: 'dw' } } };
+    Game.cpu.bucket = 10000;
+    dep.getDemands(home);
+    assert(!Memory.deposits.wait.dw && !Memory.deposits.spawnWait, '矿工出来了：等孵记录和报警清掉');
+    Game.creeps = world.creeps;
+    const mk = require('market');
+    const savedMM = Memory.market, savedGM = Game.market;
+    Memory.market = {};
+    Game.market = Object.assign({}, savedGM || {}, { getHistory: () => [{ avgPrice: 9000 }, { avgPrice: 10000 }] });
+    const e = config.market.ownOrders.energy;
+    const b0 = mk.energyBudget(e).budget;
+    mk.notePixel(); mk.notePixel();
+    const eb = mk.energyBudget(e);
+    assert(eb.pixels === 2 && eb.pixelCredits === 20000 && eb.budget === b0 + 20000 && eb.base === b0, '买能量日预算 + 当天产的 pixel × 现价（没有自动卖 pixel，按 getHistory 最近一天均价估）（得 ' + JSON.stringify(eb) + '）');
+    Memory.market = savedMM; Game.market = savedGM;
+    gate.reset(); for (let i = 0; i < 100; i++) gate.record(10);
+    Game.cpu.bucket = savedBucket; Game.map = savedMap; Game.rooms = savedRooms; Memory.deposits = savedDep; Memory.highwayBlock = savedHB; Memory.pvpThreat = savedPT;
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);

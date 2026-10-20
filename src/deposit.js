@@ -27,6 +27,12 @@ const DEFAULTS = {
     pvpSkipTicks: 3000,
     allowRooms: [],
     preferNorthWest: true,
+    minHomeStorage: 30000,
+    preferHome: null,
+    preferHomeRatio: 1.5,
+    spawnWaitTicks: 300,
+    threatAdjacent: true,
+    homeSearchHops: 5,
 };
 
 function settings() {
@@ -125,12 +131,54 @@ function note(room) {
     }
 }
 
-function cpuOk(cfg) {
-    if (Game.cpu.bucket < cfg.minBucket) return false;
+function statsCpuOk(max, samples, minBucket) {
+    if (Game.cpu.bucket < minBucket) return false;
     const stats = Array.isArray(Memory.stats) ? Memory.stats : [];
-    const recent = stats.slice(-cfg.cpuSamples).map((s) => Number(s && s.cpu)).filter((v) => v > 0);
+    const recent = stats.slice(-samples).map((s) => Number(s && s.cpu)).filter((v) => v > 0);
     if (!recent.length) return true;
-    return recent.reduce((a, b) => a + b, 0) / recent.length <= cfg.cpuAvgMax;
+    return recent.reduce((a, b) => a + b, 0) / recent.length <= max;
+}
+
+function cpuOk(cfg) {
+    const gate = require('cpu_gate');
+    if (gate.newWorkHeld()) return false;
+    if (Game.cpu.bucket < cfg.minBucket) return false;
+    return gate.avgOk(cfg.cpuAvgMax);
+}
+
+function armedOrThreat(room) {
+    if (!room || typeof room.find !== 'function') return false;
+    const highThreat = (config.pvp && config.pvp.highThreat) || [];
+    const own = room.controller && room.controller.my;
+    return room.find(FIND_HOSTILE_CREEPS).some((c) => {
+        if (!c || !c.body) return false;
+        const owner = c.owner && c.owner.username;
+        if (owner && highThreat.indexOf(owner) >= 0) return true;
+        if (own) return false;
+        return c.body.some((p) => p.hits > 0 && (p.type === ATTACK || p.type === RANGED_ATTACK));
+    });
+}
+
+const threatCache = { time: -1, rooms: {} };
+function threatNear(roomName, cfg) {
+    if (!roomName) return null;
+    if (threatCache.time !== Game.time) { threatCache.time = Game.time; threatCache.rooms = {}; }
+    if (Object.prototype.hasOwnProperty.call(threatCache.rooms, roomName)) return threatCache.rooms[roomName];
+    const utils = require('utils');
+    let names = [roomName];
+    if ((cfg || settings()).threatAdjacent !== false && Game.map && typeof Game.map.describeExits === 'function') {
+        names = names.concat(Object.values(Game.map.describeExits(roomName) || {}));
+    }
+    let hit = null;
+    for (const name of names) {
+        const block = Memory.highwayBlock && Memory.highwayBlock[name];
+        if (utils.pvpDangerRoom(name)) hit = { room: name, why: 'pvp' };
+        else if (block && Number(block.until) > Game.time) hit = { room: name, why: 'highwayBlock' };
+        else if (Game.rooms[name] && armedOrThreat(Game.rooms[name])) hit = { room: name, why: 'hostile' };
+        if (hit) break;
+    }
+    threatCache.rooms[roomName] = hit;
+    return hit;
 }
 
 function northWestScore(roomName) {
@@ -160,6 +208,7 @@ function workable(d, cfg) {
     if (allow.length && allow.indexOf(d.room) < 0) return false;
     if (require('utils').pvpDangerRoom(d.room)) return false;
     if (recentlyPvpDeposit(d.room, cfg)) return false;
+    if (threatNear(d.room, cfg)) return false;
     return Game.time - d.at <= cfg.seenTtl && d.cd <= cfg.maxCooldown &&
         d.decayAt - Game.time >= cfg.minDecay && !(d.hostileUntil > Game.time);
 }
@@ -174,6 +223,9 @@ function run() {
         if (Game.time - d.at > cfg.cacheTtl || d.decayAt < Game.time) delete m.list[id];
         else if (d.home && !workable(d, cfg)) d.home = null;
     }
+    for (const k in m.wait || {}) if (!m.list[k] || !m.list[k].home) delete m.wait[k];
+    if (m.spawnWait && (!m.list[m.spawnWait.id] || !m.list[m.spawnWait.id].home)) delete m.spawnWait;
+    for (const k in m.paths || {}) if (Game.time - m.paths[k].at > cfg.routeTtl) delete m.paths[k];
     for (const k in m.routes) if (Game.time - m.routes[k].at > cfg.routeTtl) delete m.routes[k];
     for (const r in m.visits) if (Game.time - m.visits[r] > cfg.cacheTtl) delete m.visits[r];
     let active = Object.values(m.list).filter((d) => d.home).length;
@@ -185,18 +237,70 @@ function run() {
     for (const id of candidates) {
         if (active >= cfg.maxActive) break;
         const d = m.list[id];
-        let best = null, bestH = Infinity;
-        for (const h of hs) {
-            if (h.energyCapacityAvailable < cfg.minBudget) continue;
-            const n = hops(h.name, d.room, cfg);
-            if (n < bestH) { bestH = n; best = h; }
-        }
-        if (!best) { d.noHome = Game.time; continue; }
-        d.home = best.name;
-        d.hops = bestH;
+        const pick = pickHome(hs, d, cfg);
+        d.homeChoice = Object.assign({ at: Game.time }, pick.log);
+        if (!pick.home) { d.noHome = Game.time; continue; }
+        d.home = pick.home.name;
+        d.hops = pick.hops === Infinity ? Math.ceil(pick.len / 50) : pick.hops;
+        d.pathLen = pick.len;
         d.assignedAt = Game.time;
         active++;
     }
+}
+
+function homeStorage(room) {
+    return room && room.storage && room.storage.store ? Number(room.storage.store[RESOURCE_ENERGY] || 0) : 0;
+}
+
+function pathLen(home, d, cfg) {
+    const m = mem();
+    const paths = m.paths || (m.paths = {});
+    const key = home.name + ':' + d.room + ':' + d.x + ':' + d.y;
+    const hit = paths[key];
+    if (hit && Game.time - hit.at < cfg.routeTtl) return hit.len == null ? Infinity : hit.len;
+    let len = null;
+    const from = home.storage ? home.storage.pos : (home.terminal ? home.terminal.pos : null);
+    if (!from || typeof PathFinder === 'undefined' || typeof RoomPosition === 'undefined') return null;
+    {
+        const me = myName();
+        const res = PathFinder.search(from, { pos: new RoomPosition(d.x, d.y, d.room), range: 1 }, {
+            plainCost: 2, swampCost: 10, maxOps: 40000, maxRooms: 16,
+            roomCallback: (name) => (name !== home.name && blockedRoom(name, d.room, me) ? false : undefined),
+        });
+        if (res && !res.incomplete && Array.isArray(res.path)) len = res.path.length;
+    }
+    paths[key] = { len, at: Game.time };
+    return len == null ? Infinity : len;
+}
+
+function pickHome(hs, d, cfg) {
+    const minStore = Math.max(0, Number(cfg.minHomeStorage) || 0);
+    const searchHops = Math.max(cfg.maxHops, Number(cfg.homeSearchHops) || cfg.maxHops);
+    const log = { lens: {}, skipped: {} };
+    const ok = [];
+    for (const h of hs) {
+        if (h.energyCapacityAvailable < cfg.minBudget) { log.skipped[h.name] = 'budget'; continue; }
+        if (homeStorage(h) < minStore) { log.skipped[h.name] = 'storage'; continue; }
+        if (Game.map.getRoomLinearDistance(h.name, d.room) > searchHops) continue;
+        const n = hops(h.name, d.room, cfg);
+        const preferred = cfg.preferHome && h.name === cfg.preferHome;
+        if (n === Infinity && !preferred) continue;
+        const raw = pathLen(h, d, cfg);
+        const len = raw == null ? (n === Infinity ? Infinity : n * 50) : raw;
+        log.lens[h.name] = len === Infinity ? null : len;
+        if (len === Infinity) continue;
+        ok.push({ home: h, hops: n, len, preferred });
+    }
+    if (!ok.length) return { home: null, log };
+    ok.sort((a, b) => a.len - b.len || a.home.name.localeCompare(b.home.name));
+    const nearest = ok.find((o) => !o.preferred) || ok[0];
+    const pref = ok.find((o) => o.preferred);
+    const ratio = Number(cfg.preferHomeRatio) || 1.5;
+    const chosen = pref && pref.len <= nearest.len * ratio ? pref : (nearest.hops === Infinity ? null : nearest);
+    log.nearest = nearest.home.name;
+    log.chosen = chosen ? chosen.home.name : null;
+    log.rule = pref ? (chosen === pref ? 'preferred<=ratio' : 'nearest') : 'nearest';
+    return chosen ? { home: chosen.home, hops: chosen.hops, len: chosen.len, log } : { home: null, log };
 }
 
 function minerBody(budget, cfg) {
@@ -232,18 +336,39 @@ function patrolTargets(home, cfg) {
     return out.sort((a, b) => (m.visits[a] || 0) - (m.visits[b] || 0));
 }
 
+function minerFor(id) {
+    for (const name in Game.creeps) {
+        const c = Game.creeps[name];
+        if (c && c.memory && c.memory.role === 'depositMiner' && c.memory.depositId === id) return c;
+    }
+    return null;
+}
+
+function noteWait(m, id, home, cfg, why) {
+    const wait = m.wait || (m.wait = {});
+    const w = wait[id] || (wait[id] = { since: Game.time, home });
+    w.why = why;
+    w.at = Game.time;
+    if (Game.time - w.since > (Number(cfg.spawnWaitTicks) || 300)) m.spawnWait = { id, home, since: w.since, ticks: Game.time - w.since, why, at: Game.time };
+}
+
 function getDemands(home) {
     const cfg = settings();
     if (!cfg.enabled || !home || !home.controller || !home.controller.my) return [];
     const out = [];
-    if (Game.cpu.bucket < cfg.minBucket) return out;
+    const gate = require('cpu_gate');
+    if (Game.cpu.bucket < cfg.minBucket && !gate.refilling()) return out;
     const m = Memory.deposits;
     if (m && m.list) {
         for (const id in m.list) {
             const d = m.list[id];
             if (d.home !== home.name || !workable(d, cfg)) continue;
+            const live = minerFor(id);
+            if (!live && !gate.avgOk(cfg.withdrawAvg || 150)) { noteWait(m, id, home.name, cfg, 'cpu'); continue; }
             const body = minerBody(home.energyCapacityAvailable, cfg);
             if (!body.length) continue;
+            if (!live) noteWait(m, id, home.name, cfg, 'spawn');
+            else if (m.wait && m.wait[id]) { delete m.wait[id]; if (m.spawnWait && m.spawnWait.id === id) delete m.spawnWait; }
             out.push({ role: 'depositMiner', slot: 'deposit:' + id, body,
                 memory: { role: 'depositMiner', slotKey: 'deposit:' + id, home: home.name, depositId: id, depositRoom: d.room },
                 lead: body.length * 3 + (d.hops || 3) * 50, priority: 0, cls: 'opportunistic',
@@ -258,4 +383,4 @@ function getDemands(home) {
 }
 
 module.exports = {
-    recentlyPvpDeposit, settings, run, note, hops, workable, cpuOk, minerBody, patrolTargets, getDemands, isHighway, isKeeperRoom, scoutHome };
+    recentlyPvpDeposit, statsCpuOk, threatNear, pickHome, pathLen, minerFor, settings, run, note, hops, workable, cpuOk, minerBody, patrolTargets, getDemands, isHighway, isKeeperRoom, scoutHome };

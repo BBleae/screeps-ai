@@ -1080,6 +1080,16 @@ function candidatePool(home, neighbors) {
     return neighbors;
 }
 
+function newRemoteGate() {
+    const gate = require('cpu_gate');
+    if (gate.newWorkHeld()) return { ok: false, why: 'pixelRefill' };
+    const max = Number(config.remote && config.remote.newCpuMax);
+    if (!(max > 0)) return { ok: true };
+    const a = gate.rollingAvg();
+    if (!gate.avgOk(max)) return { ok: false, why: a.full ? 'cpu' : 'cpuWarmup', avg: a.avg };
+    return { ok: true };
+}
+
 function admitCandidates(home, remotes) {
     const level = home.controller && home.controller.level || 0;
     const maxRooms = config.remote && config.remote.maxRooms && config.remote.maxRooms[level] || 0;
@@ -1091,6 +1101,8 @@ function admitCandidates(home, remotes) {
     const limit = whitelisted ? Math.max(maxRooms, pool.length) : maxRooms;
     const selected = Object.values(remotes).filter((record) => record.enabled).length;
     if (selected >= limit) return;
+    const gate = newRemoteGate();
+    if (!gate.ok) { (Memory.remoteGate || (Memory.remoteGate = {}))[home.name] = { at: Game.time, why: gate.why, avg: gate.avg }; return; }
     const username = myUsername(home);
     const skOk = skAllowed(home);
     const skLimit = Math.max(0, Number(skSettings().maxRoomsPerHome) || 0);
@@ -1860,7 +1872,7 @@ function reserverHandoffs(home, demands, blockingTicks) {
     });
 }
 
-module.exports = { dropHomeHold, refreshDropRoom, dropNeedsRefresh, reserverCapReached,
+module.exports = { newRemoteGate, dropHomeHold, refreshDropRoom, dropNeedsRefresh, reserverCapReached,
     dropRoom,
     remoteWhitelist,
     canClearReservation,

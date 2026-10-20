@@ -29,6 +29,7 @@ const cpuShed = require('cpu_shed');
 const wallFix = require('wallfix');
 const pvp = require('pvp');
 const cpuRemote = require('cpu_remote');
+const cpuGate = require('cpu_gate');
 
 const ROLES = {
     harvester: require('roles_harvester'),
@@ -185,6 +186,7 @@ module.exports.loop = function () {
     Memory.rooms = Memory.rooms || {};
     Memory.map = Memory.map || {};
     Memory.errors = Memory.errors || [];
+    try { cpuGate.track(); } catch (e) { logErr('cpuGate.track', e); }
 
     let shed = null;
     try {
@@ -351,8 +353,11 @@ module.exports.loop = function () {
                 log.line = gate.line;
                 log.n = gate.n;
             } else if (gate && typeof Game.cpu.generatePixel === 'function') {
-                if (Game.cpu.generatePixel() === OK) Memory.pixels = (Memory.pixels || 0) + 1;
-                else Memory.pixelRetry = Game.time + 10000;
+                if (Game.cpu.generatePixel() === OK) {
+                    Memory.pixels = (Memory.pixels || 0) + 1;
+                    cpuGate.notePixel();
+                    try { require('market').notePixel(); } catch (e) { logErr('market.notePixel', e); }
+                } else Memory.pixelRetry = Game.time + 10000;
             }
         }
     } finally {
@@ -373,6 +378,7 @@ module.exports.loop = function () {
             pendingStat = null;
         }
         try { noteSpike(spkT0); } catch (e) {  }
+        try { cpuGate.record(Game.cpu.getUsed()); } catch (e) {  }
     }
 };
 
@@ -452,19 +458,7 @@ function runRoom(room) {
 let pendingStat = null;
 
 function pixelGate() {
-    const cfg = config.pixel || {};
-    const want = Math.max(1, Math.floor(Number(cfg.samples) || 5));
-    const stats = Array.isArray(Memory.stats) ? Memory.stats : [];
-    const values = [];
-    for (let i = stats.length - 1; i >= 0 && values.length < want; i--) {
-        const cpu = stats[i] && Number(stats[i].cpu);
-        if (Number.isFinite(cpu)) values.push(cpu);
-    }
-    const line = (Number(Game.cpu.limit) || 0) * (Number(cfg.maxCpuShare) || 0);
-    const n = values.length;
-    const mean = n ? Math.round(values.reduce((a, b) => a + b, 0) / n * 10) / 10 : null;
-    const ok = n >= Math.max(1, Number(cfg.minSamples) || 1) && mean <= line;
-    return { ok, mean, line: Math.round(line * 10) / 10, n };
+    return cpuGate.pixelReady();
 }
 
 function sampleStats() {

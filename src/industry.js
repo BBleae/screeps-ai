@@ -105,7 +105,8 @@ function labsAllowed(room) {
     if (storageEnergy(room) < Number(cfg.labStorageReserve || 0)) return false;
     const bypass = Number(cfg.labCpuBucketBypass) || 0;
     if (bypass > 0 && Game.cpu && Game.cpu.bucket >= bypass) return true;
-    try { const dep = require('deposit'); return dep.cpuOk(dep.settings()); } catch (e) { return true; }
+    try { if (bypass > 0 && require('cpu_gate').refilling()) return true; } catch (e) { return true; }
+    try { const dep = require('deposit'); const ds = dep.settings(); return dep.statsCpuOk(Number(cfg.labCpuAvgMax) || 145, ds.cpuSamples, ds.minBucket); } catch (e) { return true; }
 }
 
 function canProcessPower(room) {
