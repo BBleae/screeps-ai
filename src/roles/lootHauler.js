@@ -121,9 +121,9 @@ function routePickup(creep) {
     if (!obj) {
         delete m.pick;
         if (Game.time % 5 !== 0) return false;
-        const tombs = creep.room.find(FIND_TOMBSTONES).filter((t) => t.creep && t.creep.my && t.store.getUsedCapacity() > 0);
-        const own = creep.room.controller && creep.room.controller.my;
         const outbound = m.salvageLoot && m.state !== 'deliver';
+        const tombs = creep.room.find(FIND_TOMBSTONES).filter((t) => t.creep && t.creep.my && t.store.getUsedCapacity() > 0 && !(outbound && conquest.salvagePickResource(t.store, m.lootOrder) === ENERGY));
+        const own = creep.room.controller && creep.room.controller.my;
         const drops = own ? [] : creep.room.find(FIND_DROPPED_RESOURCES).filter((r) => r.amount >= 50 && !(outbound && r.resourceType === ENERGY));
         const all = tombs.concat(drops);
         if (!all.length) return false;
@@ -133,7 +133,7 @@ function routePickup(creep) {
     }
     if (obj.store) {
         const res = conquest.salvagePickResource(obj.store, m.lootOrder);
-        if (!res) { delete m.pick; return false; }
+        if (!res || (m.salvageLoot && m.state !== 'deliver' && res === ENERGY)) { delete m.pick; return false; }
         if (creep.withdraw(obj, res) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 20 });
     } else if (creep.pickup(obj) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 20 });
     return true;
@@ -408,7 +408,9 @@ function run(creep) {
         }
         const order = creep.memory.lootOrder;
         ruins.sort((a, b) => conquest.salvagePriorityScore(b.store, order) - conquest.salvagePriorityScore(a.store, order));
-        const c = creep.pos.findClosestByRange ? creep.pos.findClosestByRange(ruins.slice(0, Math.min(5, ruins.length))) || ruins[0] : ruins[0];
+        const best = conquest.salvagePriorityScore(ruins[0].store, order);
+        const tied = ruins.filter((o) => conquest.salvagePriorityScore(o.store, order) === best).slice(0, 5);
+        const c = creep.pos.findClosestByRange ? creep.pos.findClosestByRange(tied) || ruins[0] : ruins[0];
         const res = conquest.salvagePickResource(c.store, order);
         if (!res) { creep.memory.state = 'deliver'; return; }
         if (!topLoot(res, order) && topUpDrop(creep, c)) return;
