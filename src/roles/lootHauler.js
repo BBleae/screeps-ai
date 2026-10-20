@@ -28,8 +28,18 @@ function deliver(creep, home) {
 
 
 function lootHoldRun(creep) {
-    if (typeof Memory === 'undefined' || !Memory.lootHold) return false;
-    const home = creep.memory.home;
+    if (typeof Memory === 'undefined') return false;
+    const m = creep.memory;
+    const lr = require('config').lootRoutes || {};
+    const list = lr[m.targetRoom];
+    const back = lr.reentry && lr.reentry[creep.room.name];
+    if (back && Array.isArray(list) && list.indexOf(creep.room.name) < 0) {
+        movement.go(creep, new RoomPosition(25, 25, back), { range: 20, reusePath: 50, avoidRooms: new Set(lr.hardAvoid || []) });
+        return true;
+    }
+    const h = Memory.lootHold;
+    if (!h || !(h === true || h[m.targetRoom])) return false;
+    const home = m.home;
     if (!home) return false;
     if (creep.room.name !== home) { movement.go(creep, new RoomPosition(25, 25, home), { range: 15, reusePath: 50 }); return true; }
     const p = creep.pos;

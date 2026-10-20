@@ -80,8 +80,18 @@ function avoidSet(creep, target) {
 
 
 function lootHoldRun(creep) {
-    if (typeof Memory === 'undefined' || !Memory.lootHold) return false;
-    const home = creep.memory.home;
+    if (typeof Memory === 'undefined') return false;
+    const m = creep.memory;
+    const lr = require('config').lootRoutes || {};
+    const list = lr[m.targetRoom];
+    const back = lr.reentry && lr.reentry[creep.room.name];
+    if (back && Array.isArray(list) && list.indexOf(creep.room.name) < 0) {
+        movement.go(creep, new RoomPosition(25, 25, back), { range: 20, reusePath: 50, avoidRooms: new Set(lr.hardAvoid || []) });
+        return true;
+    }
+    const h = Memory.lootHold;
+    if (!h || !(h === true || h[m.targetRoom])) return false;
+    const home = m.home;
     if (!home) return false;
     if (creep.room.name !== home) { movement.go(creep, new RoomPosition(25, 25, home), { range: 15, reusePath: 50 }); return true; }
     const p = creep.pos;
@@ -168,7 +178,10 @@ function run(creep) {
             if (creep.room.name !== back) movement.go(creep, new RoomPosition(25, 25, back), { range: 20, reusePath: 15 });
             return;
         }
-        const tiles = creep.memory.lootTiles || [];
+        let dir = null;
+        for (const x of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (x && x.target === target && !x.completed) { dir = x; break; }
+        const focus = dir && Array.isArray(dir.focusTiles) && dir.focusTiles.length ? dir.focusTiles : null;
+        const tiles = focus || creep.memory.lootTiles || [];
         let rr = tiles.length ? conquest.lootRampartTargets(creep.room, tiles) : [];
         if (rr.length) {
             if (creep.memory.salvageLoot && tiles.length) {
@@ -180,6 +193,7 @@ function run(creep) {
             hitTarget(creep, rr[0]);
             return;
         }
+        if (focus && creep.memory.salvageLoot) { creep.memory.idleFocus = Game.time; return; }
         if (creep.memory.salvageLoot) {
             let directive = null;
             const raw = Memory.conquest;
