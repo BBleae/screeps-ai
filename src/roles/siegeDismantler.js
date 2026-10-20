@@ -82,6 +82,7 @@ function avoidSet(creep, target) {
 function lootHoldRun(creep) {
     if (typeof Memory === 'undefined') return false;
     const m = creep.memory;
+    if (m.retired) return false;
     const lr = require('config').lootRoutes || {};
     const list = lr[m.targetRoom];
     const back = lr.reentry && lr.reentry[creep.room.name];
