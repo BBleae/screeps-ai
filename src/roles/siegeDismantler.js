@@ -13,15 +13,64 @@ function fastDismantle(creep, target) {
     if (!obj) { delete m.tgt; return false; }
     const rc = creep.dismantle(obj);
     if (rc === OK) return true;
-    if (rc === ERR_NOT_IN_RANGE) { movement.go(creep, obj, { range: 1, reusePath: 50 }); return true; }
+    if (rc === ERR_NOT_IN_RANGE) { approach(creep, obj); return true; }
     delete m.tgt;
     return false;
+}
+
+function isBarrier(st) {
+    return st.structureType === STRUCTURE_RAMPART ? !st.my : st.structureType === STRUCTURE_WALL;
+}
+
+function breachFor(creep, obj) {
+    const m = creep.memory;
+    if (m.br) {
+        const b = Game.getObjectById(m.br);
+        if (b && m.brFor === obj.id) return b;
+        delete m.br;
+        delete m.brAt;
+    }
+    if (m.brAt && Game.time - m.brAt < 50 && m.brFor === obj.id) return null;
+    m.brAt = Game.time;
+    m.brFor = obj.id;
+    const room = creep.room;
+    const res = PathFinder.search(creep.pos, { pos: obj.pos, range: 1 }, {
+        maxRooms: 1,
+        maxOps: 4000,
+        roomCallback: (name) => {
+            if (name !== room.name) return false;
+            const cm = new PathFinder.CostMatrix();
+            for (const st of room.find(FIND_STRUCTURES)) {
+                const t = st.structureType;
+                if (t === STRUCTURE_ROAD || t === STRUCTURE_CONTAINER || (t === STRUCTURE_RAMPART && st.my)) continue;
+                cm.set(st.pos.x, st.pos.y, isBarrier(st) ? Math.min(254, 5 + Math.floor(st.hits / 100000)) : 255);
+            }
+            return cm;
+        },
+    });
+    if (res.incomplete) return null;
+    for (const p of res.path) {
+        const b = room.lookForAt(LOOK_STRUCTURES, p.x, p.y).find(isBarrier);
+        if (b) { m.br = b.id; return b; }
+    }
+    return null;
+}
+
+function approach(creep, obj) {
+    if (creep.memory.salvageLoot && obj.pos.roomName === creep.room.name) {
+        const b = breachFor(creep, obj);
+        if (b) {
+            if (creep.dismantle(b) === ERR_NOT_IN_RANGE) movement.go(creep, b, { range: 1, reusePath: 50 });
+            return;
+        }
+    }
+    movement.go(creep, obj, { range: 1, reusePath: 50 });
 }
 
 function hitTarget(creep, obj) {
     creep.memory.tgt = obj.id;
     creep.memory.tgtAt = Game.time;
-    if (creep.dismantle(obj) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 50 });
+    if (creep.dismantle(obj) === ERR_NOT_IN_RANGE) approach(creep, obj);
 }
 
 const mateCache = { tick: -1, by: {} };
@@ -187,7 +236,8 @@ function run(creep) {
         if (rr.length) {
             if (creep.memory.salvageLoot && tiles.length) {
                 const order = new Map(tiles.map((p, i) => [p[0] + ',' + p[1], i]));
-                rr = rr.slice().sort((a, b) => (order.get(a.pos.x + ',' + a.pos.y) || 99) - (order.get(b.pos.x + ',' + b.pos.y) || 99) || a.hits - b.hits);
+                const rank = (t) => { const k = t.pos.x + ',' + t.pos.y; return order.has(k) ? order.get(k) : 99; };
+                rr = rr.slice().sort((a, b) => rank(a) - rank(b) || a.hits - b.hits);
             } else {
                 rr = [rr.reduce((low, t) => (t.hits < low.hits ? t : low), rr[0])];
             }
