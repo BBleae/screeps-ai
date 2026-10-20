@@ -11,6 +11,7 @@ function mem() {
     m.done = m.done || {};
     m.askedAt = m.askedAt || {};
     m.fleeUntil = m.fleeUntil || {};
+    m.skip = m.skip || {};
     return m;
 }
 
@@ -22,8 +23,12 @@ function isDone(key) {
     return !!(Memory.wallBreach && Memory.wallBreach.done && Memory.wallBreach.done[key]);
 }
 
+function isSkipped(key) {
+    return !!(Memory.wallBreach && Memory.wallBreach.skip && Memory.wallBreach.skip[key]);
+}
+
 function pendingTargets() {
-    return (settings().targets || []).filter((target) => !isDone(keyOf(target)));
+    return (settings().targets || []).filter((target) => !isDone(keyOf(target)) && !isSkipped(keyOf(target)));
 }
 
 function targetByKey(key) {
@@ -41,7 +46,7 @@ function breakerBody(budget, maxPairs) {
 function allowedWall(structure) {
     if (!structure) return false;
     const wallType = typeof STRUCTURE_WALL === 'undefined' ? 'constructedWall' : STRUCTURE_WALL;
-    return structure.structureType === wallType && !structure.owner && structure.my !== true;
+    return structure.structureType === wallType && !structure.owner && structure.my !== true && Number(structure.hits) > 0;
 }
 
 function fleeing(key) {
@@ -49,17 +54,31 @@ function fleeing(key) {
     return !!(until && until > Game.time);
 }
 
+function workable(target) {
+    const key = keyOf(target);
+    if (fleeing(key)) return false;
+    const blocked = Memory.wallBreach && Memory.wallBreach.blocked;
+    if (blocked && blocked.key === key) return false;
+    const pvp = Memory.pvpThreat && Memory.pvpThreat[target.room];
+    return !(pvp && pvp.until > Game.time);
+}
+
+function nextTargetFor(homeName) {
+    return pendingTargets().find((target) => (target.home === homeName || target.fallbackHome === homeName) && workable(target)) || null;
+}
+
 function getDemands(home) {
     const cfg = settings();
     if (!cfg.enabled || !home || !home.controller || !home.controller.my) return [];
     if (Game.cpu && Game.cpu.bucket != null && Game.cpu.bucket < cfg.minBucket) return [];
     const m = mem();
+    if (cfg.unlock && cfg.unlock[home.name] && Game.time % 100 === 0) {
+        try { measureUnlocks(); } catch (error) { m.measureError = String(error && error.message || error); }
+    }
     const out = [];
     for (const target of pendingTargets()) {
         const key = keyOf(target);
-        if (fleeing(key) || (m.blocked && m.blocked.key === key)) continue;
-        const pvp = Memory.pvpThreat && Memory.pvpThreat[target.room];
-        if (pvp && pvp.until > Game.time) continue;
+        if (!workable(target)) continue;
         let mine = target.home === home.name;
         if (mine && !m.askedAt[key]) m.askedAt[key] = Game.time;
         if (!mine && target.fallbackHome === home.name && m.askedAt[key] && Game.time - m.askedAt[key] >= cfg.fallbackAfter) mine = true;
@@ -78,7 +97,21 @@ function markDone(key) {
     const m = mem();
     if (m.done[key]) return;
     m.done[key] = Game.time;
-    try { measureUnlocks(); } catch (error) { m.measureError = String(error && error.message || error); }
+    try { measureUnlocks(key); } catch (error) { m.measureError = String(error && error.message || error); }
+}
+
+function markSkipped(key, types) {
+    const m = mem();
+    m.blocked = { key, at: Game.time, types: types || [] };
+    m.skip[key] = Game.time;
+}
+
+function entryAfter(rule, entry) {
+    return (rule.after || []).concat(entry.after || []);
+}
+
+function entryReady(rule, entry) {
+    return entryAfter(rule, entry).every(isDone);
 }
 
 function blockingCost(room) {
@@ -92,18 +125,21 @@ function blockingCost(room) {
     return matrix;
 }
 
-function measureUnlocks() {
+function measureUnlocks(doneKey) {
     const cfg = settings();
     const m = mem();
     m.measured = m.measured || {};
     for (const homeName in cfg.unlock || {}) {
         const rule = cfg.unlock[homeName];
-        if (!(rule.after || []).every(isDone)) continue;
         const home = Game.rooms[homeName];
         if (!home || !home.storage) continue;
-        const allowed = new Set([homeName].concat((rule.rooms || []).map((entry) => entry.room), rule.via || []));
-        const out = m.measured[homeName] = {};
-        for (const entry of rule.rooms || []) {
+        const prior = m.measured[homeName] || {};
+        const due = (rule.rooms || []).filter((entry) => entryReady(rule, entry) &&
+            (!prior[entry.room] || (doneKey && entryAfter(rule, entry).includes(doneKey))));
+        if (!due.length) continue;
+        const out = m.measured[homeName] = prior;
+        for (const entry of due) {
+            const allowed = new Set([homeName, entry.room].concat(rule.via || [], entry.via || []));
             const steps = (entry.sources || []).map((source) => {
                 const result = PathFinder.search(home.storage.pos, { pos: new RoomPosition(source.x, source.y, entry.room), range: 1 }, {
                     plainCost: 2, swampCost: 8, maxRooms: allowed.size + 1, maxOps: 20000,
@@ -123,11 +159,12 @@ function measureUnlocks() {
 function unlockedRemotes(homeName) {
     const cfg = settings();
     const rule = cfg.unlock && cfg.unlock[homeName];
-    if (!rule || !(rule.after || []).every(isDone)) return [];
+    if (!rule) return [];
     const measured = Memory.wallBreach && Memory.wallBreach.measured && Memory.wallBreach.measured[homeName];
     if (!measured) return [];
-    return (rule.rooms || []).filter((entry) => measured[entry.room] && measured[entry.room].ok).map((entry) => entry.room);
+    return (rule.rooms || []).filter((entry) => entryReady(rule, entry) && measured[entry.room] && measured[entry.room].ok)
+        .map((entry) => entry.room);
 }
 
-module.exports = { settings, keyOf, isDone, pendingTargets, targetByKey, breakerBody, allowedWall, fleeing, getDemands, markDone,
-    measureUnlocks, unlockedRemotes, mem };
+module.exports = { settings, keyOf, isDone, isSkipped, pendingTargets, targetByKey, breakerBody, allowedWall, fleeing, workable,
+    nextTargetFor, getDemands, markDone, markSkipped, measureUnlocks, unlockedRemotes, mem };

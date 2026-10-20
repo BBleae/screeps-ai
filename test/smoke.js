@@ -14712,12 +14712,16 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     const savedWB = Memory.wallBreach, savedThreat = Memory.pvpThreat, savedAssign = config.remote.assign;
     Memory.wallBreach = undefined; Memory.pvpThreat = {};
     config.remote.assign = liveRemoteAssign;
+    const liveWB = config.wallBreach;
+    config.wallBreach = { enabled: true, maxPairs: 10, fallbackAfter: 600, fleeTicks: 300,
+        targets: [{ room: 'W38S5', x: 38, y: 18, home: 'W37S5', fallbackHome: 'W37S7' }],
+        unlock: { W37S5: { after: ['W38S5:38:18'], rooms: [{ room: 'W38S4', maxSteps: 60, sources: [{ x: 13, y: 40 }, { x: 27, y: 44 }] }] } } };
     const cfg = wb.settings();
     assert(cfg.enabled && cfg.targets.length === 1 && wb.keyOf(cfg.targets[0]) === 'W38S5:38:18', '白名单只有 W38S5 (38,18) 一段（得 ' + JSON.stringify(cfg.targets) + '）');
     const body = wb.breakerBody(5600, 10);
     assert(body.length === 20 && body.filter((b) => b === 'work').length === 10, '拆机 10 WORK + 10 MOVE');
     assert(wb.breakerBody(100, 10).length === 0, '买不起一对就不孵');
-    assert(wb.allowedWall({ structureType: STRUCTURE_WALL }) === true, '无主墙可拆');
+    assert(wb.allowedWall({ structureType: STRUCTURE_WALL, hits: 6601 }) === true, '无主墙可拆');
     assert(wb.allowedWall({ structureType: STRUCTURE_WALL, owner: { username: 'Alepoldar' } }) === false, '有 owner 的墙不碰');
     assert(wb.allowedWall({ structureType: STRUCTURE_WALL, my: true }) === false, '自己的墙不碰');
     assert(wb.allowedWall({ structureType: 'spawn' }) === false && wb.allowedWall({ structureType: 'invaderCore' }) === false, '非墙（spawn/invaderCore）不碰');
@@ -14750,6 +14754,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     assert(r1 === 'blocked' && c.dismantled === null && Memory.wallBreach.blocked && Memory.wallBreach.blocked.key === 'W38S5:38:18', '坐标上是有主建筑：不拆、记 blocked（得 ' + r1 + '）');
     assert(wb.getDemands(home5).length === 0, 'blocked 后不再孵');
     delete Memory.wallBreach.blocked;
+    delete Memory.wallBreach.skip['W38S5:38:18'];
     const armed = { owner: { username: 'Invader' }, body: [{ type: 'ranged_attack', hits: 100 }] };
     c = mkCreep(mkRoom([wall], [armed]));
     const r2 = role.run(c);
@@ -14768,6 +14773,89 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     Memory.wallBreach.measured.W37S5.W38S5 = { steps: [70, 68], ok: true };
     assert(JSON.stringify(rem.remoteWhitelist('W37S5')) === '["W38S4"]', '10-19 W38S5 从 W37S5 外矿去掉：复量达标也只并入 W38S4');
     assert(liveRemoteAssign.W37S7.includes('W37S6') && !liveRemoteAssign.W37S5.includes('W37S6'), 'W37S6 改挂 W37S7');
+    config.wallBreach = liveWB;
+    Memory.wallBreach = savedWB; Memory.pvpThreat = savedThreat; config.remote.assign = savedAssign;
+}
+
+{
+    console.log('== 10-20 无主墙清线：W38S6 3 段 + W38S5 x=38 整列，一只拆机顺序拆完自动退休；W38S6 墙全拆完、复量 ≤105 才并入 W37S5 外矿 ==');
+    const wb = require('wall_breach');
+    const role = require('roles_wallBreaker');
+    const rem = require('../src/remote');
+    const savedWB = Memory.wallBreach, savedThreat = Memory.pvpThreat, savedAssign = config.remote.assign;
+    const savedPF = global.PathFinder, savedW37S5 = Game.rooms.W37S5;
+    Memory.wallBreach = { done: { 'W38S5:38:18': 1 } }; Memory.pvpThreat = {};
+    config.remote.assign = liveRemoteAssign;
+    const cfg = wb.settings();
+    const keys = cfg.targets.map(wb.keyOf);
+    assert(keys.length === 34 && keys[0] === 'W38S5:38:18' && keys[1] === 'W38S6:30:21' && keys[3] === 'W38S6:30:23' &&
+        keys.slice(4).every((k) => /^W38S5:38:\d+$/.test(k)) && !keys.includes('W38S5:38:18', 1), '白名单：W38S6 三段在前，W38S5 x=38 列 30 段在后（得 ' + keys.length + '）');
+    assert(cfg.targets.every((t) => t.home === 'W37S5'), '全部由 W37S5 孵');
+    assert(wb.allowedWall({ structureType: STRUCTURE_WALL, hits: 15301 }) === true, '无主、有血量的墙：可拆');
+    assert(wb.allowedWall({ structureType: STRUCTURE_WALL }) === false, '无血量（新手区不可摧毁）墙：不碰');
+    assert(wb.allowedWall({ structureType: STRUCTURE_WALL, hits: 100, owner: { username: 'Someone' } }) === false, '有主墙：不碰');
+    assert(wb.allowedWall({ structureType: STRUCTURE_RAMPART, hits: 100, owner: { username: 'Someone' } }) === false &&
+        wb.allowedWall({ structureType: STRUCTURE_RAMPART, hits: 100 }) === false, 'rampart（有主无主）：不碰');
+    assert(['spawn', 'road', 'container', 'controller', 'invaderCore', 'extension'].every((t) => wb.allowedWall({ structureType: t, hits: 100 }) === false), '其他建筑：不碰');
+    const home5 = { name: 'W37S5', controller: { my: true }, energyCapacityAvailable: 5600 };
+    const home7 = { name: 'W37S7', controller: { my: true }, energyCapacityAvailable: 5600 };
+    const d = wb.getDemands(home5);
+    assert(d.length === 1 && d[0].memory.breachKey === 'W38S6:30:21' && d[0].body.length === 20, '先拆 W38S6 (30,21)，10W10M');
+    const mkRoom = (name, structures) => ({ name, controller: { my: false }, find: () => [],
+        lookForAt: (kind, x, y) => structures.filter((st) => st.pos.x === x && st.pos.y === y) });
+    const mkCreep = (room, key, x, y) => { const c = { name: 'wb2', memory: { role: 'wallBreaker', home: 'W37S5', breachKey: key, slotKey: 'breach:' + key }, room,
+        pos: new RoomPosition(x, y, room.name), dismantled: null, spawning: false, ticksToLive: 1400, body: [],
+        dismantle(t) { this.dismantled = t; return 0; }, suicide() { this.dead = true; }, moveTo() { return 0; }, move() { return 0; } };
+        c.pos.isNearTo = (t) => Math.max(Math.abs(t.pos.x - x), Math.abs(t.pos.y - y)) <= 1; return c; };
+    const ownedWall = { id: 'ow', structureType: STRUCTURE_WALL, owner: { username: 'Someone' }, hits: 9000, pos: new RoomPosition(30, 21, 'W38S6') };
+    let c = mkCreep(mkRoom('W38S6', [ownedWall]), 'W38S6:30:21', 31, 21);
+    let r = role.run(c);
+    assert(r === 'next' && c.dismantled === null && wb.isSkipped('W38S6:30:21') && c.memory.breachKey === 'W38S6:30:22' && c.memory.slotKey === 'breach:W38S6:30:22',
+        '坐标上是有主墙：不拆、跳过、换下一段（得 ' + r + ' ' + c.memory.breachKey + '）');
+    const rampWall = [{ id: 'w22', structureType: STRUCTURE_WALL, hits: 15301, pos: new RoomPosition(30, 22, 'W38S6') },
+        { id: 'rp', structureType: STRUCTURE_RAMPART, hits: 1e6, owner: { username: 'Someone' }, pos: new RoomPosition(30, 22, 'W38S6') }];
+    c = mkCreep(mkRoom('W38S6', rampWall), 'W38S6:30:22', 31, 22);
+    r = role.run(c);
+    assert(r === 'next' && c.dismantled === null && wb.isSkipped('W38S6:30:22'), '无主墙上盖着 rampart：不拆、跳过（得 ' + r + '）');
+    delete Memory.wallBreach.skip['W38S6:30:21']; delete Memory.wallBreach.skip['W38S6:30:22']; delete Memory.wallBreach.blocked;
+    const wall21 = { id: 'w21', structureType: STRUCTURE_WALL, hits: 15301, pos: new RoomPosition(30, 21, 'W38S6') };
+    const road = { id: 'rd', structureType: STRUCTURE_ROAD, hits: 5000, pos: new RoomPosition(31, 21, 'W38S6') };
+    c = mkCreep(mkRoom('W38S6', [wall21, road]), 'W38S6:30:21', 31, 21);
+    assert(role.run(c) === 'dismantle' && c.dismantled === wall21, '无主墙：dismantle 它（不碰旁边的路）');
+    global.PathFinder = undefined;
+    c = mkCreep(mkRoom('W38S6', [road]), 'W38S6:30:21', 31, 21);
+    r = role.run(c);
+    assert(r === 'next' && wb.isDone('W38S6:30:21') && c.memory.breachKey === 'W38S6:30:22' && !c.dead, '这段拆完：记完成、同一只换下一段（得 ' + r + '）');
+    assert(wb.getDemands(home5)[0].memory.breachKey === 'W38S6:30:22', '孵化需求跟着换到下一段（slot 与在场拆机一致，不重复孵）');
+    assert(JSON.stringify(rem.remoteWhitelist('W37S5')) === '[]', 'W38S6 墙没拆完：W37S5 不开 W38S6');
+    Memory.wallBreach.done['W38S6:30:22'] = 1; Memory.wallBreach.done['W38S6:30:23'] = 1;
+    assert(JSON.stringify(rem.remoteWhitelist('W37S5')) === '[]', '墙拆完但还没复量：不开');
+    const searches = [];
+    global.PathFinder = { CostMatrix: function () { this.set = () => {}; }, search: (from, goal, opts) => {
+        searches.push({ goal, opts }); return { incomplete: false, path: new Array(goal.pos.x === 26 ? 96 : 95) }; } };
+    Game.rooms.W37S5 = { name: 'W37S5', storage: { pos: new RoomPosition(19, 32, 'W37S5') }, find: () => [] };
+    Memory.wallBreach.measured = { W37S5: { W38S4: { steps: [59, 55], ok: true, at: 1 } } };
+    wb.measureUnlocks('W38S6:30:23');
+    const m6 = Memory.wallBreach.measured.W37S5.W38S6;
+    assert(m6 && m6.ok === true && m6.steps.join() === '96,95' && Memory.wallBreach.measured.W37S5.W38S4.at === 1, '复量 96/95 ≤105：W38S6 达标，W38S4 旧记录不动（得 ' + JSON.stringify(m6) + '）');
+    const cb = searches[0] && searches[0].opts.roomCallback;
+    assert(cb && cb('W36S6') === false && cb('W38S7') === false && cb('W38S5') !== false && cb('W37S6') !== false, '复量路径只走 W37S5/W38S5/W37S6/W38S6，不进 W36S6 stronghold');
+    assert(JSON.stringify(rem.remoteWhitelist('W37S5')) === '["W38S4","W38S6"]', '达标：W38S6 并入 W37S5 外矿（得 ' + JSON.stringify(rem.remoteWhitelist('W37S5')) + '）');
+    assert(!rem.remoteWhitelist('W37S5').includes('W38S5'), 'W38S5 不开（等 24h 数据）');
+    assert(!(rem.remoteWhitelist('W38S7') || []).includes('W38S6'), 'W38S6 只挂 W37S5');
+    Memory.wallBreach.measured.W37S5.W38S6 = { steps: [110, 95], ok: false };
+    assert(!rem.remoteWhitelist('W37S5').includes('W38S6'), '复量超 105：不开');
+    for (const k of keys) Memory.wallBreach.done[k] = 1;
+    assert(wb.pendingTargets().length === 0 && wb.getDemands(home5).length === 0 && wb.getDemands(home7).length === 0, '全部拆完：不再孵');
+    let retired = false;
+    const retireMod = require('retire'); const savedRetire = retireMod.retireAtSpawn;
+    retireMod.retireAtSpawn = () => { retired = true; };
+    c = mkCreep(mkRoom('W38S5', []), 'W38S5:38:40', 37, 40);
+    r = role.run(c);
+    retireMod.retireAtSpawn = savedRetire;
+    assert(r === 'retire' && retired, '名单清空：在场拆机自动退休（得 ' + r + '）');
+    global.PathFinder = savedPF;
+    if (savedW37S5) Game.rooms.W37S5 = savedW37S5; else delete Game.rooms.W37S5;
     Memory.wallBreach = savedWB; Memory.pvpThreat = savedThreat; config.remote.assign = savedAssign;
 }
 

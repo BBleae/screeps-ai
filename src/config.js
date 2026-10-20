@@ -245,10 +245,14 @@ module.exports = {
         maxPairs: 10,
         fallbackAfter: 600,
         fleeTicks: 300,
-        targets: [{ room: 'W38S5', x: 38, y: 18, home: 'W37S5', fallbackHome: 'W37S7' }],
+        targets: [{ room: 'W38S5', x: 38, y: 18, home: 'W37S5', fallbackHome: 'W37S7' },
+            { room: 'W38S6', x: 30, y: 21, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S6', x: 30, y: 22, home: 'W37S5', fallbackHome: 'W37S7' },
+            { room: 'W38S6', x: 30, y: 23, home: 'W37S5', fallbackHome: 'W37S7' },
+            { room: 'W38S5', x: 38, y: 2, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 3, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 4, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 5, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 6, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 7, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 8, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 9, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 10, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 11, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 12, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 13, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 14, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 15, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 16, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 17, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 19, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 20, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 21, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 26, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 27, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 28, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 29, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 34, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 35, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 36, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 37, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 38, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 39, home: 'W37S5', fallbackHome: 'W37S7' }, { room: 'W38S5', x: 38, y: 40, home: 'W37S5', fallbackHome: 'W37S7' }],
         unlock: {
-            W37S5: { after: ['W38S5:38:18'], rooms: [
+            W37S5: { after: ['W38S5:38:18'], via: ['W38S5', 'W37S6'], rooms: [
                 { room: 'W38S4', maxSteps: 60, sources: [{ x: 13, y: 40 }, { x: 27, y: 44 }] },
+                { room: 'W38S6', maxSteps: 105, after: ['W38S6:30:21', 'W38S6:30:22', 'W38S6:30:23'], sources: [{ x: 26, y: 28 }, { x: 11, y: 32 }] },
             ] },
         },
     },
