@@ -31,6 +31,7 @@ const pvp = require('pvp');
 const cpuRemote = require('cpu_remote');
 const cpuGate = require('cpu_gate');
 const lootShed = require('loot_shed');
+const lastTrip = require('last_trip');
 
 const ROLES = {
     harvester: require('roles_harvester'),
@@ -309,6 +310,7 @@ module.exports.loop = function () {
             let fixing = false;
             try { fixing = pvp.evadeInvaders(creep); } catch (e) { logErr('evade ' + creep.name, e); }
             if (!fixing) { try { fixing = wallFix.run(creep); } catch (e) { logErr('wallFix ' + creep.name, e); } }
+            if (!fixing) { try { fixing = lastTrip.run(creep) || lastTrip.salvage(creep); } catch (e) { logErr('lastTrip ' + creep.name, e); } }
             if (!fixing) { try { role.run(creep); } catch (e) { logErr('creep ' + creep.name, e); } }
             if (spkHot) {
                 const u = Game.cpu.getUsed(), rn = creep.memory.role;

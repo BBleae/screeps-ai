@@ -41,6 +41,28 @@ function checkDeliverReach(creep, home) {
     return home;
 }
 
+function lastTripDue(creep, home) {
+    const ttl = creep.ticksToLive;
+    if (ttl == null || ttl > 250) return false;
+    const m = creep.memory;
+    if (m.lastTrip) return true;
+    if (!m.ltChk || m.ltChk[0] !== creep.room.name || Game.time - m.ltChk[2] >= 10) {
+        let best = creep.room.controller && creep.room.controller.my && creep.room.storage ? Math.max(Math.abs(creep.pos.x - creep.room.storage.pos.x), Math.abs(creep.pos.y - creep.room.storage.pos.y)) : routeSteps(creep, creep.room.name, m.deliverTo || home);
+        if (best > ttl) {
+            for (const name in Game.rooms) {
+                const r = Game.rooms[name];
+                if (name === creep.room.name || !r.controller || !r.controller.my || !r.storage) continue;
+                if (Game.map.getRoomLinearDistance(creep.room.name, name) * 50 >= best) continue;
+                best = Math.min(best, routeSteps(creep, creep.room.name, name));
+            }
+        }
+        m.ltChk = [creep.room.name, best, Game.time];
+    }
+    if (ttl >= m.ltChk[1] + 20) return false;
+    m.lastTrip = Game.time;
+    return true;
+}
+
 function routePickup(creep) {
     const m = creep.memory;
     if (!creep.store || creep.store.getFreeCapacity() <= 0) { delete m.pick; return false; }
@@ -197,6 +219,10 @@ function run(creep) {
         return;
     }
     if (retreat) { creep.memory.state = 'deliver'; return; }
+    if (lastTripDue(creep, home)) {
+        if (carrying) { creep.memory.state = 'deliver'; deliver(creep, home); } else retireMod.retireAtSpawn(creep);
+        return;
+    }
     if (creep.room.name !== target) { if (!routePickup(creep)) goRoom(creep, target); return; }
     if (creep.memory.pullLoot) {
         let src = creep.memory.src && Game.getObjectById(creep.memory.src);

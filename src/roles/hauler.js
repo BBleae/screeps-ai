@@ -630,6 +630,10 @@ function salvageClaimed(room, self) {
     return claimed;
 }
 
+function ownPile(pile) {
+    return !!(pile && pile.items && pile.items.some((item) => (item.creep && item.creep.my) || (item.amount != null && item.resourceType && item.resourceType !== RESOURCE_ENERGY)));
+}
+
 function salvageNum(value, fallback) {
     const num = Number(value);
     return Number.isFinite(num) ? num : fallback;
@@ -643,8 +647,15 @@ function pickSalvage(creep, room, targets) {
     const claimed = salvageClaimed(room, creep);
     let best = null;
     let bestScore = 0;
+    const own = targets.filter((pile) => ownPile(pile) && !claimed.has(pile.pos.x + ',' + pile.pos.y) && pile.amount >= minAmount);
+    if (own.length) targets = own;
     for (const pile of targets) {
         if (claimed.has(pile.pos.x + ',' + pile.pos.y)) continue;
+        if (own.length) {
+            const score = pile.amount / (distance(creep, pile) + 1) + 1e6;
+            if (score > bestScore) { best = pile; bestScore = score; }
+            continue;
+        }
         const travel = distance(creep, pile);
         if (travel > maxRange || pile.amount < minAmount + perTile * travel) continue;
         const score = pile.amount / (travel + 1);
@@ -672,17 +683,16 @@ function salvagePickup(creep, room) {
     if (!pos) {
         if (!empty) return false;
         const pile = pickSalvage(creep, room, targets);
-        if (!pile || isUrgent(room, contextFor(room))) return false;
+        if (!pile || (!ownPile(pile) && isUrgent(room, contextFor(room)))) return false;
         creep.memory.salvage = { x: pile.pos.x, y: pile.pos.y, room: room.name, at: Game.time };
         dropFill(creep, room);
         leaveBroker(creep);
         pos = creep.memory.salvage;
-    } else if (empty && isUrgent(room, contextFor(room))) {
-        return abandon();
     }
     const key = pos.x + ',' + pos.y;
     const pile = targets.find((item) => item.pos.x + ',' + item.pos.y === key);
     if (!pile) return abandon();
+    if (empty && !ownPile(pile) && isUrgent(room, contextFor(room))) return abandon();
     if (distance(creep, pile) > 1) { movement.go(creep, pile.items[0], { range: 1, reusePath: 20 }); return true; }
     let took = 0;
     const container = pile.items.find((item) => item.store && nonEnergyIn(item.store) > 0);
