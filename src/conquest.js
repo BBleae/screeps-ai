@@ -563,7 +563,7 @@ function runPullLoot(d) {
 }
 function pullLootDemands(d, home, sponsors) {
     if (d.retreat) return [];
-    try { if (!require('loot_shed').haulerBucketOk()) return []; } catch (e) { /* ignore */ }
+    try { if (!require('loot_shed').haulerBucketOk()) return []; } catch (e) { }
     const per = Math.ceil(Math.max(0, Number(d.haulers) || 0) / (sponsors.length || 1));
     const live = Object.values(Game.creeps || {}).filter((c) => c.memory && c.memory.role === 'lootHauler' && c.memory.targetRoom === d.target && c.memory.home === home.name).length;
     const n = Math.max(0, per - live);
@@ -744,7 +744,7 @@ function strongholdLootDemands(d, home, sponsors) {
         const samples = Number(d.cpuSamples) || 10;
         try {
             if (!require('deposit').statsCpuOk(cpuMax, samples, 0)) return [];
-        } catch (e) { /* ignore */ }
+        } catch (e) { }
     }
     const storeEnergy = (home.storage && home.storage.store) ? (home.storage.store.energy || 0) : 0;
     const floor = d.storageFloor != null ? Number(d.storageFloor) : cfg.storageFloor;
@@ -756,7 +756,7 @@ function strongholdLootDemands(d, home, sponsors) {
     const totalGuards = Math.max(0, Number(d.guards) || 0);
     let totalHaulers = Math.max(0, Number(d.haulers) || 0);
     if (d.type === 'salvageLoot') {
-        try { if (!require('loot_shed').haulerBucketOk()) totalHaulers = 0; } catch (e) { /* ignore */ }
+        try { if (!require('loot_shed').haulerBucketOk()) totalHaulers = 0; } catch (e) { }
         if (Game.rooms[d.target] && storesLocked(Game.rooms[d.target])) totalHaulers = 0;
     }
     const maxHaulers = Number(d.maxHaulersPerHome) || 8;

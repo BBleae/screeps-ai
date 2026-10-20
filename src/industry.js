@@ -861,7 +861,7 @@ function runOwnFactory(room, state, cfg) {
     const need = Number(bat.batch) || 50;
     if (used(factory.store, BATTERY) < need) {
         const avail = roomHave(room, BATTERY);
-        if (avail >= need) { /* labTech fills via factoryPlan drain/want extension */ }
+        if (avail >= need) { }
         else return;
     }
     if (used(factory.store, BATTERY) < need) { state.factory.batteryWait = true; return; }
