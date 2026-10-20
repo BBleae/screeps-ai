@@ -724,6 +724,11 @@ function isWorkTile(creep, pos) {
     try {
         if (!creep || !creep.memory || !pos) return true;
         const role = creep.memory.role;
+        if (role === 'siegeDismantler') {
+            const post = creep.memory.post;
+            if (!post || creep.pos.x !== post.s[0] || creep.pos.y !== post.s[1] || creep.room.name !== pos.roomName) return true;
+            return pos.x === post.s[0] && pos.y === post.s[1];
+        }
         if (role !== 'harvester' && role !== 'upgrader' && role !== 'remoteMiner') return true;
         state.stats.workTileCalls += 1;
         const now = typeof Game !== 'undefined' && typeof Game.time === 'number' ? Game.time : 0;

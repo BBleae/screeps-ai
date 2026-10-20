@@ -422,6 +422,47 @@ function salvageRuins(room) {
     });
 }
 
+const coverCache = { tick: -1, by: {} };
+function coverInfo(room) {
+    if (!room || typeof room.find !== 'function') return null;
+    if (coverCache.tick !== Game.time) { coverCache.tick = Game.time; coverCache.by = {}; }
+    if (coverCache.by[room.name]) return coverCache.by[room.name];
+    const covered = new Set();
+    for (const st of room.find(FIND_STRUCTURES)) {
+        if (st.structureType === STRUCTURE_RAMPART && !st.my && !st.isPublic && !isAlly(st)) covered.add(st.pos.x + ',' + st.pos.y);
+    }
+    const has = (o) => o.store && (typeof o.store.getUsedCapacity === 'function' ? o.store.getUsedCapacity() > 0 : Object.keys(o.store).some((k) => Number(o.store[k]) > 0));
+    const open = [];
+    let coreOpen = false;
+    let coreAny = false;
+    for (const st of room.find(FIND_STRUCTURES)) {
+        if (st.my || !st.store || st.structureType === STRUCTURE_NUKER || st.structureType === STRUCTURE_POWER_SPAWN || !has(st)) continue;
+        const free = !covered.has(st.pos.x + ',' + st.pos.y);
+        const core = st.structureType === STRUCTURE_STORAGE || st.structureType === STRUCTURE_TERMINAL || st.structureType === STRUCTURE_FACTORY;
+        if (core) { coreAny = true; if (free) coreOpen = true; }
+        if (free) open.push(st);
+    }
+    for (const r of (room.find(FIND_RUINS) || []).concat(room.find(FIND_TOMBSTONES) || [])) {
+        if (has(r) && !covered.has(r.pos.x + ',' + r.pos.y)) open.push(r);
+    }
+    const dropped = (room.find(FIND_DROPPED_RESOURCES) || []).filter((r) => r.amount >= 50);
+    const info = { open, dropped, storesLocked: coreAny && !coreOpen };
+    coverCache.by[room.name] = info;
+    return info;
+}
+function salvageUncovered(room) {
+    const i = coverInfo(room);
+    return i ? i.open : [];
+}
+function storesLocked(room) {
+    const i = coverInfo(room);
+    return !!(i && i.storesLocked);
+}
+function pullDirective() {
+    for (const d of directives()) if (d && d.type === 'pullLoot' && d.phase !== 'done' && !d.completed && Array.isArray(d.pull) && d.pull.length) return d;
+    return null;
+}
+
 function salvagePriorityScore(store, order) {
     if (!store) return -1;
     const list = Array.isArray(order) && order.length ? order : ['XUH2O', 'XKHO2', 'XLHO2', 'XGHO2', 'XZHO2', 'ZHO2', 'XZH2O', 'ZH2O', 'battery', 'energy'];
@@ -716,6 +757,7 @@ function strongholdLootDemands(d, home, sponsors) {
     let totalHaulers = Math.max(0, Number(d.haulers) || 0);
     if (d.type === 'salvageLoot') {
         try { if (!require('loot_shed').haulerBucketOk()) totalHaulers = 0; } catch (e) { /* ignore */ }
+        if (Game.rooms[d.target] && storesLocked(Game.rooms[d.target])) totalHaulers = 0;
     }
     const maxHaulers = Number(d.maxHaulersPerHome) || 8;
     const squad = Math.max(1, totalDismantlers + totalGuards);
@@ -751,4 +793,4 @@ function strongholdLootDemands(d, home, sponsors) {
     return demands;
 }
 
-module.exports = { pullArmedThreat, allyTarget, run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick, salvageArmedThreat, salvageKeyTiles, salvageRamparts, salvageStructures, salvageRuins, salvagePickResource, salvagePriorityScore, salvageStoreTypes, salvageCorePriority, homeCanBoost };
+module.exports = { salvageUncovered, storesLocked, pullDirective, coverInfo, pullArmedThreat, allyTarget, run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick, salvageArmedThreat, salvageKeyTiles, salvageRamparts, salvageStructures, salvageRuins, salvagePickResource, salvagePriorityScore, salvageStoreTypes, salvageCorePriority, homeCanBoost };

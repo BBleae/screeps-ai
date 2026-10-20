@@ -149,8 +149,64 @@ function lootHoldRun(creep) {
     return true;
 }
 
+const postCache = { tick: -1, by: {} };
+function claimedStands(target) {
+    if (postCache.tick !== Game.time) { postCache.tick = Game.time; postCache.by = {}; }
+    if (!postCache.by[target]) {
+        const set = new Set();
+        for (const n in Game.creeps) {
+            const m = Game.creeps[n].memory;
+            if (m && m.role === 'siegeDismantler' && m.targetRoom === target && m.post) set.add(m.post.s[0] + ',' + m.post.s[1]);
+        }
+        postCache.by[target] = set;
+    }
+    return postCache.by[target];
+}
+
+function barrierAt(room, t) {
+    return room.lookForAt(LOOK_STRUCTURES, t[0], t[1]).find(isBarrier) || null;
+}
+
+function postRun(creep) {
+    const m = creep.memory;
+    const target = m.targetRoom;
+    if (!target || creep.room.name !== target || !m.salvageLoot) return false;
+    let dir = null;
+    for (const x of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (x && x.target === target && !x.completed) { dir = x; break; }
+    if (!dir || !Array.isArray(dir.posts) || !dir.posts.length) { delete m.post; return false; }
+    let obj = m.post ? barrierAt(creep.room, m.post.t) : null;
+    if (m.post && (!obj || !dir.posts.some((e) => e.t[0] === m.post.t[0] && e.t[1] === m.post.t[1]))) { delete m.post; obj = null; }
+    if (!m.post) {
+        const taken = claimedStands(target);
+        for (const e of dir.posts) {
+            const b = barrierAt(creep.room, e.t);
+            if (!b) continue;
+            const s = (e.s || []).find((p) => !taken.has(p[0] + ',' + p[1]));
+            if (!s) continue;
+            m.post = { t: [e.t[0], e.t[1]], s: [s[0], s[1]] };
+            taken.add(s[0] + ',' + s[1]);
+            obj = b;
+            break;
+        }
+        if (!m.post) {
+            const s0 = dir.posts[0].s && dir.posts[0].s[0];
+            if (!s0) return false;
+            const wait = new RoomPosition(s0[0], s0[1], target);
+            if (creep.pos.getRangeTo(wait) > 3) movement.go(creep, wait, { range: 3, reusePath: 20 });
+            return true;
+        }
+    }
+    if (creep.pos.x === m.post.s[0] && creep.pos.y === m.post.s[1]) {
+        creep.dismantle(obj);
+        return true;
+    }
+    movement.go(creep, new RoomPosition(m.post.s[0], m.post.s[1], target), { range: 0, reusePath: 20 });
+    return true;
+}
+
 function run(creep) {
     if (lootHoldRun(creep)) return;
+    if (postRun(creep)) return;
     const target = creep.memory.targetRoom;
     if (!target) return;
     if (creep.memory.retired) { retire.retireAtSpawn(creep); return; }

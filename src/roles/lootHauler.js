@@ -30,6 +30,59 @@ function deliver(creep, home) {
 }
 
 
+function parkInside(creep) {
+    const p = creep.pos;
+    if (p.x > 2 && p.x < 47 && p.y > 2 && p.y < 47) return;
+    const anchor = creep.room.find(FIND_MY_CREEPS).find((c) => c.memory && c.memory.role === 'siegeDismantler');
+    movement.go(creep, anchor ? anchor.pos : new RoomPosition(25, 25, creep.room.name), { range: anchor ? 3 : 5, reusePath: 20 });
+}
+
+const mateCache = { tick: -1, by: {} };
+function salvageMates(target) {
+    if (mateCache.tick !== Game.time) { mateCache.tick = Game.time; mateCache.by = {}; }
+    if (!mateCache.by[target]) {
+        mateCache.by[target] = Object.keys(Game.creeps).filter((n) => {
+            const m = Game.creeps[n].memory;
+            return m && m.role === 'lootHauler' && m.salvageLoot && !m.retired && m.targetRoom === target;
+        }).sort();
+    }
+    return mateCache.by[target];
+}
+
+function keepCount(target) {
+    for (const d of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (d && d.target === target && d.keepHaulers != null) return Number(d.keepHaulers) || 0;
+    return 2;
+}
+
+function toPull(creep) {
+    const pd = conquest.pullDirective();
+    if (!pd) return false;
+    const m = creep.memory;
+    m.salvageFrom = m.targetRoom;
+    m.salvageOrder = m.lootOrder;
+    if (m.deliverTo) m.salvageDeliver = m.deliverTo;
+    m.targetRoom = pd.target;
+    m.pullLoot = true;
+    m.pull = pd.pull;
+    m.deliverTo = (pd.deliverTo && pd.deliverTo[m.home]) || Object.values(pd.deliverTo || {})[0] || m.home;
+    m.lootOrder = pd.lootOrder;
+    delete m.salvageLoot;
+    delete m.ruin;
+    delete m.src;
+    return true;
+}
+
+function backToSalvage(creep) {
+    const m = creep.memory;
+    const room = Game.rooms[m.salvageFrom];
+    if (!room || conquest.storesLocked(room)) return;
+    m.targetRoom = m.salvageFrom;
+    m.salvageLoot = true;
+    m.lootOrder = m.salvageOrder;
+    if (m.salvageDeliver) m.deliverTo = m.salvageDeliver; else delete m.deliverTo;
+    for (const k of ['pullLoot', 'pull', 'src', 'salvageFrom', 'salvageOrder', 'salvageDeliver']) delete m[k];
+}
+
 function lootHoldRun(creep) {
     if (typeof Memory === 'undefined') return false;
     const m = creep.memory;
@@ -53,6 +106,7 @@ function lootHoldRun(creep) {
 
 function run(creep) {
     if (lootHoldRun(creep)) return;
+    if (creep.memory.pullLoot && creep.memory.salvageFrom && Game.time % 10 === 0) backToSalvage(creep);
     const target = creep.memory.targetRoom;
     const home = creep.memory.home;
     if (!target || !home) return;
@@ -106,9 +160,21 @@ function run(creep) {
             deliver(creep, home);
             return;
         }
-        const ruins = conquest.salvageRuins(creep.room);
+        const ruins = conquest.salvageUncovered(creep.room);
+        if (conquest.storesLocked(creep.room)) {
+            const idx = salvageMates(target).indexOf(creep.name);
+            const drops = (conquest.coverInfo(creep.room) || {}).dropped || [];
+            if ((idx >= keepCount(target) || (!ruins.length && !drops.length)) && !carrying && toPull(creep)) return;
+        }
         if (!ruins.length) {
+            const drops = (conquest.coverInfo(creep.room) || {}).dropped || [];
+            if (drops.length && !full) {
+                const dr = creep.pos.findClosestByRange(drops) || drops[0];
+                if (creep.pickup(dr) === ERR_NOT_IN_RANGE) movement.go(creep, dr, { range: 1, reusePath: 20 });
+                return;
+            }
             if (carrying) { creep.memory.state = 'deliver'; return; }
+            parkInside(creep);
             return;
         }
         const order = creep.memory.lootOrder;
@@ -121,7 +187,7 @@ function run(creep) {
         return;
     }
     const containers = conquest.lootContainersOf(creep.room, creep.memory.lootTiles);
-    if (!containers.length) { creep.memory.state = 'deliver'; return; }
+    if (!containers.length) { if (carrying) creep.memory.state = 'deliver'; else parkInside(creep); return; }
     const c = creep.pos.findClosestByRange ? creep.pos.findClosestByRange(containers) : containers[0];
     const res = nonEnergyKey(c.store);
     if (!res) { creep.memory.state = 'deliver'; return; }
