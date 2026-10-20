@@ -14,10 +14,70 @@ function nonEnergyKey(store) {
     return null;
 }
 
+function routeSteps(creep, from, to) {
+    if (from === to) return 25;
+    const avoid = movement.lootAvoidFor ? movement.lootAvoidFor(creep, new RoomPosition(25, 25, to)) : null;
+    const r = Game.map.findRoute(from, to, { routeCallback: (n) => (n !== to && avoid && avoid.has(n) ? Infinity : 1) });
+    return Array.isArray(r) ? r.length * 50 : Infinity;
+}
+
+function checkDeliverReach(creep, home) {
+    const m = creep.memory;
+    if (creep.room.name === home || creep.ticksToLive == null) return home;
+    if (m.dChk && Game.time - m.dChk < 10) return home;
+    m.dChk = Game.time;
+    const budget = creep.ticksToLive - 10;
+    if (routeSteps(creep, creep.room.name, home) <= budget) return home;
+    let best = null;
+    let bestSteps = Infinity;
+    for (const name in Game.rooms) {
+        const r = Game.rooms[name];
+        if (!r.controller || !r.controller.my || !r.storage) continue;
+        if (Game.map.getRoomLinearDistance(creep.room.name, name) * 50 > budget) continue;
+        const steps = routeSteps(creep, creep.room.name, name);
+        if (steps <= budget && steps < bestSteps) { best = name; bestSteps = steps; }
+    }
+    if (best && best !== home) { m.deliverTo = best; m.deliverSwitch = { at: Game.time, from: home, to: best }; return best; }
+    return home;
+}
+
+function routePickup(creep) {
+    const m = creep.memory;
+    if (!creep.store || creep.store.getFreeCapacity() <= 0) { delete m.pick; return false; }
+    const lr = require('config').lootRoutes || {};
+    const list = lr[m.targetRoom];
+    if (!Array.isArray(list) || list.indexOf(creep.room.name) < 0) { delete m.pick; return false; }
+    let obj = m.pick ? Game.getObjectById(m.pick) : null;
+    if (obj && obj.pos.roomName !== creep.room.name) obj = null;
+    if (!obj) {
+        delete m.pick;
+        if (Game.time % 5 !== 0) return false;
+        const tombs = creep.room.find(FIND_TOMBSTONES).filter((t) => t.creep && t.creep.my && t.store.getUsedCapacity() > 0);
+        const own = creep.room.controller && creep.room.controller.my;
+        const drops = own ? [] : creep.room.find(FIND_DROPPED_RESOURCES).filter((r) => r.amount >= 50);
+        const all = tombs.concat(drops);
+        if (!all.length) return false;
+        obj = creep.pos.findClosestByRange(all);
+        if (!obj) return false;
+        m.pick = obj.id;
+    }
+    if (obj.store) {
+        const res = conquest.salvagePickResource(obj.store, m.lootOrder);
+        if (!res) { delete m.pick; return false; }
+        if (creep.withdraw(obj, res) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 20 });
+    } else if (creep.pickup(obj) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 20 });
+    return true;
+}
+
 function deliver(creep, home) {
     if (creep.memory.deliverTo) home = creep.memory.deliverTo;
+    home = checkDeliverReach(creep, home);
     const room = Game.rooms[home];
-    if (!room || creep.room.name !== home || !room.storage) { goRoom(creep, home); return true; }
+    if (!room || creep.room.name !== home || !room.storage) {
+        if (creep.ticksToLive > 60 && routePickup(creep)) return true;
+        goRoom(creep, home);
+        return true;
+    }
     const carrying = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
     if (!carrying) return false;
     const order = creep.memory.lootOrder;
@@ -127,7 +187,7 @@ function run(creep) {
         return;
     }
     if (retreat) { creep.memory.state = 'deliver'; return; }
-    if (creep.room.name !== target) { goRoom(creep, target); return; }
+    if (creep.room.name !== target) { if (!routePickup(creep)) goRoom(creep, target); return; }
     if (creep.memory.pullLoot) {
         let src = creep.memory.src && Game.getObjectById(creep.memory.src);
         if (!src || !(src.store && src.store.getUsedCapacity() > 0)) {
