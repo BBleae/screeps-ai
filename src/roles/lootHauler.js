@@ -101,9 +101,9 @@ function topLoot(res, order) {
     return i >= 0 && i <= cut;
 }
 
-function topUpDrop(creep) {
+function topUpDrop(creep, near) {
     if (!creep.store || creep.store.getFreeCapacity() <= 0) return false;
-    const drops = ((conquest.coverInfo(creep.room) || {}).dropped || []).filter((r) => r.resourceType === ENERGY && creep.pos.getRangeTo(r) <= DROP_REACH);
+    const drops = ((conquest.coverInfo(creep.room) || {}).dropped || []).filter((r) => r.resourceType === ENERGY && (creep.pos.getRangeTo(r) <= DROP_REACH || (near && near.pos && near.pos.getRangeTo(r) <= DROP_REACH)));
     if (!drops.length) return false;
     const dr = creep.pos.findClosestByRange(drops) || drops[0];
     if (creep.pickup(dr) === ERR_NOT_IN_RANGE) movement.go(creep, dr, { range: 1, reusePath: 5 });
@@ -148,9 +148,41 @@ function handOff(creep) {
     return creep.transfer(mate, res) === OK;
 }
 
+function salvageDirective(target) {
+    for (const d of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (d && d.target === target && !d.completed) return d;
+    return null;
+}
+
+function energyOnly(creep) {
+    const used = creep.store.getUsedCapacity();
+    return used > 0 && Number(creep.store[ENERGY] || 0) >= used;
+}
+
+function energyDest(creep) {
+    const m = creep.memory;
+    if (!m.salvageLoot || !energyOnly(creep)) { delete m.eDeliver; return null; }
+    if (m.eDeliver && Game.time - (m.eDeliver.at || 0) < 50) return m.eDeliver.to;
+    const d = salvageDirective(m.targetRoom);
+    const list = d && Array.isArray(d.energyTo) ? d.energyTo : null;
+    if (!list || !list.length) return null;
+    const budget = (creep.ticksToLive == null ? 1500 : creep.ticksToLive) - 30;
+    let best = null;
+    let bestSteps = Infinity;
+    for (const name of list) {
+        const r = Game.rooms[name];
+        if (!r || !r.storage || !r.controller || !r.controller.my) continue;
+        const steps = routeSteps(creep, creep.room.name, name);
+        if (steps <= budget && steps < bestSteps) { best = name; bestSteps = steps; }
+    }
+    m.eDeliver = { to: best, at: Game.time };
+    return best;
+}
+
 function deliver(creep, home) {
     if (handOff(creep)) return true;
     if (creep.memory.deliverTo) home = creep.memory.deliverTo;
+    const eTo = energyDest(creep);
+    if (eTo) home = eTo;
     home = checkDeliverReach(creep, home);
     const room = Game.rooms[home];
     if (!room || creep.room.name !== home || !room.storage) {
@@ -159,7 +191,7 @@ function deliver(creep, home) {
         return true;
     }
     const carrying = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
-    if (!carrying) return false;
+    if (!carrying) { delete creep.memory.eDeliver; return false; }
     const order = creep.memory.lootOrder;
     const res = (creep.memory.salvageLoot ? conquest.salvagePickResource(creep.store, order) : null) || nonEnergyKey(creep.store) || ENERGY;
     const term = room.terminal;
@@ -292,7 +324,7 @@ function run(creep) {
         const cachedRuin = creep.memory.ruin && Game.getObjectById(creep.memory.ruin);
         if (cachedRuin && Game.time % 5 !== 0) {
             const r0 = conquest.salvagePickResource(cachedRuin.store, creep.memory.lootOrder);
-            if (r0 && carrying && !topLoot(r0, creep.memory.lootOrder) && topUpDrop(creep)) return;
+            if (r0 && !topLoot(r0, creep.memory.lootOrder) && topUpDrop(creep, cachedRuin)) return;
             if (r0) {
                 if (creep.withdraw(cachedRuin, r0) === ERR_NOT_IN_RANGE) moveNear(creep, cachedRuin);
                 return;
@@ -327,7 +359,7 @@ function run(creep) {
         const c = creep.pos.findClosestByRange ? creep.pos.findClosestByRange(ruins.slice(0, Math.min(5, ruins.length))) || ruins[0] : ruins[0];
         const res = conquest.salvagePickResource(c.store, order);
         if (!res) { creep.memory.state = 'deliver'; return; }
-        if (carrying && !topLoot(res, order) && topUpDrop(creep)) return;
+        if (!topLoot(res, order) && topUpDrop(creep, c)) return;
         creep.memory.ruin = c.id;
         if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) moveNear(creep, c);
         return;

@@ -671,8 +671,10 @@ function getDemands(home) {
 function demandsFor(d, home) {
     if (Memory.lootHold && (Memory.lootHold === true || Memory.lootHold[d.target]) && (d.type === 'salvageLoot' || d.type === 'pullLoot' || d.type === 'strongholdLoot')) return [];
     const sponsors = sponsorRooms(d);
-    if (sponsors.indexOf(home.name) < 0) return [];
+    const haulerOnly = sponsors.indexOf(home.name) < 0 && d.type === 'salvageLoot' && Array.isArray(d.haulerSponsors) && d.haulerSponsors.indexOf(home.name) >= 0;
+    if (sponsors.indexOf(home.name) < 0 && !haulerOnly) return [];
     if (d.phase === 'done') return [];
+    if (haulerOnly) return strongholdLootDemands(d, home, sponsors.concat(d.haulerSponsors.filter((r) => sponsors.indexOf(r) < 0)), true);
     if (d.type === 'pullLoot') return pullLootDemands(d, home, sponsors);
     if (d.type === 'strongholdLoot' || d.type === 'salvageLoot') return strongholdLootDemands(d, home, sponsors);
     const cfg = settings();
@@ -813,7 +815,7 @@ function homeCanBoost(home) {
     const roles = Memory.rooms && Memory.rooms[home.name] && Memory.rooms[home.name].labRoles;
     return !!(roles && roles.boost);
 }
-function strongholdLootDemands(d, home, sponsors) {
+function strongholdLootDemands(d, home, sponsors, haulerOnly) {
     const cfg = settings();
     if (home.energyCapacityAvailable < cfg.minCapacity) return [];
     if (d.retreat) return [];
@@ -845,7 +847,7 @@ function strongholdLootDemands(d, home, sponsors) {
     const phase = d.phase || 'breach';
     const salvage = d.type === 'salvageLoot';
     const dBucketOk = !(Number(d.dismantlerBucketMin) > 0) || Game.cpu.bucket >= Number(d.dismantlerBucketMin);
-    if (!d.pauseDismantlerSpawn && dBucketOk && (phase === 'breach' || (salvage && phase === 'loot' && totalDismantlers > 0))) {
+    if (!haulerOnly && !d.pauseDismantlerSpawn && dBucketOk && (phase === 'breach' || (salvage && phase === 'loot' && totalDismantlers > 0))) {
         const wantBoosts = (!salvage || homeCanBoost(home)) ? boostsFor('siegeDismantler', d) : [];
         const mem = attachAvoidance({ home: home.name, targetRoom: d.target, staging, squad, lootTiles, strongholdLoot: true, salvageLoot: salvage, boosts: wantBoosts }, d);
         const dPer = Math.min(Math.ceil(totalDismantlers / nSponsors), Number(d.maxDismantlersPerHome) || 99);
@@ -862,10 +864,12 @@ function strongholdLootDemands(d, home, sponsors) {
             for (let i = 0; i < gPer; i++) demands.push(demand('siegeGuard', 'guardLoot:' + d.target + ':' + home.name + ':' + i, gbody, mem, 85, i, d));
         }
     }
+    if (salvage && totalHaulers > 0 && Number(d.haulersMore) > 0 && Game.cpu && Game.cpu.bucket >= (Number(d.haulersMoreBucket) || 9000)) totalHaulers += Number(d.haulersMore);
     if ((phase === 'loot' || phase === 'breach') && totalHaulers > 0) {
         const closest = salvage ? null : sponsors.slice().sort((a, b) => roomDistance(a, d.target) - roomDistance(b, d.target))[0];
         if (!closest || home.name === closest) {
-            let per = salvage ? Math.min(maxHaulers, Math.ceil(totalHaulers / nSponsors)) : totalHaulers;
+            const nHaul = new Set(sponsors.concat(Array.isArray(d.haulerSponsors) ? d.haulerSponsors : [])).size || 1;
+            let per = salvage ? Math.min(maxHaulers, Math.ceil(totalHaulers / nHaul)) : totalHaulers;
             if (salvage) {
                 const live = Object.values(Game.creeps || {}).filter((c) => c.memory && c.memory.role === 'lootHauler' && c.memory.targetRoom === d.target && c.memory.home === home.name).length;
                 per = Math.max(0, Math.min(per, maxHaulers - live));

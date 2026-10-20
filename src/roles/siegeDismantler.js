@@ -312,6 +312,32 @@ function innerPosts(room, dir) {
     return out;
 }
 
+function sideRun(creep, posts) {
+    const room = creep.room;
+    const m = creep.memory;
+    let obj = m.side ? Game.getObjectById(m.side) : null;
+    if (!obj || !isBarrier(obj)) {
+        delete m.side;
+        obj = null;
+        const seen = new Set(posts.map((e) => e.t[0] + ',' + e.t[1]));
+        for (const e of posts) {
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const x = e.t[0] + dx;
+                    const y = e.t[1] + dy;
+                    if (seen.has(x + ',' + y)) continue;
+                    const b = barrierAt(room, [x, y]);
+                    if (b && (!obj || b.hits < obj.hits)) obj = b;
+                }
+            }
+        }
+        if (!obj) return false;
+        m.side = obj.id;
+    }
+    if (creep.dismantle(obj) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 20 });
+    return true;
+}
+
 function postUsable(room, dir, e, open) {
     if (!barrierAt(room, e.t)) return false;
     const inner = Array.isArray(e.after) && e.after.length;
@@ -336,6 +362,7 @@ function postRun(creep) {
         const e = posts.find((x) => x.t[0] === m.post.t[0] && x.t[1] === m.post.t[1] && (x.s || []).some((p) => p[0] === m.post.s[0] && p[1] === m.post.s[1]));
         if (!obj || !e || !postUsable(creep.room, dir, e, open)) { delete m.post; obj = null; }
         else if (e.side && Game.time % 5 === 0) upgrade = true;
+        if (m.post) delete m.side;
     }
     if (!m.post || upgrade) {
         const taken = claimedStands(target);
@@ -365,6 +392,7 @@ function postRun(creep) {
             obj = barrierAt(creep.room, e.t);
             break;
         }
+        if (!m.post && open && sideRun(creep, posts)) return true;
         if (!m.post) return queueRun(creep, dir, target, open);
         if (upgrade && m.post === held) upgrade = false;
     }
@@ -398,6 +426,14 @@ function retireUnboosted(creep) {
     return true;
 }
 
+function unboostedTimeout(creep) {
+    const m = creep.memory;
+    if (!m.boostDone || !Array.isArray(m.boosts) || !m.boosts.length || boostedWork(creep)) return false;
+    let dir = null;
+    for (const x of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (x && x.target === m.targetRoom && !x.completed) { dir = x; break; }
+    return !!(dir && dir.retireUnboosted);
+}
+
 function run(creep) {
     retireUnboosted(creep);
     if (creep.memory.retired) { retire.retireAtSpawn(creep); return; }
@@ -418,6 +454,7 @@ function run(creep) {
 
     if (creep.room.name !== target) {
         if (boost.run(creep)) return;
+        if (unboostedTimeout(creep)) { creep.memory.retired = true; retire.retireAtSpawn(creep); return; }
         const avoid = avoidSet(creep, target);
         if (creep.memory.strongholdLoot && conquest.boostGateHold(target)) {
             if (creep.room.name !== (creep.memory.home || target)) movement.go(creep, new RoomPosition(25, 25, creep.memory.home || target), { range: 20, reusePath: 15 });
@@ -534,4 +571,4 @@ function run(creep) {
     if (creep.dismantle(tgt) === ERR_NOT_IN_RANGE) movement.go(creep, tgt, { range: 1, reusePath: 5 });
 }
 
-module.exports = { run, squadMates, power, openCheck, innerPosts, standAround };
+module.exports = { run, squadMates, power, openCheck, innerPosts, standAround, sideRun, unboostedTimeout };
