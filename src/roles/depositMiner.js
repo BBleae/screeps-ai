@@ -1,6 +1,4 @@
 'use strict';
-/** 过道 deposit 采集者（src/deposit.js）：自己采、自己送回母房 terminal。
- *  收工条件：deposit 不见了 / lastCooldown > maxCooldown / 房里有武装敌人 / 模块关了 / 寿命只够回程（ttl < 去程实测 + 30） */
 const movement = require('movement');
 const deposit = require('deposit');
 
@@ -21,7 +19,7 @@ function goHome(creep) {
 
 function run(creep) {
     const cfg = deposit.settings();
-    if (require('pvp').fleeHighThreat(creep)) return;   // 10-16：Jumpp/武装玩家 → 撤回母房
+    if (require('pvp').fleeHighThreat(creep)) return;
     const m = creep.memory;
     const info = Memory.deposits && Memory.deposits.list && Memory.deposits.list[m.depositId];
     const travel = m.travel || 150;

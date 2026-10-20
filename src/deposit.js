@@ -1,15 +1,4 @@
 'use strict';
-/**
- * 过道 deposit 采集（2026-10-15，战略猫 phase 1）：只采 config.deposit.types（silicon / mist）。
- *   发现：每 scanEvery tick 扫一遍当前可见的过道房（observer 现在没有：RCL8 才有；视野来自 depositScout 巡逻和路过的 creep），
- *         记进 Memory.deposits.list（按 id，seenTtl 内算"看见过"，cacheTtl 后清掉）。
- *   选房：有 terminal 的己方房，Game.map.findRoute 实际跳数 ≤ maxHops，路线避开 SK 房与别人占领的房（结果缓存 routeTtl）。
- *   开工：deposit 在 seenTtl 内被看见过、lastCooldown ≤ maxCooldown、离消失还够久、房里没有武装敌人才分配；
- *         新分配受 CPU 闸（Memory.stats 近 cpuSamples 条均值 ≤ cpuAvgMax 且 bucket ≥ minBucket）。
- *   采集者（roles/depositMiner）自己采、自己送回母房 terminal，冷却超线 / 有敌人 / 寿命只够回程就收工；产出由 market.js 卖。
- * config.deposit.enabled=false 时整模块不做任何事（存量 creep 回家交货后自毁）。
- * W36S7 复盘（postmortem_W36S7.md）的两条：路线按真实跳数校验；没看见目标不出采集者。
- */
 const config = require('config');
 const { logErr } = require('utils');
 
@@ -19,24 +8,24 @@ const DEFAULTS = {
     enabled: true,
     types: ['silicon', 'mist'],
     maxHops: 3,
-    maxCooldown: 100,       // lastCooldown 超过它就不再开新采集者、在岗的收工（采一次冷却 ~0.001×总采量^1.2，到 100 时一趟已不划算）
-    seenTtl: 1500,          // 多久内被看见过才算数（不对着旧情报出 creep）
-    cacheTtl: 20000,        // 情报保留多久
+    maxCooldown: 100,
+    seenTtl: 1500,
+    cacheTtl: 20000,
     routeTtl: 20000,
-    minDecay: 1500,         // 离消失不足这么多 tick 不开工
-    maxActive: 2,           // 同时在采的 deposit 数
+    minDecay: 1500,
+    maxActive: 2,
     scanEvery: 20,
     cpuAvgMax: 145,
     cpuSamples: 10,
     minBucket: 3000,
     minRcl: 6,
-    minBudget: 1950,        // 采集者最少 3 组（9W6C15M）
+    minBudget: 1950,
     maxSets: 5,
-    scout: true,            // 一只 1 MOVE 的巡逻侦察（50 能量）
-    scoutRevisit: 1500,     // 同一过道房多久重看一次
-    avoidRooms: [],         // 永久不采（Jumpp 常驻等）
-    pvpSkipTicks: 3000,     // 近这么多 tick 有 pvpFlee/pvpThreat 则不派
-    allowRooms: [],         // 非空时只采这些房（战略临时白名单）
+    scout: true,
+    scoutRevisit: 1500,
+    avoidRooms: [],
+    pvpSkipTicks: 3000,
+    allowRooms: [],
     preferNorthWest: true,
 };
 
@@ -78,17 +67,15 @@ function myName() {
     return null;
 }
 
-/** 路线上不能走的房：SK 房、别人占领的房（Memory.map 情报）。目标房自己不在此列 */
 function blockedRoom(name, target, me) {
     if (name === target) return false;
     if (isKeeperRoom(name)) return true;
-    if (require('utils').pvpDangerRoom(name)) return true;   // 10-16：W30S9 / Jumpp 等玩家威胁房
+    if (require('utils').pvpDangerRoom(name)) return true;
     const info = Memory.map && Memory.map[name];
     if (info && info.owner && info.owner !== me) return true;
     return false;
 }
 
-/** 真实跳数（findRoute），缓存；走不通 / 超过 maxHops 返回 Infinity */
 function hops(home, target, cfg) {
     const m = mem();
     const key = home + ':' + target;
@@ -114,7 +101,6 @@ function homes(cfg) {
     return out;
 }
 
-/** 把一个可见房里的 deposit 记进情报（creep 进房 / 扫描时调） */
 function note(room) {
     require('utils').notePvpThreat(room);
     if (!room || !isHighway(room.name)) return;
@@ -125,7 +111,7 @@ function note(room) {
     const armed = room.find(FIND_HOSTILE_CREEPS).some((c) => {
         if (!c || !c.body) return false;
         const owner = c.owner && c.owner.username;
-        if (owner && highThreat.indexOf(owner) >= 0) return true;   // Jumpp 的矿车也算威胁
+        if (owner && highThreat.indexOf(owner) >= 0) return true;
         return c.body.some((p) => p.hits > 0 && (p.type === ATTACK || p.type === RANGED_ATTACK));
     });
     for (const d of room.find(FIND_DEP)) {
@@ -147,7 +133,6 @@ function cpuOk(cfg) {
     return recent.reduce((a, b) => a + b, 0) / recent.length <= cfg.cpuAvgMax;
 }
 
-/** 北/西得分越高越优先（W 坐标越小越西，S 坐标越小越北） */
 function northWestScore(roomName) {
     const p = parseRoom(roomName);
     if (!p) return 0;
@@ -156,7 +141,6 @@ function northWestScore(roomName) {
     return north * 1000 + west;
 }
 
-/** 近 pvpSkipTicks 内该房有他人威胁记录（pvpFlee 或 pvpThreat）则跳过 */
 function recentlyPvpDeposit(roomName, cfg) {
     const ticks = Number(cfg.pvpSkipTicks) || 0;
     if (!(ticks > 0) || !roomName) return false;
@@ -169,7 +153,6 @@ function recentlyPvpDeposit(roomName, cfg) {
     return false;
 }
 
-/** 这个 deposit 现在值得采（不看分配） */
 function workable(d, cfg) {
     if (!d || cfg.types.indexOf(d.type) < 0) return false;
     if ((cfg.avoidRooms || []).indexOf(d.room) >= 0) return false;
@@ -181,7 +164,6 @@ function workable(d, cfg) {
         d.decayAt - Game.time >= cfg.minDecay && !(d.hostileUntil > Game.time);
 }
 
-/** 每 tick 调一次（内部降频）：扫可见过道房、清过期情报、维护分配 */
 function run() {
     const cfg = settings();
     if (!cfg.enabled || Game.time % cfg.scanEvery !== 0) return;
@@ -190,7 +172,7 @@ function run() {
     for (const id in m.list) {
         const d = m.list[id];
         if (Game.time - d.at > cfg.cacheTtl || d.decayAt < Game.time) delete m.list[id];
-        else if (d.home && !workable(d, cfg)) d.home = null;   // 不值得采就撤分配（含 avoidRooms；看不见时也清，避免 W30S9 僵尸分配）
+        else if (d.home && !workable(d, cfg)) d.home = null;
     }
     for (const k in m.routes) if (Game.time - m.routes[k].at > cfg.routeTtl) delete m.routes[k];
     for (const r in m.visits) if (Game.time - m.visits[r] > cfg.cacheTtl) delete m.visits[r];
@@ -218,7 +200,7 @@ function run() {
 }
 
 function minerBody(budget, cfg) {
-    const set = ['work', 'work', 'work', 'carry', 'carry', 'move', 'move', 'move', 'move', 'move'];   // 650
+    const set = ['work', 'work', 'work', 'carry', 'carry', 'move', 'move', 'move', 'move', 'move'];
     const n = Math.min(cfg.maxSets, Math.floor(budget / 650));
     if (n < 3) return [];
     const body = [];
@@ -226,13 +208,11 @@ function minerBody(budget, cfg) {
     return body;
 }
 
-/** 巡逻侦察的母房：有候选过道房的第一个 terminal 房（按名排序，确定性），整账号只一只 */
 function scoutHome(cfg) {
     const hs = homes(cfg).map((r) => r.name).sort();
     return hs.length ? hs[0] : null;
 }
 
-/** 某母房 maxHops 内（线性距离）的过道房，按上次看见的时间排，最久没看的在前；只保留真实路线可达的 */
 function patrolTargets(home, cfg) {
     const p = parseRoom(home);
     if (!p) return [];
