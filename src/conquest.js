@@ -888,6 +888,7 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
             for (let i = 0; i < gPer; i++) demands.push(demand('siegeGuard', 'guardLoot:' + d.target + ':' + home.name + ':' + i, gbody, mem, 85, i, d));
         }
     }
+    if (Number(d.haulerBucketMin) > 0 && Number(Game.cpu.bucket) < Number(d.haulerBucketMin)) totalHaulers = 0;
     if (salvage && totalHaulers > 0 && Number(d.haulersMore) > 0 && Game.cpu && Game.cpu.bucket >= (Number(d.haulersMoreBucket) || 9000)) totalHaulers += Number(d.haulersMore);
     if ((!cpuHeld || haulExempt) && (phase === 'loot' || phase === 'breach') && totalHaulers > 0) {
         const closest = salvage ? null : sponsors.slice().sort((a, b) => roomDistance(a, d.target) - roomDistance(b, d.target))[0];

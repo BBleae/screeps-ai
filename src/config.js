@@ -656,6 +656,7 @@ module.exports = {
         haulerMinBucket: 3000,
         autoPause: true,
         holdUntilDone: true,
+        holdRelease: { W35S1: { below: 1500000, haulerBucketMin: 9000 } },
         holdRooms: ['W38S6', 'W38S5'],
     },
     pixel: {

@@ -94,7 +94,7 @@ function nextToPause() {
     const byName = {};
     for (const a of active) byName[a.room] = a;
     const last = settings().last || [];
-    for (const name of prefer) if (byName[name] && !alreadyPaused(name)) return byName[name];
+    for (const name of prefer) if (last.indexOf(name) < 0 && byName[name] && !alreadyPaused(name)) return byName[name];
     const rest = active.filter((a) => prefer.indexOf(a.room) < 0 && last.indexOf(a.room) < 0 && !alreadyPaused(a.room)).sort((a, b) => b.cpu - a.cpu || a.room.localeCompare(b.room));
     if (rest.length) return rest[0];
     for (const name of last) if (byName[name] && !alreadyPaused(name)) return byName[name];
@@ -106,7 +106,7 @@ function pauseOrder() {
     const last = settings().last || [];
     const active = activeRemotes();
     const names = active.map((a) => a.room);
-    const head = prefer.filter((n) => names.indexOf(n) >= 0);
+    const head = prefer.filter((n) => names.indexOf(n) >= 0 && last.indexOf(n) < 0);
     const rest = active.filter((a) => prefer.indexOf(a.room) < 0 && last.indexOf(a.room) < 0).sort((a, b) => b.cpu - a.cpu || a.room.localeCompare(b.room)).map((a) => a.room);
     return head.concat(rest, last.filter((n) => names.indexOf(n) >= 0));
 }
@@ -203,8 +203,33 @@ function releaseHeld(cfg, avg) {
     if (m.holdOk >= (Number(cfg.holdOkNeeded) || 2)) { for (const p of held) restoreOne(p); m.holdOk = 0; }
 }
 
+function holdRelease(cfg) {
+    const rules = cfg.holdRelease || {};
+    const hold = Memory.lootHold;
+    if (!hold || typeof hold !== 'object') return;
+    for (const name of Object.keys(rules)) {
+        if (hold[name] !== 'haulers') continue;
+        const room = Game.rooms[name];
+        const st = room && room.storage;
+        if (!st) continue;
+        const ram = room.lookForAt(LOOK_STRUCTURES, st.pos.x, st.pos.y).find((x) => x.structureType === STRUCTURE_RAMPART);
+        const hits = ram ? ram.hits : 0;
+        const rule = rules[name] || {};
+        if (hits >= (Number(rule.below) || 1500000)) continue;
+        delete hold[name];
+        const d = salvageDirectives().find((x) => x.target === name && !x.completed);
+        if (d && rule.haulerBucketMin && d.haulerBucketMin == null) d.haulerBucketMin = Number(rule.haulerBucketMin);
+        const m = mem();
+        m.holdReleased = m.holdReleased || {};
+        m.holdReleased[name] = { at: Game.time, hits };
+        m.log.push({ at: Game.time, act: 'holdRelease', room: name, hits });
+        if (m.log.length > 40) m.log.splice(0, m.log.length - 40);
+    }
+}
+
 function run() {
     const cfg = settings();
+    try { holdRelease(cfg); } catch (e) { }
     const running = lootRunning();
     const existing = Memory.lootShed;
     if (!running && !(existing && existing.startedAt && !existing.restoredAt)) return existing || null;
