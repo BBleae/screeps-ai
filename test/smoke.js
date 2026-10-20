@@ -15696,6 +15696,19 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
 }
 
 {
+    console.log('== 10-21 掠夺按价值取货：T3 → battery → T2/T1 化合物 → 基础矿/K → 能量 ==');
+    const cq = require('conquest');
+    const o = ['XUH2O', 'XKHO2', 'XLHO2', 'XGHO2', 'byValue'];
+    assert(cq.salvagePickResource({ energy: 9, L: 5, battery: 3, UH2O: 4, XZH2O: 1 }, o) === 'XZH2O', '任何 X 开头的 T3 排最前');
+    assert(cq.salvagePickResource({ XGHO2: 1, XUH2O: 2 }, o) === 'XUH2O', 'T3 内部照显式顺序');
+    assert(cq.salvagePickResource({ energy: 9, L: 5, battery: 3, UH2O: 4 }, o) === 'battery', '没 T3 时 battery');
+    assert(cq.salvagePickResource({ energy: 9, L: 5, UH2O: 4, G: 2 }, o) === 'UH2O', '化合物排在基础矿前');
+    assert(cq.salvagePickResource({ energy: 9, L: 5, K: 7 }, o) === 'K', '基础矿按量多的先');
+    assert(cq.salvagePickResource({ energy: 9 }, o) === 'energy', '只剩能量才拿能量');
+    assert(cq.salvagePriorityScore({ battery: 1 }, o) > cq.salvagePriorityScore({ L: 9000, energy: 9e5 }, o), '只有能量和 L 的 storage 排在有 battery 的来源后面');
+}
+
+{
     console.log('== 10-21 W33S7 分段修墙：每次挑最低的一面，补 1 万或补到 5 万就换下一面最低的 ==');
     const wf = require('wallfix');
     const savedTime = world.time;

@@ -562,8 +562,39 @@ function pullDirective() {
     return null;
 }
 
+const BASE_MINERALS = ['H', 'O', 'U', 'L', 'K', 'Z', 'X'];
+function lootTier(res) {
+    if (res === 'energy') return 9;
+    if (res === 'battery') return 1;
+    if (BASE_MINERALS.indexOf(res) >= 0) return 3;
+    if (/^X[A-Z0-9]+$/.test(res)) return 0;
+    if (/^[HOUKLZG][A-Z0-9]*$/.test(res)) return 2;
+    return 4;
+}
+
+function valueRank(res, list) {
+    const i = list.indexOf(res);
+    return lootTier(res) * 100 + (i >= 0 ? i : 50);
+}
+
+function byValuePick(store, list) {
+    let best = null;
+    let bestRank = Infinity;
+    for (const k in store) {
+        const n = Number(store[k]);
+        if (!(n > 0)) continue;
+        const r = valueRank(k, list);
+        if (r < bestRank || (r === bestRank && n > Number(store[best]))) { best = k; bestRank = r; }
+    }
+    return best ? { res: best, rank: bestRank } : null;
+}
+
 function salvagePriorityScore(store, order) {
     if (!store) return -1;
+    if (Array.isArray(order) && order.indexOf('byValue') >= 0) {
+        const b = byValuePick(store, order);
+        return b ? 1000 - b.rank : -1;
+    }
     const list = Array.isArray(order) && order.length ? order : ['XUH2O', 'XKHO2', 'XLHO2', 'XGHO2', 'XZHO2', 'ZHO2', 'XZH2O', 'ZH2O', 'battery', 'energy'];
     for (let i = 0; i < list.length; i++) if (Number(store[list[i]]) > 0) return 1000 - i;
     for (const k in store) if (k !== 'energy' && Number(store[k]) > 0) return 100;
@@ -573,6 +604,10 @@ function salvagePriorityScore(store, order) {
 
 function salvagePickResource(store, order) {
     if (!store) return null;
+    if (Array.isArray(order) && order.indexOf('byValue') >= 0) {
+        const b = byValuePick(store, order);
+        return b ? b.res : null;
+    }
     const list = Array.isArray(order) && order.length ? order : ['XUH2O', 'XKHO2', 'XLHO2', 'XGHO2', 'XZHO2', 'ZHO2', 'XZH2O', 'ZH2O', 'battery', 'energy'];
     for (const k of list) if (Number(store[k]) > 0) return k;
     for (const k in store) if (k !== 'energy' && Number(store[k]) > 0) return k;
@@ -909,4 +944,4 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
     return demands;
 }
 
-module.exports = { siegeCompounds, isBoosted, boostPlanBreached, boostLabReady, boostPlanDemands, salvageUncovered, storesLocked, pullDirective, coverInfo, pullArmedThreat, allyTarget, run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick, salvageArmedThreat, salvageKeyTiles, salvageRamparts, salvageStructures, salvageRuins, salvagePickResource, salvagePriorityScore, salvageStoreTypes, salvageCorePriority, homeCanBoost };
+module.exports = { siegeCompounds, isBoosted, boostPlanBreached, boostLabReady, boostPlanDemands, salvageUncovered, storesLocked, pullDirective, coverInfo, pullArmedThreat, allyTarget, run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick, salvageArmedThreat, salvageKeyTiles, salvageRamparts, salvageStructures, salvageRuins, salvagePickResource, salvagePriorityScore, lootTier, salvageStoreTypes, salvageCorePriority, homeCanBoost };

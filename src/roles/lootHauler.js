@@ -95,6 +95,7 @@ function moveNear(creep, obj) {
 const DROP_REACH = 3;
 function topLoot(res, order) {
     const list = Array.isArray(order) && order.length ? order : [];
+    if (list.indexOf('byValue') >= 0) return conquest.lootTier(res) <= 1;
     const cut = list.indexOf('battery');
     if (cut < 0) return false;
     const i = list.indexOf(res);
