@@ -626,6 +626,12 @@ module.exports = {
         skipTicks: 20,
         modules: ['terminal', 'deposit', 'demolition', 'expansion', 'wheel', 'conquest'],
     },
+    lootRoutes: {
+        hardAvoid: ['W38S2', 'W39S1', 'W39S2', 'W39S3', 'W38S1', 'W36S6'],
+        W37S2: ['W37S7', 'W37S6', 'W37S5', 'W38S5', 'W38S4', 'W37S4', 'W37S3', 'W37S2'],
+        W37S3: ['W37S7', 'W37S6', 'W37S5', 'W38S5', 'W38S4', 'W37S4', 'W37S3', 'W38S6', 'W38S7'],
+        W35S1: ['W37S7', 'W37S6', 'W37S5', 'W38S5', 'W38S4', 'W37S4', 'W37S3', 'W36S3', 'W35S3', 'W35S2', 'W35S1'],
+    },
     lootShed: {
         pauseAbove: 150,
         resumeBelow: 140,

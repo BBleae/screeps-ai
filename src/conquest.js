@@ -548,6 +548,7 @@ function getDemands(home) {
 }
 
 function demandsFor(d, home) {
+    if (Memory.lootHold && (d.type === 'salvageLoot' || d.type === 'pullLoot' || d.type === 'strongholdLoot')) return [];
     const sponsors = sponsorRooms(d);
     if (sponsors.indexOf(home.name) < 0) return [];
     if (d.phase === 'done') return [];

@@ -478,6 +478,38 @@ function detourStuck(creep) {
     return !!d && Game.time - Number(d.first) >= limit;
 }
 
+const LOOT_ROLES = new Set(['siegeDismantler', 'siegeGuard', 'lootHauler']);
+const lootAvoidCache = new Map();
+function lootBox() {
+    const out = [];
+    for (let x = 25; x <= 45; x++) for (let y = 0; y <= 12; y++) out.push('W' + x + 'S' + y);
+    return out;
+}
+function lootAvoidFor(creep, pos) {
+    const m = creep && creep.memory;
+    if (!m || !LOOT_ROLES.has(m.role) || !m.targetRoom || !pos || pos.roomName === creep.pos.roomName) return null;
+    const cfg = config.lootRoutes || {};
+    const hard = cfg.hardAvoid || [];
+    const list = cfg[m.targetRoom];
+    const here = creep.pos.roomName;
+    const useList = Array.isArray(list) && list.indexOf(here) >= 0 && list.indexOf(pos.roomName) >= 0;
+    const key = (useList ? 'w:' + m.targetRoom : 'b') + '@' + (useList ? '' : Game.time);
+    let set = lootAvoidCache.get(key);
+    if (set) return set;
+    if (useList) {
+        const allow = new Set(list);
+        set = new Set(lootBox().filter((r) => !allow.has(r)));
+        for (const r of hard) set.add(r);
+        lootAvoidCache.set(key, set);
+    } else {
+        set = new Set(civilianDangerRooms());
+        for (const r of hard) set.add(r);
+        for (const k of lootAvoidCache.keys()) if (k.charAt(0) === 'b') lootAvoidCache.delete(k);
+        lootAvoidCache.set(key, set);
+    }
+    return set;
+}
+
 function go(creep, target, opts) {
     state.stats.calls += 1;
     const pos = toPos(creep, target, opts);
@@ -491,6 +523,8 @@ function go(creep, target, opts) {
         state.stats.inRange += 1;
         return resultCode('OK', 0);
     }
+    const lootAvoid = lootAvoidFor(creep, pos);
+    if (lootAvoid) moveOpts.avoidRooms = lootAvoid;
     if (pos.roomName !== creep.pos.roomName && moveOpts.avoidRooms === undefined && !isCombatCreep(creep) &&
         !civilianRouteOk(creep.pos.roomName, pos.roomName)) {
         state.stats.blockedWaits = (state.stats.blockedWaits || 0) + 1;
@@ -845,7 +879,7 @@ api = {
     resetCreepPath, noteDetour, detourStuck,
     keeperAvoidCallback,
     hostileTerritoryRooms,
-    safeRouteExists, frozenOwnerRooms, civilianRefuge, rangedThreats, rangedAvoidCallback, highwayBlocks, civilianDangerRooms, civilianRouteOk, isHighwayRoom, isCombatCreep,
+    lootAvoidFor, safeRouteExists, frozenOwnerRooms, civilianRefuge, rangedThreats, rangedAvoidCallback, highwayBlocks, civilianDangerRooms, civilianRouteOk, isHighwayRoom, isCombatCreep,
     resetSafeRoutes,
     knownLairs,
     noteKeeperTransit,

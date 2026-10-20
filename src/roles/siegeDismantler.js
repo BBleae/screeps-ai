@@ -78,7 +78,19 @@ function avoidSet(creep, target) {
     return set;
 }
 
+
+function lootHoldRun(creep) {
+    if (typeof Memory === 'undefined' || !Memory.lootHold) return false;
+    const home = creep.memory.home;
+    if (!home) return false;
+    if (creep.room.name !== home) { movement.go(creep, new RoomPosition(25, 25, home), { range: 15, reusePath: 50 }); return true; }
+    const p = creep.pos;
+    if (p.x <= 2 || p.x >= 47 || p.y <= 2 || p.y >= 47) movement.go(creep, new RoomPosition(25, 25, home), { range: 15, reusePath: 50 });
+    return true;
+}
+
 function run(creep) {
+    if (lootHoldRun(creep)) return;
     const target = creep.memory.targetRoom;
     if (!target) return;
     if (creep.memory.retired) { retire.retireAtSpawn(creep); return; }
