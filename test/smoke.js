@@ -16388,7 +16388,8 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     const mk = require('market');
     const term = require('terminal');
     const mcfg = require('../src/config').market;
-    const savedL = { account: mcfg.keepAccount, keepBy: mcfg.keepBy, share: mcfg.minEffectiveShare };
+    const savedL = { account: mcfg.keepAccount, keepBy: mcfg.keepBy, share: mcfg.minEffectiveShare, minPrice: mcfg.minPrice };
+    mcfg.minPrice = {};
     mcfg.keepAccount = {}; mcfg.keepBy = Object.assign({}, mcfg.keepBy, { L: mcfg.keep }); mcfg.minEffectiveShare = Object.assign({}, mcfg.minEffectiveShare, { L: undefined });
     const cfg = mk.settings();
     const savedMarket = Game.market;
@@ -16475,7 +16476,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     delete Memory.market;
     delete Memory.rooms.W33S7;
     delete Memory.rooms.W31S6;
-    mcfg.keepAccount = savedL.account; mcfg.keepBy = savedL.keepBy; mcfg.minEffectiveShare = savedL.share;
+    mcfg.keepAccount = savedL.account; mcfg.keepBy = savedL.keepBy; mcfg.minEffectiveShare = savedL.share; mcfg.minPrice = savedL.minPrice;
 }
 
 {
@@ -16898,7 +16899,7 @@ console.log('== 10-19 12:50 A–E：孤儿能量单自动撤、名单内富房�
         assert(l && l.amount === 59000 - 30000, 'L 全账号 5.9 万：只卖超过 3 万的 2.9 万（得 ' + JSON.stringify(l) + '）');
         assert(!mk.sellable(Game.rooms.W32S4, base).some((e) => e.resource === 'L'), 'lab 房 W32S4 的 L 留 3000 不卖');
         assert(base.minEffectiveShare.L === 0.8, 'L 净价底线 = 5 日均价 × 0.8');
-        assert(mk.sellFloorFor('L', 100, base) === 80, 'L 均价 100 ⇒ 底线 80');
+        assert(mk.sellFloorFor('L', 100, Object.assign({}, base, { minPrice: {} })) === 80, 'L 均价 100 ⇒ 底线 80');
         world.time++;
         Game.rooms = { W38S7: mkR('W38S7', { U: 40000 }) };
         const u = mk.sellable(Game.rooms.W38S7, base).find((e) => e.resource === 'U');
@@ -17935,6 +17936,78 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     cr.fold(m, { from: 1600, ticks: 1500, rooms: { W29S2: { m: 1, r: 0.25 }, W31S9: { h: 4 } }, plan: { W29S3: 1, W31S8: 2 }, self: 0.25 }, 3100);
     assert(m.tot.from === 100 && m.tot.to === 3100 && m.tot.ticks === 3000 && m.tot.rooms.W29S2.m === 2.5 && m.tot.rooms.W29S2.h === 2 && m.tot.rooms.W29S2.r === 0.25 &&
         m.tot.rooms.W31S9.h === 4 && m.tot.plan.W29S3 === 4 && m.tot.plan.W31S8 === 2 && m.tot.self === 0.75 && !('probe' in m.tot), 'tot 逐窗累加 rooms/plan/self/ticks，from 不变（得 ' + JSON.stringify(m.tot) + '）');
+}
+
+{
+    console.log('== 10-20 15:56 factory：W33S8/W38S7 做 keanium_bar，独立闸 storage≥4 万，帐号留 K 1.5 万，bar>2 万停；按成交量卖 bar；L 不低于 170 ==');
+    const ind = require('industry');
+    const fc = config.industry.factory;
+    assert(fc.enabled && JSON.stringify(fc.rooms) === JSON.stringify(['W33S8', 'W38S7']) && fc.product === 'keanium_bar' && fc.input === 'K' && fc.minStorage === 40000 && fc.keepAccount === 15000 && fc.stopAbove === 20000 && fc.roomKeep === 5000,
+        'config：只在 W33S8、W38S7 做 K→keanium_bar，storage ≥4 万，帐号 K ≥1.5 万，bar >2 万停，房内 K 留 5000');
+    assert(/lowRooms: \['W32S4', 'W33S3'\]/.test(require('fs').readFileSync(require('path').join(__dirname, '../src/config.js'), 'utf8')), 'lowRooms 不动（不建新 factory）');
+    const savedRooms = Game.rooms;
+    const mkStore = (o) => Object.assign({}, o, { getUsedCapacity: (r) => Number(o[r] || 0), getFreeCapacity: () => 100000 });
+    let produced = 0;
+    const fac = { id: 'fac1', structureType: STRUCTURE_FACTORY, my: true, cooldown: 0, store: mkStore({ K: 0, energy: 0 }), produce: (r) => { produced++; return OK; } };
+    const mkR = (name, se, sk, tk, structs) => ({ name, controller: { my: true, level: 7 }, storage: { my: true, store: mkStore({ energy: se, K: sk }) }, terminal: { my: true, cooldown: 0, store: mkStore({ energy: 30000, K: tk }) },
+        find: (kind, o) => (structs || []).filter((x) => !o || !o.filter || o.filter(x)) });
+    const W33S8 = mkR('W33S8', 45000, 0, 18000, [fac]);
+    Game.rooms = { W33S8, W37S7: mkR('W37S7', 50000, 0, 30000, []) };
+    world.time += 7;
+    let plan = ind.factoryPlan(W33S8);
+    assert(plan && plan.gate.ok && plan.wants.some((w) => w.mineral === 'K' && w.amount === 2000 && w.labId === 'fac1') && plan.wants.some((w) => w.mineral === 'energy' && w.amount === 1000),
+        'storage 4.5 万（<10 万 canSpend）也放行：要 K 2000、能量 1000 进 factory（得 ' + JSON.stringify(plan && plan.wants) + '）');
+    assert(ind.canSpend(W33S8) === false, '对照：通用 canSpend 仍然挡（10 万）');
+    const tp = ind.techPlan(W33S8);
+    assert(tp && tp.factory === 'fac1' && tp.wants.length === 2, 'labTech 在 W33S8（非 lab 房）只做 factory 的活，不碰 lab');
+    fac.store = mkStore({ K: 500, energy: 200 });
+    world.time += 1;
+    Memory.factoryLog = {};
+    ind.run(W33S8);
+    assert(produced === 1 && Memory.factoryLog.W33S8 && Memory.factoryLog.W33S8.made === 100 && Memory.factoryLog.W33S8.first != null, 'K 500 + 能量 200 齐了：produce 一次，Memory.factoryLog 记 100 bar 和首批 tick（得 ' + produced + ' ' + JSON.stringify(Memory.factoryLog) + '）');
+    fac.store = mkStore({ K: 0, energy: 0, keanium_bar: 600 });
+    world.time += 1;
+    plan = ind.factoryPlan(W33S8);
+    assert(plan.drains.some((d) => d.mineral === 'keanium_bar' && d.amount === 600), 'bar ≥500：labTech 把 bar 取出（送 terminal 卖）');
+    Game.rooms = { W33S8: mkR('W33S8', 39000, 0, 18000, [fac]) };
+    world.time += 1;
+    assert(ind.factoryGate(Game.rooms.W33S8, fc).why === 'storage', 'storage <4 万：停');
+    Game.rooms = { W33S8: mkR('W33S8', 45000, 0, 15400, [fac]) };
+    world.time += 1;
+    assert(ind.factoryGate(Game.rooms.W33S8, fc).why === 'keepAccount', '帐号 K 15.4k，做一批就低于 1.5 万：停');
+    Game.rooms = { W33S8: mkR('W33S8', 45000, 0, 18000, [fac]), W38S7: Object.assign(mkR('W38S7', 45000, 0, 0, []), { terminal: { my: true, store: mkStore({ keanium_bar: 20000 }) } }) };
+    world.time += 1;
+    assert(ind.factoryGate(Game.rooms.W33S8, fc).why === 'stopAbove', 'bar 库存到 2 万：停产');
+    fac.store = mkStore({ K: 0, energy: 0 });
+    Game.rooms = { W33S8: mkR('W33S8', 45000, 0, 5300, [fac]), W37S7: mkR('W37S7', 50000, 0, 30000, []) };
+    world.time += 1;
+    plan = ind.factoryPlan(Game.rooms.W33S8);
+    assert(plan.gate.ok && !plan.wants.some((w) => w.mineral === 'K'), '房内 K 只有 5300（留 5000 后不够一批）：不往 factory 搬 K');
+    const fwd = config.terminalNetwork.forward.filter((r) => r.resource === 'K');
+    assert(fwd.length === 3 && fwd.every((r) => r.keep === 5000 && r.countStorage) && fwd.some((r) => r.from === 'W37S7' && r.to === 'W38S7') && fwd.some((r) => r.from === 'W31S6' && r.to === 'W33S8'),
+        'K 补给：W37S7→W38S7/W33S8、W31S6→W33S8，来源房留 5000');
+    const term = require('terminal');
+    const sentT = (o) => ({ my: true, cooldown: 0, store: Object.assign({ getFreeCapacity: () => 200000 }, o), send: () => OK });
+    Game.rooms = { W31S6: { name: 'W31S6', terminal: sentT({ K: 7800, energy: 30000 }), storage: { store: { K: 98 } } }, W33S8: { name: 'W33S8', terminal: sentT({ K: 1000, energy: 30000 }), storage: { store: { K: 0 } } } };
+    world.time += 1;
+    const pf = term.planForward(fwd.find((r) => r.from === 'W31S6'));
+    assert(pf && pf.amount === 2898, 'W31S6 有 7898：只送超过 5000 的 2898（得 ' + JSON.stringify(pf && pf.amount) + '）');
+    Game.rooms.W33S8.storage = { store: { K: 8000 } };
+    assert(term.planForward(fwd.find((r) => r.from === 'W31S6')) === null, 'W33S8 terminal+storage 已有 9000 ≥7000：不送');
+    Game.rooms = savedRooms;
+    const mk = require('market');
+    const savedMM = Memory.market, savedGM = Game.market;
+    Memory.market = {};
+    const cfg = Object.assign({}, mk.settings ? mk.settings() : config.market);
+    Game.market = Object.assign({}, savedGM || {}, { getHistory: (r) => r === 'keanium_bar' ? [{ date: '2026-10-18', volume: 40000, avgPrice: 380 }, { date: '2026-10-19', volume: 43000, avgPrice: 382 }, { date: new Date().toISOString().slice(0, 10), volume: 9000, avgPrice: 390 }] : [] });
+    assert(mk.sellCapFor('keanium_bar', cfg) === Math.floor(41500 * 0.12), 'bar 日卖上限 = 近几天日均成交 41.5k × 12%（不算今天半天）（得 ' + mk.sellCapFor('keanium_bar', cfg) + '）');
+    assert(Math.abs(mk.sellFloorFor('keanium_bar', 381, cfg) - 381 * 0.85) < 1e-6 && mk.keepFor('K', cfg) === Infinity, 'bar 底线 = 均价 85%（不大幅压价）；原矿 K 照旧不卖');
+    assert(mk.sellFloorFor('L', 199, cfg) === 170 && mk.sellFloorFor('L', 250, cfg) === 200, 'L 底线 max(170, 均价 80%)：101.7 的单不卖');
+    const room = { name: 'W31S4', terminal: { store: { energy: 30000 } } };
+    const pick = mk.pickBuyOrder([{ id: 'o1', type: 'buy', resourceType: 'L', price: 101.7, amount: 37434, roomName: 'W32S12' }], room, { resource: 'L', amount: 5000 }, Object.assign({}, cfg, { energyPrice: 40 }), mk.sellFloorFor('L', 199, cfg));
+    assert(!pick, '101.7 的 L 买单：不卖');
+    assert(cfg.keepAccount.L === 30000 && cfg.keepByRoom.W32S4.L === 3000 && cfg.keepByRoom.W33S3.L === 3000, 'L 储备：帐号留 3 万 + lab 房各 3000 给 UL 链');
+    Memory.market = savedMM; Game.market = savedGM;
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);

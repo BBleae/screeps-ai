@@ -68,7 +68,7 @@ function run(creep) {
     }
 
     let plan = null;
-    try { plan = industry.labPlan(room); } catch (error) { plan = null; }
+    try { plan = industry.techPlan ? industry.techPlan(room) : industry.labPlan(room); } catch (error) { plan = null; }
     const drain = plan && plan.drains && plan.drains[0];
     if (drain) {
         const lab = Game.getObjectById(drain.labId);

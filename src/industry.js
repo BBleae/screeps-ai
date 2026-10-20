@@ -725,7 +725,116 @@ function labUsedToday(type) {
     return num(use.used[type], 0);
 }
 
+function factorySettings() {
+    const f = (config.industry || {}).factory;
+    return f && f.enabled ? f : null;
+}
+
+const haveCache = { time: -1, totals: {} };
+
+function accountHave(resource) {
+    const tick = typeof Game !== 'undefined' ? Game.time : 0;
+    if (haveCache.time !== tick) { haveCache.time = tick; haveCache.totals = {}; }
+    if (haveCache.totals[resource] != null) return haveCache.totals[resource];
+    let total = 0;
+    for (const name in Game.rooms) {
+        const room = Game.rooms[name];
+        if (!room || !room.controller || !room.controller.my) continue;
+        for (const holder of [room.storage, room.terminal]) {
+            if (holder && holder.my !== false && holder.store) total += used(holder.store, resource);
+        }
+        const typ = typeof STRUCTURE_FACTORY !== 'undefined' ? STRUCTURE_FACTORY : 'factory';
+        for (const f of myStructures(room, typ)) total += used(f.store, resource);
+    }
+    haveCache.totals[resource] = total;
+    return total;
+}
+
+function roomHave(room, resource) {
+    let total = 0;
+    for (const holder of [room.storage, room.terminal]) {
+        if (holder && holder.my !== false && holder.store) total += used(holder.store, resource);
+    }
+    return total;
+}
+
+function factoryOf(room, cfg) {
+    if (!room || !cfg || !Array.isArray(cfg.rooms) || cfg.rooms.indexOf(room.name) < 0) return null;
+    const typ = typeof STRUCTURE_FACTORY !== 'undefined' ? STRUCTURE_FACTORY : 'factory';
+    return myStructures(room, typ)[0] || null;
+}
+
+function factoryGate(room, cfg) {
+    const batch = Number(cfg.batch) || 500;
+    if (storageEnergy(room) < Number(cfg.minStorage || 0)) return { ok: false, why: 'storage' };
+    if (accountHave(cfg.input) - batch < Number(cfg.keepAccount || 0)) return { ok: false, why: 'keepAccount' };
+    if (accountHave(cfg.product) >= Number(cfg.stopAbove || Infinity)) return { ok: false, why: 'stopAbove' };
+    return { ok: true };
+}
+
+function factoryPlan(room) {
+    const cfg = factorySettings();
+    const factory = factoryOf(room, cfg);
+    if (!factory) return null;
+    const gate = factoryGate(room, cfg);
+    const wants = [];
+    const drains = [];
+    const bars = used(factory.store, cfg.product);
+    if (bars > 0 && (bars >= Number(cfg.drainAt || 500) || !gate.ok)) drains.push({ labId: factory.id, mineral: cfg.product, amount: bars });
+    if (gate.ok) {
+        const batch = Number(cfg.batch) || 500;
+        const inF = used(factory.store, cfg.input);
+        if (inF < batch) {
+            const avail = roomHave(room, cfg.input) - Number(cfg.roomKeep || 0);
+            const amount = Math.min(Number(cfg.fill || 2000) - inF, avail);
+            if (amount > 0 && inF + amount >= batch) wants.push({ labId: factory.id, mineral: cfg.input, amount });
+        }
+        const eNeed = Number(cfg.energy) || 200;
+        const eF = used(factory.store, RESOURCE_ENERGY);
+        if (eF < eNeed) wants.push({ labId: factory.id, mineral: RESOURCE_ENERGY, amount: Number(cfg.energyFill || 1000) - eF });
+    }
+    return { factory: factory.id, gate, wants, drains, product: gate.ok ? cfg.product : null };
+}
+
+function techPlan(room) {
+    const fp = factoryPlan(room);
+    const labRooms = (config.industry || {}).labRooms;
+    const labsHere = !fp || !Array.isArray(labRooms) || labRooms.indexOf(room.name) >= 0 || boostOnlyRoom(room);
+    let lp = null;
+    if (labsHere) { try { lp = labPlan(room); } catch (error) { lp = null; } }
+    if (!fp) return lp;
+    if (!lp) return fp;
+    return Object.assign({}, lp, { wants: (lp.wants || []).concat(fp.wants), drains: (lp.drains || []).concat(fp.drains), product: lp.product || fp.product, factory: fp.factory });
+}
+
+function noteFactory(room, cfg, amount) {
+    const log = Memory.factoryLog || (Memory.factoryLog = {});
+    const rec = log[room.name] || (log[room.name] = { made: 0, n: 0 });
+    if (rec.first == null) rec.first = Game.time;
+    rec.made += amount;
+    rec.n++;
+    rec.last = Game.time;
+    rec.product = cfg.product;
+}
+
+function runOwnFactory(room, state, cfg) {
+    const factory = factoryOf(room, cfg);
+    const gate = factoryGate(room, cfg);
+    state.factory = { present: 1, configured: true, active: false, product: cfg.product, gate: gate.ok ? 'ok' : gate.why };
+    if (!gate.ok || typeof factory.produce !== 'function') return;
+    if (factory.cooldown > 0) { state.factory.cooldown = factory.cooldown; return; }
+    const batch = Number(cfg.batch) || 500;
+    if (used(factory.store, cfg.input) < batch || used(factory.store, RESOURCE_ENERGY) < (Number(cfg.energy) || 200)) { state.factory.waiting = true; return; }
+    const ret = factory.produce(cfg.product);
+    state.factory.active = true;
+    state.factory.resource = cfg.product;
+    state.factory.result = ret;
+    if (ret === OK) noteFactory(room, cfg, Number(cfg.output) || 100);
+}
+
 function runFactory(room, mem, state, spendAllowed) {
+    const fcfg = factorySettings();
+    if (factoryOf(room, fcfg)) return runOwnFactory(room, state, fcfg);
     const factories = myStructures(room, STRUCTURE_FACTORY);
     const product = normalizeProduct(mem.industry && mem.industry.product);
     state.factory = {
@@ -841,4 +950,4 @@ function run(room) {
     }
 }
 
-module.exports = { boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS };
+module.exports = { factoryPlan, factoryGate, techPlan, accountHave, boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS };

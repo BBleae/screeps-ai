@@ -328,8 +328,28 @@ function sellFloorFor(resource, avg, cfg) {
     const min = minEffectiveFor(resource, cfg);
     if (min != null) return min;
     const share = cfg.minEffectiveShare && Number(cfg.minEffectiveShare[resource]);
-    if (share > 0) return avg == null ? null : avg * share;
-    return avg == null ? null : sellFloor(avg, cfg);
+    const abs = cfg.minPrice && Number(cfg.minPrice[resource]);
+    let f;
+    if (share > 0) f = avg == null ? null : avg * share;
+    else f = avg == null ? null : sellFloor(avg, cfg);
+    if (abs > 0) f = Math.max(f == null ? 0 : f, abs);
+    return f;
+}
+
+function dailyVolume(resource, cfg) {
+    const market = marketApi();
+    if (!market || typeof market.getHistory !== 'function') return null;
+    const mem = Memory.market || (Memory.market = {});
+    const cache = mem.vol || (mem.vol = {});
+    const hit = cache[resource];
+    if (hit && Game.time - Number(hit.at || 0) < (Number(cfg.cacheTicks) || 500)) return hit.vol;
+    let rows;
+    try { rows = market.getHistory(resource); } catch (error) { return null; }
+    const today = new Date().toISOString().slice(0, 10);
+    const full = (Array.isArray(rows) ? rows : []).filter((r) => r && r.date !== today && Number(r.volume) > 0).slice(-7);
+    const vol = full.length ? Math.round(full.reduce((s, r) => s + Number(r.volume), 0) / full.length) : null;
+    cache[resource] = { at: Game.time, vol };
+    return vol;
 }
 
 function energyPriceNow(cfg) {
@@ -395,7 +415,12 @@ function labUsedToday(resource) {
 }
 
 function sellCapFor(resource, cfg) {
-    const base = cfg.dailySellUnits && cfg.dailySellUnits[resource];
+    let base = cfg.dailySellUnits && cfg.dailySellUnits[resource];
+    const share = cfg.dailySellShare && Number(cfg.dailySellShare[resource]);
+    if (share > 0) {
+        const vol = dailyVolume(resource, cfg);
+        if (vol != null) base = Math.floor(vol * share);
+    }
     if (base == null) return null;
     const minus = Array.isArray(cfg.sellCapMinusLabUse) && cfg.sellCapMinusLabUse.indexOf(resource) >= 0;
     return Math.max(0, Number(base) - (minus ? labUsedToday(resource) : 0));
@@ -1423,4 +1448,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { pixelPrice, notePixel, labUsedToday, sellCapFor, sellStopped, buyRoomOk, confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
+module.exports = { dailyVolume, pixelPrice, notePixel, labUsedToday, sellCapFor, sellStopped, buyRoomOk, confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };

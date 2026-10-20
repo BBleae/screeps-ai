@@ -387,8 +387,11 @@ function planForward(rule) {
     if (!from || !to || !from.terminal || !to.terminal || from.terminal.my === false || to.terminal.my === false) return null;
     if (from.terminal.cooldown > 0 || usedThisTick(from.name)) return null;
     const res = rule.resource;
-    if (Number(to.terminal.store[res] || 0) >= (Number(rule.toBelow) || Infinity)) return null;
-    let amount = Math.min(Number(from.terminal.store[res] || 0), Number(rule.batch) || 5000, freeOf(to.terminal.store));
+    const toHave = Number(to.terminal.store[res] || 0) + (rule.countStorage && to.storage && to.storage.store ? Number(to.storage.store[res] || 0) : 0);
+    if (toHave >= (Number(rule.toBelow) || Infinity)) return null;
+    const fromHave = Number(from.terminal.store[res] || 0);
+    const fromAll = fromHave + (rule.keep && from.storage && from.storage.store ? Number(from.storage.store[res] || 0) : 0);
+    let amount = Math.min(fromHave, fromAll - (Number(rule.keep) || 0), Number(rule.batch) || 5000, freeOf(to.terminal.store));
     if (amount < (Number(rule.minBatch) || 1000)) return null;
     const floor = Math.max(0, Number(rule.energyFloor) || 0);
     const energy = energyOf(from.terminal.store);

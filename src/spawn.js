@@ -1064,6 +1064,9 @@ function labTechTarget(room, mem) {
     const count = Math.max(0, Math.floor(Number(settings.labTechs) || 0));
     if (!count || room.controller.level < 6) return 0;
     const industry = require('industry');
+    let fp = null;
+    try { fp = industry.factoryPlan ? industry.factoryPlan(room) : null; } catch (error) { fp = null; }
+    if (fp && (fp.wants.length || fp.drains.length)) return count;
     let militaryActive = false;
     try { militaryActive = require('conquest').militaryCompounds().length > 0; } catch (e) { militaryActive = false; }
     if (!militaryActive && !(industry.labsAllowed ? industry.labsAllowed(room) : industry.canSpend(room)) && !(industry.boostOnlyRoom && industry.boostOnlyRoom(room))) return 0;
