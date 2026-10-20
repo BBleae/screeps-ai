@@ -150,10 +150,23 @@ function restoreAll() {
     }
 }
 
+function haulerBucketOk() {
+    const min = Number(settings().haulerMinBucket) || 3000;
+    return (Game.cpu.bucket || 0) >= min;
+}
+
+function pixelHeld() {
+    return !!(Memory.lootShed && Memory.lootShed.pixelOff && !Memory.lootShed.restoredAt);
+}
+
+
 function run() {
     const cfg = settings();
+    const running = lootRunning();
+    const existing = Memory.lootShed;
+    if (!running && !(existing && existing.startedAt && !existing.restoredAt)) return existing || null;
     const m = mem();
-    if (lootRunning()) {
+    if (running) {
         if (!m.startedAt) m.startedAt = Game.time;
         m.pixelOff = true;
         Memory.pixel = Memory.pixel || {};
@@ -173,16 +186,6 @@ function run() {
     }
     if (m.startedAt && lootFinished() && !m.restoredAt) restoreAll();
     return m;
-}
-
-function haulerBucketOk() {
-    const floor = Number(settings().haulerMinBucket) || 3000;
-    return !(Game.cpu && Game.cpu.bucket != null && Game.cpu.bucket < floor);
-}
-
-function pixelHeld() {
-    const m = Memory.lootShed;
-    return !!(m && m.pixelOff);
 }
 
 module.exports = { run, settings, avgN, lootRunning, lootFinished, haulerBucketOk, pixelHeld, mem, nextToPause, activeRemotes };

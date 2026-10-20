@@ -1252,6 +1252,7 @@ assert((Memory.errors || []).length === 0, 'RCL4 无运行时错误');
 console.log('== 空 Memory 启动（respawn 后场景）==');
 global.__pixelCalls = 0;
 const savedMem = Memory;
+const savedPixelEn = config.pixel.enabled;
 global.Memory = { creeps: {}, rooms: {}, map: {}, errors: [], stats: [] };
 world.time++;
 try {
@@ -1270,6 +1271,7 @@ try {
         main.loop();
         return { calls: global.__pixelCalls, skipped: ((Memory.pixelGate && Memory.pixelGate.skip) || 0) - before };
     };
+    config.pixel.enabled = true; delete Memory.lootShed; Memory.pixel = { enabled: true };
     assert(config.pixel.enabled === true && config.pixel.maxAvgCpu === 150 && config.pixel.window === 100, '10-20 15:38 pixel 重开：bucket 满且近 100 tick 实测均值 < 150');
     const noSamples = pixelTick([]);
     assert(noSamples.calls === 0 && noSamples.skipped === 1, '刚重载（近 100 tick 样本不满）：不产 pixel、记一次放弃（得 ' + JSON.stringify(noSamples) + '）');
@@ -1292,6 +1294,7 @@ try {
     fails++;
     console.log('  ✗ 空 Memory loop throw: ' + e.stack.split('\n').slice(0, 3).join(' | '));
 } finally {
+    config.pixel.enabled = savedPixelEn;
     global.Memory = savedMem;
 }
 
@@ -17634,6 +17637,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
 
 {
     console.log('== 10-20 15:38 pixel 重开 + deposit W30S5 + 新外矿 CPU 闸 150：100 tick 实测均值、补桶期规则、邻房撤退、母房选择、等孵报警 ==');
+    const savedPixelEn2 = config.pixel.enabled; config.pixel.enabled = true; delete Memory.lootShed; Memory.pixel = { enabled: true };
     const gate = require('cpu_gate');
     const dep = require('deposit');
     const rem = require('remote');
@@ -17799,6 +17803,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(eb.pixelSold === 2 && eb.pixelCredits === 20000 && eb.budget === Math.min(Number(e.budget.max) || Infinity, b0 + 20000), '卖掉 2 pixel 才加预算，且不超过 budget.max（得 ' + JSON.stringify(eb) + '）');
     Memory.market = savedMM; Game.market = savedGM;
     gate.reset(); for (let i = 0; i < 100; i++) gate.record(10);
+    config.pixel.enabled = savedPixelEn2; delete Memory.lootShed;
     Game.cpu.bucket = savedBucket; Game.map = savedMap; Game.rooms = savedRooms; Memory.deposits = savedDep; Memory.highwayBlock = savedHB; Memory.pvpThreat = savedPT;
 }
 

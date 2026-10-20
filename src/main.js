@@ -178,10 +178,10 @@ try { utils.installAllyFilter(); } catch (e) { logErr('allyFilter', e); }
 
 module.exports.loop = function () {
     try { utils.installAllyFilter(); } catch (e) { logErr('allyFilter', e); }
-    try { lootShed.run(); } catch (e) { logErr('lootShed', e); }
     const spkT0 = Game.cpu.getUsed();
     spkTick = {}; spkRoom = {};
     reuseParsedMemory();
+    try { lootShed.run(); } catch (e) { logErr('lootShed', e); }
     try {
         if (typeof RawMemory !== 'undefined' && RawMemory && typeof RawMemory.setActiveSegments === 'function') {
             RawMemory.setActiveSegments([90, 91]);
