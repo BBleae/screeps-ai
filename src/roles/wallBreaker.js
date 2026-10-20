@@ -1,6 +1,4 @@
 'use strict';
-/** 无主墙开口拆机（src/wall_breach.js）：只拆 memory.breachKey 对应白名单坐标上、无 owner 的 constructedWall。
- *  遇到武装敌人（玩家或 NPC）撤回母房并记 fleeUntil；目标已无墙就记完成并回收。不打任何 creep、不碰别的建筑。 */
 const movement = require('movement');
 const breach = require('wall_breach');
 
@@ -38,7 +36,6 @@ function run(creep) {
     if (!wall) {
         const other = creep.room.lookForAt(LOOK_STRUCTURES, target.x, target.y).filter((s) => s.structureType !== STRUCTURE_ROAD);
         if (!other.length) { breach.markDone(key); retire(creep); return 'done'; }
-        // 坐标上是别的（有主/非墙）建筑：一律不碰，停用这一项等人看
         breach.mem().blocked = { key, at: Game.time, types: other.map((s) => s.structureType) };
         retire(creep);
         return 'blocked';

@@ -1,11 +1,4 @@
 'use strict';
-/** 无主墙开口（10-17 战略猫拍板）：config.wallBreach.targets 白名单里的坐标，每条墙线只拆最短路径上的 1 段。
- *  - 只对白名单坐标上的 constructedWall 且无 owner 的动手（roles/wallBreaker.js 再核一次），不碰任何有主建筑、玩家或 Invader 的东西；
- *  - 母房（target.home）孵 1 只拆机（WORK/MOVE 对半）；home 等了 fallbackAfter tick 还没孵出来就允许 fallbackHome 孵；
- *  - 拆完（拆机进房看到该坐标已无墙）写 Memory.wallBreach.done[key]，此后不再孵；
- *  - 解锁外矿（config.wallBreach.unlock[母房]）：after 里的墙全拆完后，用 PathFinder 从母房 storage 量到每个源的步数，
- *    全部 ≤ maxSteps 才并入该母房的外矿白名单（remote.remoteWhitelist），超限不开并记 Memory.wallBreach.measured；
- *  - 拆机遇到武装敌人（玩家或 NPC）就撤回母房，fleeTicks 内不再孵、不再进房。 */
 const config = require('config');
 
 function settings() {
@@ -37,7 +30,6 @@ function targetByKey(key) {
     return (settings().targets || []).find((target) => keyOf(target) === key) || null;
 }
 
-/** 拆机身材：WORK/MOVE 对半（1:1 平地全速），最多 maxPairs 对；买不起 1 对返回 [] */
 function breakerBody(budget, maxPairs) {
     const pairs = Math.min(Math.max(0, Number(maxPairs) || 10), Math.floor((Number(budget) || 0) / 150));
     const body = [];
@@ -46,7 +38,6 @@ function breakerBody(budget, maxPairs) {
     return body;
 }
 
-/** 这面墙可以动：constructedWall、没有 owner、不是自己的。roles/wallBreaker 每次 dismantle 前都要过它 */
 function allowedWall(structure) {
     if (!structure) return false;
     const wallType = typeof STRUCTURE_WALL === 'undefined' ? 'constructedWall' : STRUCTURE_WALL;
@@ -78,12 +69,11 @@ function getDemands(home) {
         out.push({ role: 'wallBreaker', slot: 'breach:' + key, body,
             memory: { role: 'wallBreaker', slotKey: 'breach:' + key, home: home.name, breachKey: key },
             lead: 0, priority: 0, bodyFor: (budget) => breakerBody(budget, cfg.maxPairs) });
-        break;   // 一次只开一处
+        break;
     }
     return out;
 }
 
-/** 拆机看到坐标上已经没有墙：记完成，并量一次解锁外矿的步数 */
 function markDone(key) {
     const m = mem();
     if (m.done[key]) return;
@@ -102,8 +92,6 @@ function blockingCost(room) {
     return matrix;
 }
 
-/** 解锁条件里的墙全拆完的母房：PathFinder（plain 2 / swamp 8，路 1，只走 home + 解锁房）量 storage → 每个源（range 1）的步数，结果写进
- *  Memory.wallBreach.measured[母房][房] = { steps: [...], ok }。不可见的房按地形算（墙只在拆机所在、可见的房里才挡）。 */
 function measureUnlocks() {
     const cfg = settings();
     const m = mem();
@@ -132,7 +120,6 @@ function measureUnlocks() {
     }
 }
 
-/** 母房因墙拆完、步数达标而新增的外矿（remote.remoteWhitelist 并入） */
 function unlockedRemotes(homeName) {
     const cfg = settings();
     const rule = cfg.unlock && cfg.unlock[homeName];
