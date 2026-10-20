@@ -17747,9 +17747,13 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(!dep.getDemands(home).some((x) => x.role === 'depositMiner') && Memory.deposits.wait.dw.why === 'cpu', '近 100 tick 均值 > 150：不孵新矿工（撤回）');
     gate.reset(); for (let i = 0; i < 100; i++) gate.record(120);
     gate.notePixel(); Game.cpu.bucket = 500;
-    assert(dep.getDemands(home).some((x) => x.role === 'depositMiner'), '补桶期 bucket 500 < minBucket 3000：已分配的照常出需求（不撤）');
+    assert(!dep.getDemands(home).some((x) => x.role === 'depositMiner') && Memory.deposits.wait.dw.why === 'bucket', '20:20 bucket 500 < minerBucketMin 8000：没在岗矿工时不孵新矿工');
     delete Memory.pixelFill;
-    assert(dep.getDemands(home).some((x) => x.role === 'depositMiner'), '16:59 已在采的 deposit：bucket 500 也照常补矿工（只有新开 deposit 要 bucket ≥9000）');
+    Game.creeps = { m0: { ticksToLive: 1000, memory: { role: 'depositMiner', depositId: 'dw' } } };
+    assert(dep.getDemands(home).some((x) => x.role === 'depositMiner'), '20:20 bucket 500：在岗矿工未到预孵窗口，需求照常保留');
+    Game.creeps.m0.memory.done = true;
+    assert(!dep.getDemands(home).some((x) => x.role === 'depositMiner'), '20:20 bucket 500：在岗矿工已 done，不预孵接班');
+    Game.creeps = {};
     assert(dep.cpuOk(dep.settings()) === false, 'bucket 500：不开新 deposit');
     Game.creeps = { m1: { memory: { role: 'depositMiner', depositId: 'dw' } } };
     Game.cpu.bucket = 10000;

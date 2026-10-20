@@ -1,6 +1,7 @@
 'use strict';
 const movement = require('movement');
 const deposit = require('deposit');
+const TRAVEL_FIX_AT = 74450900;
 
 function goHome(creep) {
     const home = Game.rooms[creep.memory.home];
@@ -41,10 +42,14 @@ function run(creep) {
         movement.go(creep, new RoomPosition(info.x, info.y, m.depositRoom), { range: 1, reusePath: 50 });
         return;
     }
+    const pl = Number(info && info.pathLen) || 0;
     if (m.travel == null) {
         const path = info && Number(info.pathLen);
         const measured = Math.max(0, 1500 - creep.ticksToLive);
         m.travel = path > 0 ? Math.max(path, measured) : Math.max(measured, Number(cfg.minTravel) || 80);
+        m.travelAt = Game.time;
+    } else if (!(m.travelAt >= TRAVEL_FIX_AT) || m.travel < pl) {
+        m.travel = Math.max(m.travel, pl, Number(cfg.minTravel) || 80);
         m.travelAt = Game.time;
     }
     if (Game.time % 10 === 0) deposit.note(creep.room);

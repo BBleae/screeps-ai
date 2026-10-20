@@ -447,6 +447,7 @@ module.exports = {
         maxActive: 1,
         cpuAvgMax: 152,
         withdrawAvg: 150,
+        minerBucketMin: 8000,
         minBucket: 3000,
         newBucketMin: 9000,
         avoidRooms: ['W30S9'],

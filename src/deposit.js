@@ -364,14 +364,17 @@ function getDemands(home) {
             const d = m.list[id];
             if (d.home !== home.name || !workable(d, cfg)) continue;
             const live = minerFor(id);
-            if (!live && !gate.avgOk(cfg.withdrawAvg || 150)) { noteWait(m, id, home.name, cfg, 'cpu'); continue; }
             const body = minerBody(home.energyCapacityAvailable, cfg);
             if (!body.length) continue;
+            const lead = body.length * 3 + (d.hops || 3) * 50;
+            const needNew = !live || (live.memory && live.memory.done) || (live.ticksToLive != null && live.ticksToLive <= lead);
+            if (needNew && Game.cpu.bucket < (Number(cfg.minerBucketMin) || 8000)) { noteWait(m, id, home.name, cfg, 'bucket'); continue; }
+            if (needNew && !gate.avgOk(cfg.withdrawAvg || 150)) { noteWait(m, id, home.name, cfg, 'cpu'); continue; }
             if (!live) noteWait(m, id, home.name, cfg, 'spawn');
             else if (m.wait && m.wait[id]) { delete m.wait[id]; if (m.spawnWait && m.spawnWait.id === id) delete m.spawnWait; }
             out.push({ role: 'depositMiner', slot: 'deposit:' + id, body,
                 memory: { role: 'depositMiner', slotKey: 'deposit:' + id, home: home.name, depositId: id, depositRoom: d.room },
-                lead: body.length * 3 + (d.hops || 3) * 50, priority: 0, cls: 'opportunistic',
+                lead, priority: 0, cls: 'opportunistic',
                 bodyFor: (b) => minerBody(b, cfg) });
         }
     }
