@@ -18024,7 +18024,8 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     world.time += 1;
     plan = ind.factoryPlan(Game.rooms.W33S8);
     assert(plan.gate.ok && !plan.wants.some((w) => w.mineral === 'K'), '房内 K 只有 5300（留 5000 后不够一批）：不往 factory 搬 K');
-    const fwd = config.terminalNetwork.forward.filter((r) => r.resource === 'K');
+    const fwd = config.terminalNetwork.forward.filter((r) => r.resource === 'K' && r.from !== 'W38S7');
+    assert(config.terminalNetwork.forward.some((r) => r.from === 'W38S7' && r.to === 'W33S8' && r.resource === 'K' && r.toBelow === 5000 && r.fromFreeBelow > 0), '10-20 W37S3 的 K：W38S7→W33S8（W33S8 <5000 或 W38S7 storage 将满）');
     assert(fwd.length === 3 && fwd.every((r) => r.keep === 5000 && r.countStorage) && fwd.some((r) => r.from === 'W37S7' && r.to === 'W38S7') && fwd.some((r) => r.from === 'W31S6' && r.to === 'W33S8'),
         'K 补给：W37S7→W38S7/W33S8、W31S6→W33S8，来源房留 5000');
     const term = require('terminal');

@@ -173,7 +173,7 @@ module.exports = {
         aggressorTtl: 20000,
         highThreatIds: ['5a8a3d2d90d85961a7b853de'],
         armedMemory: 300,
-        dangerRooms: [],
+        dangerRooms: ['W38S2', 'W39S1'],
         tempAvoid: {
             W29S10: { until: 74405600 }, W30S10: { until: 74405600 }, W31S10: { until: 74405600 }, W32S10: { until: 74405600 }, W33S10: { until: 74405600 },
             W30S8: { until: 74405600, untilNoPowerBank: true },
@@ -491,6 +491,7 @@ module.exports = {
             { from: 'W32S4', to: 'W33S7', resource: 'GH2O', batch: 1000, minBatch: 150, toBelow: 1500, energyFloor: 1000 },
             { from: 'W37S7', to: 'W38S7', resource: 'K', batch: 3000, minBatch: 1000, toBelow: 7000, countStorage: true, keep: 5000, energyFloor: 1000 },
             { from: 'W37S7', to: 'W33S8', resource: 'K', batch: 3000, minBatch: 1000, toBelow: 7000, countStorage: true, keep: 5000, energyFloor: 1000 },
+            { from: 'W38S7', to: 'W33S8', resource: 'K', batch: 3000, minBatch: 1000, toBelow: 5000, countStorage: true, keep: 0, energyFloor: 1000, fromFreeBelow: 50000 },
             { from: 'W31S6', to: 'W33S8', resource: 'K', batch: 3000, minBatch: 1000, toBelow: 7000, countStorage: true, keep: 5000, energyFloor: 1000 },
             { from: 'W34S7', to: 'W37S5', resource: 'ZH2O', batch: 3600, minBatch: 360, toBelow: 8000, countStorage: true, keep: 100000, energyFloor: 1000 },
             { from: 'W34S7', to: 'W37S7', resource: 'ZH2O', batch: 3600, minBatch: 360, toBelow: 5000, countStorage: true, keep: 100000, energyFloor: 1000 }],

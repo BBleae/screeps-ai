@@ -388,7 +388,8 @@ function planForward(rule) {
     if (from.terminal.cooldown > 0 || usedThisTick(from.name)) return null;
     const res = rule.resource;
     const toHave = Number(to.terminal.store[res] || 0) + (rule.countStorage && to.storage && to.storage.store ? Number(to.storage.store[res] || 0) : 0);
-    if (toHave >= (Number(rule.toBelow) || Infinity)) return null;
+    const fromFull = rule.fromFreeBelow > 0 && from.storage && from.storage.store && typeof from.storage.store.getFreeCapacity === 'function' && from.storage.store.getFreeCapacity() < rule.fromFreeBelow;
+    if (toHave >= (Number(rule.toBelow) || Infinity) && !fromFull) return null;
     const fromHave = Number(from.terminal.store[res] || 0);
     const fromAll = fromHave + (rule.keep && from.storage && from.storage.store ? Number(from.storage.store[res] || 0) : 0);
     let amount = Math.min(fromHave, fromAll - (Number(rule.keep) || 0), Number(rule.batch) || 5000, freeOf(to.terminal.store));

@@ -721,7 +721,7 @@ function strongholdLootDemands(d, home, sponsors) {
     const lootTiles = Array.isArray(d.lootTiles) ? d.lootTiles : null;
     const phase = d.phase || 'breach';
     const salvage = d.type === 'salvageLoot';
-    if (phase === 'breach' || (salvage && phase === 'loot' && totalDismantlers > 0)) {
+    if (!d.pauseDismantlerSpawn && (phase === 'breach' || (salvage && phase === 'loot' && totalDismantlers > 0))) {
         const wantBoosts = (!salvage || homeCanBoost(home)) ? boostsFor('siegeDismantler', d) : [];
         const mem = attachAvoidance({ home: home.name, targetRoom: d.target, staging, squad, lootTiles, strongholdLoot: true, salvageLoot: salvage, boosts: wantBoosts }, d);
         const dPer = Math.min(Math.ceil(totalDismantlers / nSponsors), Number(d.maxDismantlersPerHome) || 99);

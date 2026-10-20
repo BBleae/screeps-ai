@@ -71,7 +71,8 @@ function stagePos(staging, target) {
 }
 
 function avoidSet(creep, target) {
-    const set = new Set([target]);
+    const set = new Set(movement.civilianDangerRooms());
+    set.add(target);
     const extra = creep.memory.avoid;
     if (Array.isArray(extra)) for (const r of extra) set.add(r);
     return set;
