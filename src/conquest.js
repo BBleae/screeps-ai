@@ -162,7 +162,8 @@ function reliefLead(from, to, body) {
 function boostPlanDemands(d, home, sponsors, body, mem) {
     const plan = d.boostPlan;
     const n = Math.max(0, Number(plan.base) || 0) + (boostPlanBreached(d) ? Math.max(0, Number(plan.more) || 0) : 0);
-    const lead = Math.max(0, plan.lead === 'auto' ? 0 : (Number(plan.lead) || 350), plan.lead === 'auto' || plan.autoLead ? reliefLead(home.name, d.target, body) : 0);
+    const travelLead = Number(plan.travel) > 0 ? Number(plan.travel) + (Number(plan.boostTicks) || 20) + (plan.leadPad != null ? Number(plan.leadPad) : 100) : 0;
+    const lead = travelLead > 0 ? travelLead : Math.max(0, plan.lead === 'auto' ? 0 : (Number(plan.lead) || 350), plan.lead === 'auto' || plan.autoLead ? reliefLead(home.name, d.target, body) : 0);
     plan.leadUsed = plan.leadUsed || {};
     plan.leadUsed[home.name] = lead;
     const prefix = 'siegeBoost:' + d.target + ':';
