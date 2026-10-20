@@ -153,10 +153,11 @@ const postCache = { tick: -1, by: {} };
 function claimedStands(target) {
     if (postCache.tick !== Game.time) { postCache.tick = Game.time; postCache.by = {}; }
     if (!postCache.by[target]) {
-        const set = new Set();
+        const set = new Map();
         for (const n in Game.creeps) {
-            const m = Game.creeps[n].memory;
-            if (m && m.role === 'siegeDismantler' && m.targetRoom === target && m.post) set.add(m.post.s[0] + ',' + m.post.s[1]);
+            const c = Game.creeps[n];
+            const m = c.memory;
+            if (m && m.role === 'siegeDismantler' && m.targetRoom === target && m.post) set.set(m.post.s[0] + ',' + m.post.s[1], { name: n, boosted: c.body.some((p) => p.boost) });
         }
         postCache.by[target] = set;
     }
@@ -178,14 +179,23 @@ function postRun(creep) {
     if (m.post && (!obj || !dir.posts.some((e) => e.t[0] === m.post.t[0] && e.t[1] === m.post.t[1]))) { delete m.post; obj = null; }
     if (!m.post) {
         const taken = claimedStands(target);
+        const boosted = creep.body.some((p) => p.boost);
         for (const e of dir.posts) {
             const b = barrierAt(creep.room, e.t);
             if (!b) continue;
             if (Array.isArray(e.after) && e.after.length && !e.after.some((t) => !barrierAt(creep.room, t))) continue;
-            const s = (e.s || []).find((p) => !taken.has(p[0] + ',' + p[1]));
+            let s = (e.s || []).find((p) => !taken.has(p[0] + ',' + p[1]));
+            if (!s && boosted) {
+                s = (e.s || []).find((p) => { const h = taken.get(p[0] + ',' + p[1]); return h && !h.boosted && h.name !== creep.name; });
+                if (s) {
+                    const h = taken.get(s[0] + ',' + s[1]);
+                    const hc = Game.creeps[h.name];
+                    if (hc) { delete hc.memory.post; hc.memory.postBumpedAt = Game.time; }
+                }
+            }
             if (!s) continue;
             m.post = { t: [e.t[0], e.t[1]], s: [s[0], s[1]] };
-            taken.add(s[0] + ',' + s[1]);
+            taken.set(s[0] + ',' + s[1], { name: creep.name, boosted });
             obj = b;
             break;
         }

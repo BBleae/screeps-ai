@@ -113,6 +113,70 @@ function boostsFor(role, d) {
     return Array.isArray(list) ? list.filter((compound) => typeof compound === 'string' && compound) : [];
 }
 
+function siegeCompounds() {
+    const set = [];
+    for (const d of directives()) {
+        if (!(Number(d.dismantlers) > 0)) continue;
+        for (const c of boostsFor('siegeDismantler', d)) if (set.indexOf(c) < 0) set.push(c);
+    }
+    return set;
+}
+
+function isBoosted(creep) {
+    return !!(creep && creep.body && creep.body.some((p) => p.boost));
+}
+
+function boostPlanBreached(d) {
+    const plan = d.boostPlan || {};
+    if (plan.breachedAt) return true;
+    const after = Array.isArray(plan.after) ? plan.after : [];
+    if (!after.length) return false;
+    const room = Game.rooms[d.target];
+    if (!room) return false;
+    const gone = after.some((t) => !room.lookForAt(LOOK_STRUCTURES, t[0], t[1]).some((s) => s.structureType === STRUCTURE_RAMPART || s.structureType === STRUCTURE_WALL));
+    if (gone) plan.breachedAt = Game.time;
+    return gone;
+}
+
+function boostLabReady(home, compounds, parts) {
+    if (!compounds.length) return true;
+    const labs = home.find(FIND_MY_STRUCTURES).filter((x) => x.structureType === STRUCTURE_LAB);
+    const minNeed = parts * 30;
+    const eNeed = parts * 20;
+    return compounds.every((c) => labs.some((l) => (l.store[c] || 0) >= minNeed && (l.store[RESOURCE_ENERGY] || 0) >= eNeed));
+}
+
+function boostPlanDemands(d, home, sponsors, body, mem) {
+    const plan = d.boostPlan;
+    const n = Math.max(0, Number(plan.base) || 0) + (boostPlanBreached(d) ? Math.max(0, Number(plan.more) || 0) : 0);
+    const lead = Math.max(0, Number(plan.lead) || 350);
+    const prefix = 'siegeBoost:' + d.target + ':';
+    let others = 0;
+    for (const name in Game.creeps) {
+        const c = Game.creeps[name];
+        const m = c.memory || {};
+        if (m.role !== 'siegeDismantler' || m.targetRoom !== d.target) continue;
+        if (String(m.slotKey || '').indexOf(prefix) === 0) continue;
+        if (!isBoosted(c)) continue;
+        if (c.ticksToLive != null && c.ticksToLive <= lead) continue;
+        others++;
+    }
+    const slots = Math.max(0, n - others);
+    plan.state = { at: Game.time, n, others, slots };
+    const idx = sponsors.indexOf(home.name);
+    if (idx < 0) return [];
+    const wantBoosts = boostsFor('siegeDismantler', d);
+    const parts = body.filter((p) => p === 'work').length;
+    if (!boostLabReady(home, wantBoosts, parts)) { plan.labWait = plan.labWait || {}; plan.labWait[home.name] = Game.time; return []; }
+    const out = [];
+    const bmem = Object.assign({}, mem, { boostWait: true, boostWaitMax: Math.max(100, Number(plan.boostWaitMax) || 300) });
+    for (let i = 0; i < slots; i++) {
+        if (i % sponsors.length !== idx) continue;
+        out.push(demand('siegeDismantler', prefix + i, body, bmem, lead, i, d));
+    }
+    return out;
+}
+
 function boostingEnabled() {
     const any = (d) => boostsFor('siegeDismantler', d).length > 0 || boostsFor('siegeGuard', d).length > 0;
     if (any(null)) return true;
@@ -770,7 +834,12 @@ function strongholdLootDemands(d, home, sponsors) {
         const mem = attachAvoidance({ home: home.name, targetRoom: d.target, staging, squad, lootTiles, strongholdLoot: true, salvageLoot: salvage, boosts: wantBoosts }, d);
         const dPer = Math.min(Math.ceil(totalDismantlers / nSponsors), Number(d.maxDismantlersPerHome) || 99);
         const body = repeatBody(['work', 'move'], Math.min(home.energyCapacityAvailable, Number(d.dismantlerBudget) || cfg.dismantlerBudget));
-        for (let i = 0; i < dPer; i++) demands.push(demand('siegeDismantler', 'siegeLoot:' + d.target + ':' + home.name + ':' + i, body, mem, 80, i, d));
+        if (d.boostPlan && typeof d.boostPlan === 'object') {
+            const sp = sponsors.map((s) => (typeof s === 'string' ? s : s && s.name)).filter(Boolean);
+            for (const x of boostPlanDemands(d, home, sp.length ? sp : [home.name], body, mem)) demands.push(x);
+        } else {
+            for (let i = 0; i < dPer; i++) demands.push(demand('siegeDismantler', 'siegeLoot:' + d.target + ':' + home.name + ':' + i, body, mem, 80, i, d));
+        }
         const gPer = Math.ceil(totalGuards / nSponsors);
         if (gPer > 0) {
             const gbody = repeatBody(['ranged_attack', 'heal', 'move', 'move'], Math.min(home.energyCapacityAvailable, cfg.guardBudget));
@@ -794,4 +863,4 @@ function strongholdLootDemands(d, home, sponsors) {
     return demands;
 }
 
-module.exports = { salvageUncovered, storesLocked, pullDirective, coverInfo, pullArmedThreat, allyTarget, run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick, salvageArmedThreat, salvageKeyTiles, salvageRamparts, salvageStructures, salvageRuins, salvagePickResource, salvagePriorityScore, salvageStoreTypes, salvageCorePriority, homeCanBoost };
+module.exports = { siegeCompounds, isBoosted, boostPlanBreached, boostLabReady, boostPlanDemands, salvageUncovered, storesLocked, pullDirective, coverInfo, pullArmedThreat, allyTarget, run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick, salvageArmedThreat, salvageKeyTiles, salvageRamparts, salvageStructures, salvageRuins, salvagePickResource, salvagePriorityScore, salvageStoreTypes, salvageCorePriority, homeCanBoost };

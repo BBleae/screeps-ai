@@ -39,6 +39,12 @@ function note(creep, key, amount) {
 function idle(creep, plan) {
     if (creep.memory.labIdleSince == null) creep.memory.labIdleSince = Game.time;
     if (plan && plan.product && (config.industry || {}).labTechStayWhileReacting !== false) return;
+    const room = Game.rooms[creep.memory.home];
+    if (room && industry.boostOnlyRoom && industry.boostOnlyRoom(room)) {
+        let siege = [];
+        try { siege = require('conquest').siegeCompounds(); } catch (e) { siege = []; }
+        if (siege.length) return;
+    }
     const wait = Math.max(0, Number((config.industry || {}).labTechIdleTicks) || 0);
     if (Game.time - creep.memory.labIdleSince >= wait) {
         creep.memory.retired = true;

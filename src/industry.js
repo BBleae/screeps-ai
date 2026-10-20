@@ -636,7 +636,10 @@ function boostLabJob(room, roles, labsById, cfg, reaction, wants, drains) {
             roomMem(room).boostSwitch = { at: Game.time, from: held, to: better || targets.find((type) => type !== held && num(stock[type], 0) >= minLoad), left: have };
             return null;
         }
-        if (have < cfg.boostStock / 2 && num(stock[held], 0) > 0) want = { labId: lab.id, mineral: held, amount: cfg.boostStock - have, boost: true };
+        let siege = [];
+        try { siege = boostOnlyRoom(room) ? require('conquest').siegeCompounds() : []; } catch (e) { siege = []; }
+        const refillBelow = siege.indexOf(held) >= 0 ? cfg.boostStock : cfg.boostStock / 2;
+        if (have < refillBelow && num(stock[held], 0) > 0) want = { labId: lab.id, mineral: held, amount: cfg.boostStock - have, boost: true };
     } else {
         const compound = targets.find((type) => num(stock[type], 0) >= Math.min(cfg.boostStock, cfg.boostMinLoad));
         if (compound) want = { labId: lab.id, mineral: compound, amount: Math.min(cfg.boostStock, num(stock[compound], 0)), boost: true };

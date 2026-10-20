@@ -5,7 +5,9 @@ const movement = require('movement');
 const MINERAL_PER_PART = typeof LAB_BOOST_MINERAL !== 'undefined' ? LAB_BOOST_MINERAL : 30;
 const ENERGY_PER_PART = typeof LAB_BOOST_ENERGY !== 'undefined' ? LAB_BOOST_ENERGY : 20;
 
-function maxWait() {
+function maxWait(creep) {
+    const own = creep && creep.memory && Number(creep.memory.boostWaitMax);
+    if (own > 0) return own;
     const value = Number((config.conquest || {}).boostMaxWait);
     return Number.isFinite(value) && value > 0 ? value : 100;
 }
@@ -65,9 +67,9 @@ function nextJob(creep) {
 function pending(creep) {
     const mem = creep.memory || {};
     if (!Array.isArray(mem.boosts) || !mem.boosts.length || mem.boostDone) return false;
-    if (!nextJob(creep)) return false;
+    if (!nextJob(creep) && !(mem.boostWait && wanted(creep).length && creep.room && creep.room.name === mem.home)) return false;
     if (mem.boostSince == null) mem.boostSince = Game.time;
-    if (Game.time - mem.boostSince >= maxWait()) {
+    if (Game.time - mem.boostSince >= maxWait(creep)) {
         mem.boostDone = true;
         return false;
     }
@@ -99,7 +101,8 @@ function apply(creep) {
 function run(creep) {
     if (!creep.memory || !Array.isArray(creep.memory.boosts) || !creep.memory.boosts.length) return false;
     if (!pending(creep)) return false;
-    return apply(creep);
+    if (apply(creep)) return true;
+    return !!(creep.memory.boostWait && !creep.memory.boostDone && wanted(creep).length && !nextJob(creep));
 }
 
 module.exports = { wanted, partTypeFor, usableParts, labFor, nextJob, pending, apply, run, noteBoost, MINERAL_PER_PART, ENERGY_PER_PART };
