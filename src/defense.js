@@ -297,6 +297,13 @@ function ownRoom(home, roomName) {
     return !!(room && room.controller && room.controller.my);
 }
 
+function fastRoom(roomName, threat, cfg) {
+    const list = cfg && Array.isArray(cfg.fastRemotes) ? cfg.fastRemotes : [];
+    if (list.indexOf(roomName) < 0) return false;
+    const hs = (threat && threat.hostiles) || [];
+    return hs.every((c) => c.owner && c.owner.username === 'Invader');
+}
+
 function evaluate(home, roomName, record, cfg, orders, mem) {
     const capacity = home.energyCapacityAvailable;
     const own = ownRoom(home, roomName);
@@ -315,7 +322,7 @@ function evaluate(home, roomName, record, cfg, orders, mem) {
         return out;
     }
     const loss = (mem && mem.defenseLog && mem.defenseLog.lastLoss) || null;
-    if (loss && loss.room === roomName && Number(threat.seenAt || 0) <= Number(loss.at || 0)) { out.wait = true; return out; }
+    if (loss && loss.room === roomName && Number(threat.seenAt || 0) <= Number(loss.at || 0) && !(!own && fastRoom(roomName, threat, cfg))) { out.wait = true; return out; }
     if (order && order.action === 'fight' && order.squad && Array.isArray(order.squad.body) && order.squad.body.length &&
         bodyCost(order.squad.body) <= capacity) {
         const body = order.squad.body.slice();
@@ -331,7 +338,7 @@ function evaluate(home, roomName, record, cfg, orders, mem) {
     if (!threat.profile) { out.wait = true; return out; }
     const plan = planSquad(capacity, threat.profile, cfg);
     if (!plan) { out.skip = { reason: 'unwinnable', until: Number(threat.profile.until), capacity }; return out; }
-    if (!own) {
+    if (!own && !fastRoom(roomName, threat, cfg)) {
         const worth = worthFighting(plan, record, threat.profile, cfg, home, roomName, mem);
         if (!worth.ok) {
             out.skip = { reason: 'notWorth:' + plan.total + '>' + worth.value, until: Number(threat.profile.until), lead: worth.lead };
@@ -395,7 +402,7 @@ function getDemands(home) {
             const log = roomLog(roomName);
             if (log.streak !== 0) log.streak = 0;
         }
-        const cls = result.own ? 'defense' : 'remoteMaintain';
+        const cls = result.own || fastRoom(roomName, threat, cfg) ? 'defense' : 'remoteMaintain';
         if (result.skip) {
             logOf().skipped = Object.assign({ room: roomName, at: Game.time, count: threat.count }, result.skip);
             suspendRecord(record, result.skip.until, 'hostileCreep');

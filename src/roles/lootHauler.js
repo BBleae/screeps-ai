@@ -312,15 +312,23 @@ function nextRoom(creep, dest) {
 }
 
 function gateHold(creep) {
-    const gates = (require('config').lootRoutes || {}).gates || {};
+    const lr = require('config').lootRoutes || {};
+    const gates = lr.gates || {};
+    const gateRooms = Array.isArray(lr.gateRooms) ? lr.gateRooms : [];
     const here = creep.room.name;
     const m = creep.memory;
-    let gate = null;
-    for (const g of Object.keys(gates)) if (Array.isArray(gates[g]) && gates[g].indexOf(here) >= 0) { gate = g; break; }
-    if (!gate) { delete m.gateWait; return false; }
-    const dest = m.state === 'deliver' ? (m.eDeliver && m.eDeliver.to) || m.deliverTo || m.home : m.targetRoom;
-    if (!dest || nextRoom(creep, dest) !== gate) { delete m.gateWait; return false; }
-    if (!gateArmed(gate)) { delete m.gateWait; return false; }
+    if (creep.spawning) return false;
+    const back = m.retired || m.state === 'deliver';
+    const dest = back ? (m.state === 'deliver' && m.eDeliver && m.eDeliver.to) || m.deliverTo || m.home : m.targetRoom;
+    if (!dest || dest === here) { delete m.gateWait; return false; }
+    const route = Array.isArray(lr[m.targetRoom]) ? lr[m.targetRoom] : [];
+    const onRoute = route.indexOf(here) >= 0 || gateRooms.indexOf(here) >= 0 || Object.keys(gates).some((g) => Array.isArray(gates[g]) && gates[g].indexOf(here) >= 0);
+    if (!onRoute || !(Game.map && typeof Game.map.findRoute === 'function')) { delete m.gateWait; return false; }
+    const gate = nextRoom(creep, dest);
+    if (!gate || gate === dest && !back) { delete m.gateWait; return false; }
+    const listed = gateRooms.indexOf(gate) >= 0 || (Array.isArray(gates[gate]) && gates[gate].indexOf(here) >= 0);
+    if (!listed) { delete m.gateWait; return false; }
+    if (!gateArmed(gate) || (gateRooms.indexOf(here) >= 0 && gateArmed(here))) { delete m.gateWait; return false; }
     if (!m.gateWait) m.gateWait = Game.time;
     const p = creep.pos;
     if (p.x <= 2 || p.x >= 47 || p.y <= 2 || p.y >= 47) movement.go(creep, new RoomPosition(25, 25, here), { range: 10, reusePath: 20 });

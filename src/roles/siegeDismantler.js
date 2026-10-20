@@ -355,8 +355,23 @@ function releaseSlot(creep) {
     const mt = k.match(/^(siegeBoost|siegeLoot|siege):([^:]+):/);
     if (!mt || !m.targetRoom || mt[2] === m.targetRoom) return false;
     m.slotFrom = k;
-    m.slotKey = 'moved:' + m.targetRoom + ':' + creep.name;
+    m.slotKey = freeBoostSlot(m.targetRoom) || 'moved:' + m.targetRoom + ':' + creep.name;
     return true;
+}
+
+function freeBoostSlot(target) {
+    let dir = null;
+    for (const x of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (x && x.target === target && !x.completed) { dir = x; break; }
+    if (!dir || !dir.boostPlan || typeof dir.boostPlan !== 'object') return null;
+    const n = Math.max(0, Number(dir.boostPlan.base) || 0);
+    const prefix = 'siegeBoost:' + target + ':';
+    const held = new Set();
+    for (const name in Game.creeps) {
+        const k = String((Game.creeps[name].memory || {}).slotKey || '');
+        if (k.indexOf(prefix) === 0 && !Game.creeps[name].memory.retired) held.add(k);
+    }
+    for (let i = 0; i < n; i++) if (!held.has(prefix + i)) return prefix + i;
+    return null;
 }
 
 function postUsable(room, dir, e, open) {
@@ -515,6 +530,7 @@ function run(creep) {
     if (creep.memory.retired) { retire.retireAtSpawn(creep); return; }
     if (bucketHold(creep)) return;
     if (lootHoldRun(creep)) return;
+    if (require('roles_lootHauler').gateHold(creep)) return;
     if (postRun(creep)) return;
     const target = creep.memory.targetRoom;
     if (!target) return;
@@ -648,4 +664,4 @@ function run(creep) {
     if (creep.dismantle(tgt) === ERR_NOT_IN_RANGE) movement.go(creep, tgt, { range: 1, reusePath: 5 });
 }
 
-module.exports = { run, squadMates, power, openCheck, innerPosts, standAround, sideRun, unboostedTimeout, bucketHold, releaseSlot, strongerWaiting, handoff };
+module.exports = { run, squadMates, power, openCheck, innerPosts, standAround, sideRun, unboostedTimeout, bucketHold, releaseSlot, strongerWaiting, handoff, freeBoostSlot };

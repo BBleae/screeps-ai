@@ -688,7 +688,7 @@ function getDemands(home) {
 }
 
 function demandsFor(d, home) {
-    if (Memory.lootHold && (Memory.lootHold === true || Memory.lootHold[d.target]) && (d.type === 'salvageLoot' || d.type === 'pullLoot' || d.type === 'strongholdLoot')) return [];
+    if (Memory.lootHold && (Memory.lootHold === true || (Memory.lootHold[d.target] && !(Memory.lootHold[d.target] === 'haulers' && d.type === 'salvageLoot'))) && (d.type === 'salvageLoot' || d.type === 'pullLoot' || d.type === 'strongholdLoot')) return [];
     const sponsors = sponsorRooms(d);
     const haulerOnly = sponsors.indexOf(home.name) < 0 && d.type === 'salvageLoot' && Array.isArray(d.haulerSponsors) && d.haulerSponsors.indexOf(home.name) >= 0;
     if (sponsors.indexOf(home.name) < 0 && !haulerOnly) return [];
@@ -889,6 +889,7 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
         }
     }
     if (Number(d.haulerBucketMin) > 0 && Number(Game.cpu.bucket) < Number(d.haulerBucketMin)) totalHaulers = 0;
+    if (Memory.lootHold && Memory.lootHold[d.target] === 'haulers') totalHaulers = 0;
     if (salvage && totalHaulers > 0 && Number(d.haulersMore) > 0 && Game.cpu && Game.cpu.bucket >= (Number(d.haulersMoreBucket) || 9000)) totalHaulers += Number(d.haulersMore);
     if ((!cpuHeld || haulExempt) && (phase === 'loot' || phase === 'breach') && totalHaulers > 0) {
         const closest = salvage ? null : sponsors.slice().sort((a, b) => roomDistance(a, d.target) - roomDistance(b, d.target))[0];
