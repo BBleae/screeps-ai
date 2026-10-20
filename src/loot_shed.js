@@ -93,9 +93,30 @@ function nextToPause() {
     const active = activeRemotes();
     const byName = {};
     for (const a of active) byName[a.room] = a;
+    const last = settings().last || [];
     for (const name of prefer) if (byName[name] && !alreadyPaused(name)) return byName[name];
-    const rest = active.filter((a) => prefer.indexOf(a.room) < 0 && !alreadyPaused(a.room)).sort((a, b) => b.cpu - a.cpu || a.room.localeCompare(b.room));
-    return rest[0] || null;
+    const rest = active.filter((a) => prefer.indexOf(a.room) < 0 && last.indexOf(a.room) < 0 && !alreadyPaused(a.room)).sort((a, b) => b.cpu - a.cpu || a.room.localeCompare(b.room));
+    if (rest.length) return rest[0];
+    for (const name of last) if (byName[name] && !alreadyPaused(name)) return byName[name];
+    return null;
+}
+
+function pauseOrder() {
+    const prefer = settings().prefer || [];
+    const last = settings().last || [];
+    const active = activeRemotes();
+    const names = active.map((a) => a.room);
+    const head = prefer.filter((n) => names.indexOf(n) >= 0);
+    const rest = active.filter((a) => prefer.indexOf(a.room) < 0 && last.indexOf(a.room) < 0).sort((a, b) => b.cpu - a.cpu || a.room.localeCompare(b.room)).map((a) => a.room);
+    return head.concat(rest, last.filter((n) => names.indexOf(n) >= 0));
+}
+
+function forcePause(cfg) {
+    for (const name of cfg.force || []) {
+        if (alreadyPaused(name)) continue;
+        const entry = activeRemotes().find((a) => a.room === name);
+        if (entry) pauseRemote(entry);
+    }
 }
 
 function pauseRemote(entry) {
@@ -196,8 +217,9 @@ function run() {
         const avg = avgN(10);
         m.avg10 = avg;
         m.at = Game.time;
+        forcePause(cfg);
         if (avg == null) return m;
-        releaseHeld(cfg, avg);
+        if (!cfg.holdUntilDone) releaseHeld(cfg, avg);
         if (cfg.autoPause === true && avg > cfg.pauseAbove) {
             const gap = Number(cfg.pauseEvery) || 50;
             if (!(m.lastPauseAt > 0) || Game.time - m.lastPauseAt >= gap) {
@@ -211,4 +233,4 @@ function run() {
     return m;
 }
 
-module.exports = { run, settings, avgN, lootRunning, lootFinished, haulerBucketOk, pixelHeld, mem, nextToPause, activeRemotes };
+module.exports = { run, settings, avgN, lootRunning, lootFinished, haulerBucketOk, pixelHeld, mem, nextToPause, activeRemotes, pauseOrder };

@@ -181,6 +181,7 @@ function boostPlanDemands(d, home, sponsors, body, mem) {
     plan.state = { at: Game.time, n, others, slots };
     const idx = sponsors.indexOf(home.name);
     if (idx < 0) return [];
+    if (Number(Game.cpu.bucket) < (Number(plan.minBucket) || Number(settings().boostPlanMinBucket) || 8000)) { plan.bucketWait = Game.time; return []; }
     const wantBoosts = boostsFor('siegeDismantler', d);
     const parts = body.filter((p) => p === 'work').length;
     const floor = d.storageFloor != null ? Number(d.storageFloor) : settings().storageFloor;
@@ -838,6 +839,7 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
     if (home.energyCapacityAvailable < cfg.minCapacity) return [];
     if (d.retreat) return [];
     let cpuHeld = false;
+    let haulExempt = false;
     if (d.type === 'salvageLoot') {
         const minBucket = Number(d.minBucket) || 9000;
         if (Game.cpu && Game.cpu.bucket != null && Game.cpu.bucket < minBucket && !(d.startedAt > 0)) return [];
@@ -846,7 +848,9 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
         try {
             if (!require('deposit').statsCpuOk(cpuMax, samples, 0)) cpuHeld = true;
         } catch (e) { }
-        if (cpuHeld && !(d.boostPlan && d.startedAt > 0)) return [];
+        const cq = settings();
+        haulExempt = cpuHeld && d.startedAt > 0 && (cq.cpuExemptHaulers || []).indexOf(d.target) >= 0 && Number(Game.cpu.bucket) >= (Number(cq.cpuExemptHaulerBucket) || 9000);
+        if (cpuHeld && !(d.boostPlan && d.startedAt > 0) && !haulExempt) return [];
     }
     const storeEnergy = (home.storage && home.storage.store) ? (home.storage.store.energy || 0) : 0;
     const floor = d.storageFloor != null ? Number(d.storageFloor) : cfg.storageFloor;
@@ -861,13 +865,13 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
         try { if (!require('loot_shed').haulerBucketOk()) totalHaulers = 0; } catch (e) { }
         if (Game.rooms[d.target] && storesLocked(Game.rooms[d.target])) totalHaulers = 0;
     }
-    const maxHaulers = Number(d.maxHaulersPerHome) || 8;
+    const maxHaulers = haulExempt ? Math.min(Number(d.maxHaulersPerHome) || 6, Number(settings().cpuExemptHaulerCap) || 6) : (Number(d.maxHaulersPerHome) || 8);
     const squad = Math.max(1, totalDismantlers + totalGuards);
     const lootTiles = Array.isArray(d.lootTiles) ? d.lootTiles : null;
     const phase = d.phase || 'breach';
     const salvage = d.type === 'salvageLoot';
     const dBucketOk = !(Number(d.dismantlerBucketMin) > 0) || Game.cpu.bucket >= Number(d.dismantlerBucketMin);
-    if (!haulerOnly && !d.pauseDismantlerSpawn && dBucketOk && (phase === 'breach' || (salvage && phase === 'loot' && totalDismantlers > 0))) {
+    if (!haulerOnly && !d.pauseDismantlerSpawn && dBucketOk && (!cpuHeld || d.boostPlan) && (phase === 'breach' || (salvage && phase === 'loot' && totalDismantlers > 0))) {
         const wantBoosts = (!salvage || homeCanBoost(home)) ? boostsFor('siegeDismantler', d) : [];
         const mem = attachAvoidance({ home: home.name, targetRoom: d.target, staging, squad, lootTiles, strongholdLoot: true, salvageLoot: salvage, boosts: wantBoosts }, d);
         const dPer = Math.min(Math.ceil(totalDismantlers / nSponsors), Number(d.maxDismantlersPerHome) || 99);
@@ -885,7 +889,7 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
         }
     }
     if (salvage && totalHaulers > 0 && Number(d.haulersMore) > 0 && Game.cpu && Game.cpu.bucket >= (Number(d.haulersMoreBucket) || 9000)) totalHaulers += Number(d.haulersMore);
-    if (!cpuHeld && (phase === 'loot' || phase === 'breach') && totalHaulers > 0) {
+    if ((!cpuHeld || haulExempt) && (phase === 'loot' || phase === 'breach') && totalHaulers > 0) {
         const closest = salvage ? null : sponsors.slice().sort((a, b) => roomDistance(a, d.target) - roomDistance(b, d.target))[0];
         if (!closest || home.name === closest) {
             const nHaul = new Set(sponsors.concat(Array.isArray(d.haulerSponsors) ? d.haulerSponsors : [])).size || 1;

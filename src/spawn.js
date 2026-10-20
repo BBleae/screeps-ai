@@ -1064,6 +1064,9 @@ function labTechTarget(room, mem) {
     const count = Math.max(0, Math.floor(Number(settings.labTechs) || 0));
     if (!count || room.controller.level < 6) return 0;
     const industry = require('industry');
+    if (industry.boostOnlyRoom && industry.boostOnlyRoom(room)) {
+        try { if (require('conquest').directives().some((d) => d.boostPlan && Array.isArray(d.sponsors) && d.sponsors.indexOf(room.name) >= 0 && d.phase !== 'done')) return count; } catch (e) { }
+    }
     let fp = null;
     try { fp = industry.factoryPlan ? industry.factoryPlan(room) : null; } catch (error) { fp = null; }
     if (fp && (fp.wants.length || fp.drains.length)) return count;
