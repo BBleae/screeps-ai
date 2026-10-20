@@ -130,9 +130,15 @@ function run(creep) {
             return;
         }
         const tiles = creep.memory.lootTiles || [];
-        const rr = tiles.length ? conquest.lootRampartTargets(creep.room, tiles) : [];
+        let rr = tiles.length ? conquest.lootRampartTargets(creep.room, tiles) : [];
         if (rr.length) {
-            const lt = rr.reduce((low, t) => (t.hits < low.hits ? t : low), rr[0]);
+            if (creep.memory.salvageLoot && tiles.length) {
+                const order = new Map(tiles.map((p, i) => [p[0] + ',' + p[1], i]));
+                rr = rr.slice().sort((a, b) => (order.get(a.pos.x + ',' + a.pos.y) || 99) - (order.get(b.pos.x + ',' + b.pos.y) || 99) || a.hits - b.hits);
+            } else {
+                rr = [rr.reduce((low, t) => (t.hits < low.hits ? t : low), rr[0])];
+            }
+            const lt = rr[0];
             if (creep.dismantle(lt) === ERR_NOT_IN_RANGE) movement.go(creep, lt, { range: 1, reusePath: 5 });
             return;
         }
@@ -144,9 +150,7 @@ function run(creep) {
             for (const x of list) if (x && x.target === target && !x.completed) { directive = x; break; }
             const structs = conquest.salvageStructures(creep.room, directive || { lootOpen: true, structures: ['storage', 'terminal', 'factory'], skipTypes: ['nuker'] });
             if (structs.length) {
-                const open = structs.filter((s) => s.structureType === STRUCTURE_LAB || s.structureType === STRUCTURE_EXTENSION);
-                const core = structs.filter((s) => s.structureType === STRUCTURE_STORAGE || s.structureType === STRUCTURE_TERMINAL || s.structureType === STRUCTURE_FACTORY);
-                const pick = (core.length ? core : open).reduce((low, t) => (t.hits < low.hits ? t : low));
+                const pick = structs[0];
                 if (creep.dismantle(pick) === ERR_NOT_IN_RANGE) movement.go(creep, pick, { range: 1, reusePath: 5 });
                 return;
             }

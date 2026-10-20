@@ -1060,6 +1060,57 @@ function pvpAggressors() {
     }
     return out;
 }
+
+function noteAllyDamage(room) {
+    if (!room || typeof room.find !== 'function' || typeof room.getEventLog !== 'function') return 0;
+    const allies = allySettings();
+    if (!allies.names.length && !allies.ids.length) return 0;
+    const hostiles = (room.find(FIND_HOSTILE_CREEPS) || []).filter((c) => isAlly(c));
+    if (!hostiles.length) return 0;
+    if (!(room.find(FIND_MY_CREEPS) || []).length && !(room.find(FIND_MY_STRUCTURES) || []).length) return 0;
+    const byId = {};
+    for (const c of hostiles) byId[c.id] = c.owner && c.owner.username;
+    let added = 0;
+    const attackEv = typeof EVENT_ATTACK === 'undefined' ? 1 : EVENT_ATTACK;
+    const atkCtrl = typeof EVENT_ATTACK_CONTROLLER === 'undefined' ? 3 : EVENT_ATTACK_CONTROLLER;
+    for (const ev of room.getEventLog() || []) {
+        if (ev.event !== attackEv && ev.event !== atkCtrl) continue;
+        if (!ev.data || (ev.event === attackEv && !(Number(ev.data.damage) > 0))) continue;
+        const user = byId[ev.objectId];
+        if (!user) continue;
+        const target = Game.getObjectById(ev.data.targetId);
+        if (!target || target.my !== true) continue;
+        if (ev.event === attackEv && !targetLostHits(target)) continue;
+        const alerts = Memory.strategistAlerts || (Memory.strategistAlerts = {});
+        const key = 'allyDamage_' + user;
+        const prev = alerts[key];
+        const throttle = Number((config.allies || {}).alertThrottle) || 200;
+        if (prev && prev.clearedAt == null && Game.time - Number(prev.at || 0) < throttle) {
+            prev.n = (Number(prev.n) || 0) + 1;
+            prev.last = Game.time;
+            prev.room = room.name;
+            continue;
+        }
+        alerts[key] = {
+            at: Game.time,
+            last: Game.time,
+            n: 1,
+            user,
+            room: room.name,
+            target: target.name || target.structureType || ev.data.targetId,
+            msg: '白名单 ' + user + ' 在 ' + room.name + ' 打了我们的 ' + (target.name || target.structureType || ev.data.targetId) + '（未反击、未解白）',
+        };
+        console.log('[ally] ' + alerts[key].msg);
+        added++;
+    }
+    sampleMyHits(room);
+    return added;
+}
+function noteAllyDamageAll() {
+    for (const room of Object.values(Game.rooms || {})) {
+        try { noteAllyDamage(room); } catch (e) { logErr('ally.noteDamage ' + room.name, e); }
+    }
+}
 function noteAggressorsAll() {
     for (const room of Object.values(Game.rooms || {})) {
         try { noteAggressors(room); } catch (e) { logErr('pvp.noteAggressors ' + room.name, e); }
@@ -1234,6 +1285,8 @@ module.exports = {
     notePvpThreat,
     noteAggressors,
     noteAggressorsAll,
+    noteAllyDamage,
+    noteAllyDamageAll,
     pvpAggressors,
     pvpDangerRoom,
     tempAvoidRooms,

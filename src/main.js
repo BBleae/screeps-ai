@@ -227,6 +227,7 @@ module.exports.loop = function () {
         if (sampleRoles) cpuProf.roleTicks++;
         if (sampleRoles) { try { cpuRemote.tick(); } catch (e) { logErr('cpuRemote.tick', e); } }
         try { require('utils').noteAggressorsAll(); } catch (e) { logErr('pvp.aggressors', e); }
+        try { require('utils').noteAllyDamageAll(); } catch (e) { logErr('ally.damage', e); }
         try { require('utils').ownerCacheObserve(); } catch (e) { logErr('pvp.ownerCache', e); }
         for (const room of Object.values(Game.rooms)) {
             if (!room.controller || !room.controller.my) continue;
