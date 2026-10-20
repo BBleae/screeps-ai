@@ -17225,12 +17225,15 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     world.time += 10;
     assert(term.planSenders([tR('W33S7', 54000, 30000, 8), tR('W31S8', 14000, 7000)], tcfg) === null, 'storage 5.4 万：多出不到 5000，不送（storage 留 5 万）');
     world.time += 10;
+    const s2 = term.planSenders([tR('W33S7', 60000, 20000, 8), tR('W31S8', 14000, 7000)], tcfg);
+    assert(s2 === null, '10-20 线上：storage 6 万但 terminal 只剩 2 万，补满 terminal 要从 storage 拿 1 万：算上这笔就不够 5000，不送（得 ' + JSON.stringify(s2 && s2.amount) + '）');
+    world.time += 10;
     const day = Math.floor((Date.now() + 9 * 3600000) / 86400000);
     Memory.terminalNetwork = { senders: { W33S7: { day, sent: 148000, cost: 0, n: 15 } } };
     assert(term.planSenders([tR('W33S7', 90000, 30000, 8), tR('W31S8', 14000, 7000)], tcfg) === null, '当天已送 14.8 万（上限 15 万）：不再送');
     world.time += 10;
     Memory.terminalNetwork = {};
-    assert(term.storageSpare(tR('W33S7', 52000, 30000, 8)) === 2000 && term.storageSpare(tR('W37S5', 1000, 0)) === Infinity, '其它发送路径对 W33S7 也只动 storage 5 万以上的部分');
+    assert(term.storageSpare(tR('W33S7', 52000, 30000, 8)) === 2000 && term.storageSpare(tR('W33S7', 52000, 25000, 8)) === -3000 && term.storageSpare(tR('W37S5', 1000, 0)) === Infinity, '其它发送路径对 W33S7 也只动 storage 5 万以上的部分');
     const starve = term.planTransfer([tR('W33S7', 52000, 30000, 8), tR('W38S7', 3000, 1000)], tcfg);
     assert(!starve || starve.from.name !== 'W33S7' || starve.amount <= 2000, '救急路径也不把 W33S7 storage 拉到 5 万以下（得 ' + JSON.stringify(starve && { f: starve.from.name, a: starve.amount }) + '）');
 

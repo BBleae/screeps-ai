@@ -81,7 +81,12 @@ function feeReserveOf(room) {
 function storageSpare(room) {
     const keep = Number(((config.terminalNetwork || {}).storageKeepByRoom || {})[room.name]) || 0;
     if (!(keep > 0)) return Infinity;
-    return energyOf(room.storage && room.storage.my !== false && room.storage.store) - keep;
+    return committedSpare(room, keep);
+}
+
+function committedSpare(room, keep) {
+    const target = Math.max(0, Number((config.industry || {}).terminalTarget) || 0);
+    return energyOf(room.storage && room.storage.my !== false && room.storage.store) + energyOf(room.terminal && room.terminal.store) - keep - Math.max(target, feeReserveOf(room));
 }
 
 function dayKey() {
@@ -106,7 +111,7 @@ function planSenders(rooms, cfg) {
         const from = byName[name];
         if (!from || from.terminal.cooldown > 0 || usedThisTick(from.name)) continue;
         const keep = Math.max(0, Number(rule.keep) || 0);
-        const spare = energyOf(from.storage && from.storage.my !== false && from.storage.store) - keep;
+        const spare = committedSpare(from, keep);
         const minSend = Math.max(1, Number(rule.minSend) || cfg.minSend || 5000);
         if (spare < minSend) continue;
         const rec = senderLog(name);
