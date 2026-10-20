@@ -124,7 +124,7 @@ function run(creep) {
             }
             creep.memory.launched = true;
         }
-        if (squad <= 1 || creep.memory.launched) {
+        if (squad <= 1 || creep.memory.launched || staging === target) {
             const laneW = conquest.settings().entryLaneWidth;
             const avoidTowers = conquest.towerAvoidCallback(target, creep.memory.avoidTowers);
             if (laneW > 0) {
