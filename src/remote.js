@@ -51,6 +51,13 @@ function sourceRecord(raw) {
     };
 }
 
+
+function clearSuspend(record) {
+    if (!record || record.suspendReason === 'lootShed') return false;
+    record.suspendedUntil = 0;
+    record.suspendReason = null;
+    return true;
+}
 function remoteRecord(roomName, raw) {
     raw = raw || {};
     let sources = [];
@@ -243,8 +250,7 @@ function syncKeeperRooms(home, remotes) {
         if (!skWhitelisted(home.name, roomName) || !withinDistance(home.name, roomName)) continue;
         record.sk = true;
         record.enabled = true;
-        record.suspendedUntil = 0;
-        record.suspendReason = null;
+        clearSuspend(record);
         count++;
     }
 }
@@ -671,8 +677,7 @@ function refreshVisible(home, record, room) {
             record.clearReservation = true;
         }
     } else if (String(record.suspendReason || '').indexOf('foreignReservation:') === 0) {
-        record.suspendedUntil = 0;
-        record.suspendReason = null;
+        clearSuspend(record);
     }
 
     if (record.lairs == null) {
@@ -683,8 +688,7 @@ function refreshVisible(home, record, room) {
     if (keeperLairs > 0) {
         if (record.sk) {
             if (record.suspendReason === 'keeperRoom') {
-                record.suspendReason = null;
-                record.suspendedUntil = 0;
+                clearSuspend(record);
                 record.enabled = true;
             }
         } else {
@@ -702,8 +706,7 @@ function refreshVisible(home, record, room) {
         defense.recordThreat(record, defense.armedHostiles(room).filter((creep) => !(record.sk && isKeeper(creep))));
     } else if (record.enabled && (record.suspendedUntil <= now ||
         record.suspendReason === 'hostileCreep' || record.suspendReason === 'invaderCore')) {
-        record.suspendedUntil = 0;
-        record.suspendReason = null;
+        clearSuspend(record);
         record.threat = null;
     }
 
@@ -1205,8 +1208,7 @@ function run(home) {
                 }
                 record.enabled = true;
                 if (record.suspendedUntil <= Game.time) {
-                    record.suspendedUntil = 0;
-                    record.suspendReason = null;
+                    clearSuspend(record);
                 }
             }
         }
@@ -1359,7 +1361,7 @@ function applyAvoidHolds(homeName, remotes) {
             const ours = String(record.suspendReason || '').indexOf('avoidHold:') === 0;
             if (ours || Number(record.suspendedUntil) === Number(hold.until)) {
                 if (Number(record.suspendedUntil) <= Number(hold.until)) record.suspendedUntil = 0;
-                if (ours) record.suspendReason = null;
+                if (ours && record.suspendReason !== 'lootShed') record.suspendReason = null;
             }
             delete record.avoidHold;
         }

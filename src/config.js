@@ -625,8 +625,16 @@ module.exports = {
         skipTicks: 20,
         modules: ['terminal', 'deposit', 'demolition', 'expansion', 'wheel', 'conquest'],
     },
+    lootShed: {
+        pauseAbove: 150,
+        resumeBelow: 140,
+        pauseEvery: 50,
+        minSamples: 8,
+        prefer: ['W38S6', 'W38S5'],
+        haulerMinBucket: 3000,
+    },
     pixel: {
-        enabled: true,
+        enabled: false,
         minInterval: 2000,
         maxAvgCpu: 150,
         window: 100,

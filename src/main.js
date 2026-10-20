@@ -30,6 +30,7 @@ const wallFix = require('wallfix');
 const pvp = require('pvp');
 const cpuRemote = require('cpu_remote');
 const cpuGate = require('cpu_gate');
+const lootShed = require('loot_shed');
 
 const ROLES = {
     harvester: require('roles_harvester'),
@@ -177,6 +178,7 @@ try { utils.installAllyFilter(); } catch (e) { logErr('allyFilter', e); }
 
 module.exports.loop = function () {
     try { utils.installAllyFilter(); } catch (e) { logErr('allyFilter', e); }
+    try { lootShed.run(); } catch (e) { logErr('lootShed', e); }
     const spkT0 = Game.cpu.getUsed();
     spkTick = {}; spkRoom = {};
     reuseParsedMemory();

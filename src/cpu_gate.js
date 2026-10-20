@@ -4,7 +4,12 @@ const config = require('config');
 const ring = { buf: [], i: 0, sum: 0, size: 0 };
 
 function settings() {
-    return Object.assign({ enabled: false, maxAvgCpu: 150, window: 100, holdUntilBucket: 9000, refillWindow: 3000, keepRefill: 10, minInterval: 2000 }, config.pixel || {});
+    const base = Object.assign({ enabled: false, maxAvgCpu: 150, window: 100, holdUntilBucket: 9000, refillWindow: 3000, keepRefill: 10, minInterval: 2000 }, config.pixel || {});
+    if (typeof Memory !== 'undefined' && Memory) {
+        if (Memory.lootShed && Memory.lootShed.pixelOff) base.enabled = false;
+        else if (Memory.pixel && Memory.pixel.enabled != null) base.enabled = !!Memory.pixel.enabled;
+    }
+    return base;
 }
 
 function windowSize() {

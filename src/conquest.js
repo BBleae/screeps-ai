@@ -670,6 +670,9 @@ function strongholdLootDemands(d, home, sponsors) {
     const totalDismantlers = Math.max(0, Number(d.dismantlers) || 0);
     const totalGuards = Math.max(0, Number(d.guards) || 0);
     let totalHaulers = Math.max(0, Number(d.haulers) || 0);
+    if (d.type === 'salvageLoot') {
+        try { if (!require('loot_shed').haulerBucketOk()) totalHaulers = 0; } catch (e) { /* ignore */ }
+    }
     const maxHaulers = Number(d.maxHaulersPerHome) || 8;
     const squad = Math.max(1, totalDismantlers + totalGuards);
     const lootTiles = Array.isArray(d.lootTiles) ? d.lootTiles : null;
