@@ -101,8 +101,10 @@ function canSpend(room) {
 function labsAllowed(room) {
     const cfg = industryConfig();
     if (!Array.isArray(cfg.labRooms)) return canSpend(room);
-    if (cfg.labRooms.indexOf(room.name) < 0) return false;
+    const boostOnly = boostOnlyRoom(room);
+    if (cfg.labRooms.indexOf(room.name) < 0 && !boostOnly) return false;
     if (storageEnergy(room) < Number(cfg.labStorageReserve || 0)) return false;
+    if (boostOnly) return true;
     const bypass = Number(cfg.labCpuBucketBypass) || 0;
     if (bypass > 0 && Game.cpu && Game.cpu.bucket >= bypass) return true;
     try { if (bypass > 0 && require('cpu_gate').refilling()) return true; } catch (e) { return true; }
