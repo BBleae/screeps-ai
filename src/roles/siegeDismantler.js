@@ -181,6 +181,7 @@ function postRun(creep) {
         for (const e of dir.posts) {
             const b = barrierAt(creep.room, e.t);
             if (!b) continue;
+            if (Array.isArray(e.after) && e.after.length && !e.after.some((t) => !barrierAt(creep.room, t))) continue;
             const s = (e.s || []).find((p) => !taken.has(p[0] + ',' + p[1]));
             if (!s) continue;
             m.post = { t: [e.t[0], e.t[1]], s: [s[0], s[1]] };

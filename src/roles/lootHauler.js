@@ -26,7 +26,7 @@ function checkDeliverReach(creep, home) {
     if (creep.room.name === home || creep.ticksToLive == null) return home;
     if (m.dChk && Game.time - m.dChk < 10) return home;
     m.dChk = Game.time;
-    const budget = creep.ticksToLive - 10;
+    const budget = creep.ticksToLive - 30;
     if (routeSteps(creep, creep.room.name, home) <= budget) return home;
     let best = null;
     let bestSteps = Infinity;
@@ -69,7 +69,17 @@ function routePickup(creep) {
     return true;
 }
 
+function handOff(creep) {
+    if (creep.ticksToLive == null || creep.ticksToLive >= 120 || creep.room.name !== creep.memory.targetRoom) return false;
+    const res = nonEnergyKey(creep.store) || (creep.store[ENERGY] > 0 ? ENERGY : null);
+    if (!res) return false;
+    const mate = creep.pos.findInRange(FIND_MY_CREEPS, 1).find((c) => c.memory && c.memory.role === 'lootHauler' && c.ticksToLive > 300 && c.store.getFreeCapacity() > 0);
+    if (!mate) return false;
+    return creep.transfer(mate, res) === OK;
+}
+
 function deliver(creep, home) {
+    if (handOff(creep)) return true;
     if (creep.memory.deliverTo) home = creep.memory.deliverTo;
     home = checkDeliverReach(creep, home);
     const room = Game.rooms[home];
