@@ -632,6 +632,8 @@ module.exports = {
         minSamples: 8,
         prefer: ['W38S6', 'W38S5'],
         haulerMinBucket: 3000,
+        autoPause: false,
+        holdRooms: ['W38S6', 'W38S5'],
     },
     pixel: {
         enabled: false,

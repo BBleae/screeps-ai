@@ -9,6 +9,10 @@ function settings() {
         minSamples: 8,
         prefer: ['W38S6', 'W38S5'],
         haulerMinBucket: 3000,
+        autoPause: false,
+        holdRooms: ['W38S6', 'W38S5'],
+        holdCheckEvery: 300,
+        holdOkNeeded: 2,
     }, (config.lootShed || {}));
 }
 
@@ -160,6 +164,24 @@ function pixelHeld() {
 }
 
 
+function releaseHeld(cfg, avg) {
+    const m = mem();
+    const hold = cfg.holdRooms || [];
+    const pending = m.paused.filter((p) => !p.restoredAt);
+    for (const p of pending) if (hold.indexOf(p.room) < 0) restoreOne(p);
+    const held = m.paused.filter((p) => !p.restoredAt);
+    if (!held.length) return;
+    if (m.releaseHeld) { for (const p of held) restoreOne(p); delete m.releaseHeld; return; }
+    const every = Number(cfg.holdCheckEvery) || 300;
+    if (m.holdCheckAt && Game.time - m.holdCheckAt < every) return;
+    const bucket = Number(Game.cpu.bucket) || 0;
+    const ok = avg != null && avg < Number(cfg.pauseAbove) && m.holdBucket != null && bucket > m.holdBucket;
+    m.holdOk = ok ? (Number(m.holdOk) || 0) + 1 : 0;
+    m.holdCheckAt = Game.time;
+    m.holdBucket = bucket;
+    if (m.holdOk >= (Number(cfg.holdOkNeeded) || 2)) { for (const p of held) restoreOne(p); m.holdOk = 0; }
+}
+
 function run() {
     const cfg = settings();
     const running = lootRunning();
@@ -175,7 +197,8 @@ function run() {
         m.avg10 = avg;
         m.at = Game.time;
         if (avg == null) return m;
-        if (avg > cfg.pauseAbove) {
+        releaseHeld(cfg, avg);
+        if (cfg.autoPause === true && avg > cfg.pauseAbove) {
             const gap = Number(cfg.pauseEvery) || 50;
             if (!(m.lastPauseAt > 0) || Game.time - m.lastPauseAt >= gap) {
                 const next = nextToPause();

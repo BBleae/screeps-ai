@@ -4,17 +4,42 @@ const retire = require('retire');
 const conquest = require('conquest');
 const boost = require('boost');
 
+function fastDismantle(creep, target) {
+    const m = creep.memory;
+    if (!m.tgt || creep.room.name !== target || !m.salvageLoot) return false;
+    if (Game.time % 10 === 0 && conquest.retreatFor(target)) { delete m.tgt; return false; }
+    if (Game.time - (m.tgtAt || 0) > 100) { delete m.tgt; return false; }
+    const obj = Game.getObjectById(m.tgt);
+    if (!obj) { delete m.tgt; return false; }
+    const rc = creep.dismantle(obj);
+    if (rc === OK) return true;
+    if (rc === ERR_NOT_IN_RANGE) { movement.go(creep, obj, { range: 1, reusePath: 50 }); return true; }
+    delete m.tgt;
+    return false;
+}
+
+function hitTarget(creep, obj) {
+    creep.memory.tgt = obj.id;
+    creep.memory.tgtAt = Game.time;
+    if (creep.dismantle(obj) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 50 });
+}
+
+const mateCache = { tick: -1, by: {} };
 function squadMates(creep) {
+    if (mateCache.tick !== Game.time) { mateCache.tick = Game.time; mateCache.by = {}; }
+    const key = creep.memory.targetRoom;
+    if (mateCache.by[key]) return mateCache.by[key];
     const out = [];
     for (const name in Game.creeps) {
         const other = Game.creeps[name];
         if (!other.memory) continue;
         const role = other.memory.role;
         if (role !== 'siegeDismantler' && role !== 'siegeGuard') continue;
-        if (other.memory.targetRoom !== creep.memory.targetRoom) continue;
+        if (other.memory.targetRoom !== key) continue;
         if (other.spawning) continue;
         out.push(other);
     }
+    mateCache.by[key] = out;
     return out;
 }
 
@@ -55,8 +80,9 @@ function avoidSet(creep, target) {
 function run(creep) {
     const target = creep.memory.targetRoom;
     if (!target) return;
-    conquest.recordHostileTowers(creep.room, creep);
     if (creep.memory.retired) { retire.retireAtSpawn(creep); return; }
+    if (fastDismantle(creep, target)) return;
+    if (!(creep.memory._rtAt > Game.time - 10)) { creep.memory._rtAt = Game.time; conquest.recordHostileTowers(creep.room, creep); }
     if (creep.memory.strongholdLoot && conquest.retreatFor(target)) {
         const back = creep.memory.staging || creep.memory.home || target;
         if (creep.room.name !== back) movement.go(creep, new RoomPosition(25, 25, back), { range: 20, reusePath: 15 });
@@ -138,27 +164,24 @@ function run(creep) {
             } else {
                 rr = [rr.reduce((low, t) => (t.hits < low.hits ? t : low), rr[0])];
             }
-            const lt = rr[0];
-            if (creep.dismantle(lt) === ERR_NOT_IN_RANGE) movement.go(creep, lt, { range: 1, reusePath: 5 });
+            hitTarget(creep, rr[0]);
             return;
         }
         if (creep.memory.salvageLoot) {
-            const d = (Memory.conquest || []).find ? null : null;
             let directive = null;
             const raw = Memory.conquest;
             const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
             for (const x of list) if (x && x.target === target && !x.completed) { directive = x; break; }
             const structs = conquest.salvageStructures(creep.room, directive || { lootOpen: true, structures: ['storage', 'terminal', 'factory'], skipTypes: ['nuker'] });
             if (structs.length) {
-                const pick = structs[0];
-                if (creep.dismantle(pick) === ERR_NOT_IN_RANGE) movement.go(creep, pick, { range: 1, reusePath: 5 });
+                hitTarget(creep, structs[0]);
                 return;
             }
             if (directive && directive.openWall) {
                 const here = creep.room.lookForAt(LOOK_STRUCTURES, directive.openWall.x, directive.openWall.y) || [];
                 const wall = here.find((s) => s.structureType === STRUCTURE_WALL || s.structureType === 'constructedWall');
                 if (wall) {
-                    if (creep.dismantle(wall) === ERR_NOT_IN_RANGE) movement.go(creep, wall, { range: 1, reusePath: 5 });
+                    hitTarget(creep, wall);
                     return;
                 }
             }

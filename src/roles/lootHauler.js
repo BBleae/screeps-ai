@@ -48,6 +48,15 @@ function run(creep) {
     if (retreat) { creep.memory.state = 'deliver'; return; }
     if (creep.room.name !== target) { goRoom(creep, target); return; }
     if (salvage) {
+        const cachedRuin = creep.memory.ruin && Game.getObjectById(creep.memory.ruin);
+        if (cachedRuin && Game.time % 5 !== 0) {
+            const r0 = conquest.salvagePickResource(cachedRuin.store, creep.memory.lootOrder);
+            if (r0) {
+                if (creep.withdraw(cachedRuin, r0) === ERR_NOT_IN_RANGE) movement.go(creep, cachedRuin, { range: 1, reusePath: 50 });
+                return;
+            }
+        }
+        delete creep.memory.ruin;
         const threat = conquest.salvageArmedThreat(creep.room);
         if (threat) {
             creep.memory.state = 'deliver';
@@ -64,7 +73,8 @@ function run(creep) {
         const c = creep.pos.findClosestByRange ? creep.pos.findClosestByRange(ruins.slice(0, Math.min(5, ruins.length))) || ruins[0] : ruins[0];
         const res = conquest.salvagePickResource(c.store, order);
         if (!res) { creep.memory.state = 'deliver'; return; }
-        if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) movement.go(creep, c, { range: 1, reusePath: 5 });
+        creep.memory.ruin = c.id;
+        if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) movement.go(creep, c, { range: 1, reusePath: 50 });
         return;
     }
     const containers = conquest.lootContainersOf(creep.room, creep.memory.lootTiles);
