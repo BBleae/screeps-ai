@@ -1119,6 +1119,55 @@ function ownerCacheObserve(force) {
     if (changed) cache.rev = (Number(cache.rev) || 0) + 1;
     return changed;
 }
+function allySettings() {
+    const a = config.allies || {};
+    return { names: Array.isArray(a.names) ? a.names : [], ids: Array.isArray(a.ids) ? a.ids : [], avoidRooms: a.avoidRooms !== false };
+}
+function isAllyName(name, id) {
+    if (!name && !id) return false;
+    const a = allySettings();
+    return (!!name && a.names.indexOf(name) >= 0) || (!!id && a.ids.indexOf(id) >= 0);
+}
+function isAlly(obj) {
+    if (!obj) return false;
+    if (typeof obj === 'string') return isAllyName(obj);
+    const owner = obj.owner;
+    if (!owner) return false;
+    return isAllyName(owner.username, owner.id || owner._id);
+}
+function allyFindTypes() {
+    const out = ['hostileCreeps', 'hostileStructures', 'hostileSpawns', 'hostileConstructionSites', 'hostilePowerCreeps'];
+    for (const k of ['FIND_HOSTILE_CREEPS', 'FIND_HOSTILE_STRUCTURES', 'FIND_HOSTILE_SPAWNS', 'FIND_HOSTILE_CONSTRUCTION_SITES', 'FIND_HOSTILE_POWER_CREEPS']) {
+        if (typeof global !== 'undefined' && global[k] != null) out.push(global[k]);
+    }
+    return out;
+}
+function installAllyFilter() {
+    if (typeof Room === 'undefined' || !Room.prototype || typeof Room.prototype.find !== 'function') return false;
+    if (Room.prototype.find.__allyWrapped) return true;
+    const orig = Room.prototype.find;
+    const types = new Set(allyFindTypes());
+    const wrapped = function (type, opts) {
+        const res = orig.call(this, type, opts);
+        if (!types.has(type) || !Array.isArray(res) || !res.length || !allySettings().names.length) return res;
+        let hit = false;
+        for (let i = 0; i < res.length; i++) if (isAlly(res[i])) { hit = true; break; }
+        return hit ? res.filter((o) => !isAlly(o)) : res;
+    };
+    wrapped.__allyWrapped = true;
+    wrapped.__allyOrig = orig;
+    Room.prototype.find = wrapped;
+    return true;
+}
+function allyRooms() {
+    const cache = ownerCache();
+    const out = [];
+    for (const name of Object.keys(cache.rooms || {})) {
+        const e = cache.rooms[name];
+        if (e && isAllyName(e.o)) out.push(name);
+    }
+    return out;
+}
 const ownerDangerCache = { rev: -1, me: null, rooms: [] };
 function ownerDangerRooms() {
     const cache = ownerCache();
@@ -1127,7 +1176,7 @@ function ownerDangerRooms() {
     const rooms = [];
     for (const name of Object.keys(cache.rooms)) {
         const e = cache.rooms[name];
-        if (e && e.o && e.o !== me && Number(e.t) > 0) rooms.push(name);
+        if (e && e.o && e.o !== me && (Number(e.t) > 0 || (isAllyName(e.o) && allySettings().avoidRooms))) rooms.push(name);
     }
     ownerDangerCache.rev = cache.rev; ownerDangerCache.me = me; ownerDangerCache.rooms = rooms;
     return rooms;
@@ -1169,6 +1218,11 @@ function pvpDangerRoom(name) {
 }
 
 module.exports = {
+    allySettings,
+    isAllyName,
+    isAlly,
+    installAllyFilter,
+    allyRooms,
     upgradeSurplusWork,
     linkSupplyWork,
     surplusBodyPlan,

@@ -19,7 +19,7 @@ function squadMates(creep) {
 }
 
 function hostileStructures(room, type) {
-    return room.find(FIND_STRUCTURES).filter((s) => s.structureType === type && s.owner && !s.my);
+    return room.find(FIND_STRUCTURES).filter((s) => s.structureType === type && s.owner && !s.my && !require('utils').isAlly(s));
 }
 
 function towerEnergy(t) {

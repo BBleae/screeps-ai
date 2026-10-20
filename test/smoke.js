@@ -15016,7 +15016,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     assert(mv.frozenOwnerRooms().includes('W34S9'), '大脑指令被清掉/不再读：房主缓存仍在，他人塔房不会掉出回避集合');
     const savedRoomsO = Game.rooms;
     Game.rooms = {
-        W34S9: { name: 'W34S9', controller: { my: false, level: 7, owner: { username: 'Alepoldar' } }, find: () => [] },
+        W34S9: { name: 'W34S9', controller: { my: false, level: 7, owner: { username: 'Alepoldar2' } }, find: () => [] },
         W35S3: { name: 'W35S3', controller: { my: false, level: 4, owner: { username: 'Newbie' } }, find: () => [{ structureType: typeof STRUCTURE_TOWER === 'undefined' ? 'tower' : STRUCTURE_TOWER }] },
         W29S4: { name: 'W29S4', controller: { my: false, level: 0 }, find: () => [] },
         W36S4: { name: 'W36S4', controller: { my: false, level: 0 }, find: () => [{ structureType: typeof STRUCTURE_TOWER === 'undefined' ? 'tower' : STRUCTURE_TOWER, owner: { username: 'Invader' } }] },
@@ -15029,6 +15029,23 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     assert(!Memory.ownerCache.rooms.W29S4 && Memory.ownerCache.rooms.W34S9 && Memory.ownerCache.rooms.W34S9.l === 7, '看到无主才删条目；有主无塔的仍记房主/RCL');
     assert(fr2.includes('W36S4') && Memory.ownerCache.rooms.W36S4.o === 'Invader', '控制器无主但有 Invader 据点塔：照样留在回避集合');
     assert(utilsMod.ownerCacheObserve(true) === 0 && Memory.ownerCache.rev === rev0 + 1, '没有变化：不改 rev');
+    Memory.ownerCache.rooms.W34S8 = { o: 'Alepoldar', l: 7, t: 0, at: 1 }; Memory.ownerCache.rev++;
+    assert(mv.frozenOwnerRooms().includes('W34S8') && utilsMod.allyRooms().includes('W34S8'), '白名单玩家的房即使看不到塔也留在回避集合（不进他的房）');
+    assert(utilsMod.isAlly({ owner: { username: 'Alepoldar' } }) && utilsMod.isAllyName(null, '577d36ac0e4bc40960933d3a') && !utilsMod.isAlly({ owner: { username: 'Jumpp' } }), '白名单按名字和 id 认人');
+    delete Memory.ownerCache.rooms.W34S8; Memory.ownerCache.rev++;
+    {
+        const hadRoom = global.Room;
+        const objs = [{ owner: { username: 'Alepoldar' } }, { owner: { username: 'Jumpp' } }];
+        global.Room = function () {};
+        global.Room.prototype.find = function (type) { return type === 'mine' ? objs.slice() : objs.slice(); };
+        utilsMod.installAllyFilter();
+        utilsMod.installAllyFilter();
+        const r = new global.Room();
+        const hk = typeof FIND_HOSTILE_CREEPS === 'undefined' ? 'hostileCreeps' : FIND_HOSTILE_CREEPS;
+        assert(r.find(hk).length === 1 && r.find(hk)[0].owner.username === 'Jumpp' && r.find('mine').length === 2 && global.Room.prototype.find.__allyOrig && !global.Room.prototype.find.__allyOrig.__allyWrapped,
+            'Room.find 包装：FIND_HOSTILE_* 去掉白名单玩家，其它类型不动，只包一层');
+        if (hadRoom === undefined) delete global.Room; else global.Room = hadRoom;
+    }
     Game.rooms = savedRoomsO;
     Memory.brain = savedBrain; Game.spawns = savedSpawns; Memory.ownerCache = savedOwnerCache;
 

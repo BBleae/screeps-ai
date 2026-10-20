@@ -1,6 +1,6 @@
 'use strict';
 const config = require('config');
-const { roomDistance } = require('utils');
+const { roomDistance, isAlly, isAllyName } = require('utils');
 
 function settings() {
     return Object.assign({
@@ -20,12 +20,20 @@ function settings() {
     }, config.conquest || {});
 }
 
+function allyTarget(roomName) {
+    const room = Game.rooms && Game.rooms[roomName];
+    const ctrl = room && room.controller;
+    if (ctrl && (isAlly(ctrl) || (ctrl.reservation && isAllyName(ctrl.reservation.username)))) return true;
+    const e = ((Memory.ownerCache || {}).rooms || {})[roomName];
+    return !!(e && isAllyName(e.o));
+}
+
 function directives() {
     const raw = Memory.conquest;
     if (!raw) return [];
     const list = Array.isArray(raw) ? raw : [raw];
     return list.filter((d) => d && typeof d === 'object' && typeof d.target === 'string' &&
-        !d.completed &&
+        !d.completed && !allyTarget(d.target) &&
         (d.sponsors === 'all' || (Array.isArray(d.sponsors) && d.sponsors.length)));
 }
 
@@ -135,7 +143,7 @@ function countHostileCombat(room) {
 
 function hostileTowersOf(room) {
     return (room.find(FIND_STRUCTURES) || [])
-        .filter((s) => s.structureType === STRUCTURE_TOWER && s.owner && !s.my
+        .filter((s) => s.structureType === STRUCTURE_TOWER && s.owner && !s.my && !isAlly(s)
             && s.pos && typeof s.pos.x === 'number' && typeof s.pos.y === 'number');
 }
 
@@ -231,8 +239,8 @@ function runOne(d) {
         d.phase = d.suppress ? 'deny' : 'claim';
         return;
     }
-    const towers = room.find(FIND_STRUCTURES).filter((s) => s.structureType === STRUCTURE_TOWER && s.owner && !s.my);
-    const spawns = room.find(FIND_STRUCTURES).filter((s) => s.structureType === STRUCTURE_SPAWN && s.owner && !s.my);
+    const towers = room.find(FIND_STRUCTURES).filter((s) => s.structureType === STRUCTURE_TOWER && s.owner && !s.my && !isAlly(s));
+    const spawns = room.find(FIND_STRUCTURES).filter((s) => s.structureType === STRUCTURE_SPAWN && s.owner && !s.my && !isAlly(s));
     if (d.suppress && !towers.length) {
         d.phase = 'downgrade';
         return;
@@ -316,7 +324,7 @@ function lootRampartTargets(room, tiles) {
     if (!room || typeof room.find !== 'function' || !tiles || !tiles.length) return [];
     const set = new Set(tiles.map((p) => tileKey(p[0], p[1])));
     const type = typeof STRUCTURE_RAMPART === 'undefined' ? 'rampart' : STRUCTURE_RAMPART;
-    return (room.find(FIND_STRUCTURES) || []).filter((s) => s.structureType === type && s.owner && !s.my && set.has(tileKey(s.pos.x, s.pos.y)));
+    return (room.find(FIND_STRUCTURES) || []).filter((s) => s.structureType === type && s.owner && !s.my && !isAlly(s) && set.has(tileKey(s.pos.x, s.pos.y)));
 }
 function lootContainersOf(room, tiles) {
     if (!room || typeof room.find !== 'function' || !tiles || !tiles.length) return [];
@@ -540,4 +548,4 @@ function strongholdLootDemands(d, home, sponsors) {
     return demands;
 }
 
-module.exports = { run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick };
+module.exports = { allyTarget, run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick };

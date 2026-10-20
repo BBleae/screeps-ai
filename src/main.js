@@ -173,7 +173,10 @@ function reuseParsedMemory() {
     lastMemoryTick = Game.time;
 }
 
+try { utils.installAllyFilter(); } catch (e) { logErr('allyFilter', e); }
+
 module.exports.loop = function () {
+    try { utils.installAllyFilter(); } catch (e) { logErr('allyFilter', e); }
     const spkT0 = Game.cpu.getUsed();
     spkTick = {}; spkRoom = {};
     reuseParsedMemory();

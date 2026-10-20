@@ -165,6 +165,7 @@ module.exports = {
         timeout: 200,
     },
     npcOwners: ['Invader', 'Source Keeper', 'Power Bank', 'Screeps'],
+    allies: { names: ['Alepoldar'], ids: ['577d36ac0e4bc40960933d3a'], avoidRooms: true },
     pvp: {
         detourTimeout: 300,
         highThreat: ['Jumpp'],
