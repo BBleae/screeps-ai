@@ -14,6 +14,7 @@ function settings() {
         holdCheckEvery: 300,
         holdOkNeeded: 2,
         warmup: 150,
+        sustain: 300,
     }, (config.lootShed || {}));
 }
 
@@ -275,11 +276,15 @@ function run() {
         const clean = avgClean(10);
         m.clean10 = clean;
         const warm = (Number(cfg.warmup) || 0) > 0 && Game.time - bootAt < Number(cfg.warmup);
-        if (cfg.autoPause === true && !warm && clean != null && clean > cfg.pauseAbove) {
+        const over = !warm && clean != null && clean > cfg.pauseAbove;
+        if (!over) delete m.overSince;
+        else if (!m.overSince) m.overSince = Game.time;
+        const sustain = Number(cfg.sustain) || 0;
+        if (cfg.autoPause === true && over && Game.time - m.overSince >= sustain) {
             const gap = Number(cfg.pauseEvery) || 50;
             if (!(m.lastPauseAt > 0) || Game.time - m.lastPauseAt >= gap) {
                 const next = nextToPause();
-                if (next) pauseRemote(next);
+                if (next && pauseRemote(next)) m.overSince = Game.time;
             }
         }
         return m;
