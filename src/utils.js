@@ -949,6 +949,18 @@ function towerFirstHold(room) {
     return hold;
 }
 
+function lootActive(targets) {
+    if (!Array.isArray(targets) || !targets.length || typeof Memory === 'undefined') return false;
+    const raw = Memory.conquest;
+    const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    return list.some((d) => d && targets.indexOf(d.target) >= 0 && !d.completed && d.phase !== 'done');
+}
+
+function lootHeldRoom(name) {
+    const map = (config.terminalNetwork || {}).lootHoldRooms || {};
+    return lootActive(map[name]);
+}
+
 function upgradeHold(room, mem) {
     const cfg = (((config.upgrading || {}).hold) || {})[room && room.name];
     if (!cfg || !room.controller || !room.controller.my) return null;
@@ -959,14 +971,15 @@ function upgradeHold(room, mem) {
     const resumeAt = Number(cfg.resumeAt) || 10000;
     const holdBelow = Math.min(resumeAt, Number(cfg.holdBelow) || resumeAt);
     const level = holdLevel(m, cfg, energy);
-    const on = (prev ? !!prev.on : true) ? level < resumeAt : level < holdBelow;
+    const looting = lootActive(cfg.untilLootDone);
+    const on = looting || ((prev ? !!prev.on : true) ? level < resumeAt : level < holdBelow);
     const table = typeof CONTROLLER_DOWNGRADE !== 'undefined' ? CONTROLLER_DOWNGRADE : {};
     const full = Number(table[room.controller.level]) || 0;
     const ttd = Number(room.controller.ticksToDowngrade);
     const low = full * (Number(cfg.guardLow) || 0.5);
     const high = full * (Number(cfg.guardHigh) || 0.9);
     const guard = on && full > 0 && Number.isFinite(ttd) && (prev && prev.guard ? ttd < high : ttd < low);
-    if (!prev || prev.on !== on || prev.guard !== guard) m.upgradeHold = { on, guard, at: Game.time, energy, level, ttd };
+    if (!prev || prev.on !== on || prev.guard !== guard || !!prev.looting !== looting) m.upgradeHold = { on, guard, at: Game.time, energy, level, ttd, looting };
     return m.upgradeHold;
 }
 
@@ -1298,6 +1311,8 @@ module.exports = {
     conserving,
     conserveUpgradeAllowed,
     upgradeHold,
+    lootActive,
+    lootHeldRoom,
     towerFirstHold,
     towerFloorHold,
     spawnPausedByHostile,

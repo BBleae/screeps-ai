@@ -955,14 +955,15 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
     if (salvage && totalHaulers > 0 && Number(d.haulersMore) > 0 && Game.cpu && Game.cpu.bucket >= (Number(d.haulersMoreBucket) || 9000)) totalHaulers += Number(d.haulersMore);
     if ((!cpuHeld || haulExempt) && (phase === 'loot' || phase === 'breach') && totalHaulers > 0) {
         const closest = salvage ? null : sponsors.slice().sort((a, b) => roomDistance(a, d.target) - roomDistance(b, d.target))[0];
-        if (!closest || home.name === closest) {
-            const nHaul = new Set(sponsors.concat(Array.isArray(d.haulerSponsors) ? d.haulerSponsors : [])).size || 1;
+        const hh = Array.isArray(d.haulerHomes) && d.haulerHomes.length ? d.haulerHomes : null;
+        if ((!closest || home.name === closest) && (!hh || hh.indexOf(home.name) >= 0)) {
+            const nHaul = hh ? hh.length : new Set(sponsors.concat(Array.isArray(d.haulerSponsors) ? d.haulerSponsors : [])).size || 1;
             let per = salvage ? Math.min(maxHaulers, Math.ceil(totalHaulers / nHaul)) : totalHaulers;
             if (salvage) {
                 const all = Object.values(Game.creeps || {}).filter((c) => c.memory && c.memory.role === 'lootHauler' && c.memory.salvageLoot);
                 const live = all.filter((c) => c.memory.targetRoom === d.target && c.memory.home === home.name).length;
                 const homeLive = all.filter((c) => c.memory.home === home.name).length;
-                per = Math.max(0, Math.min(per, maxHaulers - live, live + maxHaulers - homeLive, live + Math.max(0, Number(d.haulers) || 0) - all.length));
+                per = Math.max(0, Math.min(per, maxHaulers - live, live + maxHaulers - homeLive, live + Math.max(0, Number(settings().lootHaulerTotal) || Number(d.haulers) || 0) - all.length));
             }
             const hbody = repeatBody(['carry', 'move'], Math.min(home.energyCapacityAvailable, Number(d.lootBudget) || cfg.lootBudget));
             const hmem = attachAvoidance({ home: home.name, targetRoom: d.target, lootTiles, staging, salvageLoot: salvage, lootOrder: d.lootOrder }, d);

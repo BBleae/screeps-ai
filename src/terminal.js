@@ -192,11 +192,11 @@ function planSenders(rooms, cfg) {
 
 function burnRoom(cfg, room) {
     const list = Array.isArray(cfg.burnRooms) ? cfg.burnRooms : [];
-    return room && list.indexOf(room.name) >= 0 && !(room.controller && room.controller.level >= 8) ? 1 : 0;
+    return room && list.indexOf(room.name) >= 0 && !(room.controller && room.controller.level >= 8) && !utils.lootHeldRoom(room.name) ? 1 : 0;
 }
 
 function planStarving(rooms, cfg, rich) {
-    const order = Array.isArray(cfg.priorityReceivers) ? cfg.priorityReceivers : [];
+    const order = (Array.isArray(cfg.priorityReceivers) ? cfg.priorityReceivers : []).filter((n) => !utils.lootHeldRoom(n));
     const below = Number(cfg.starvingBelow) || 0;
     if (!order.length || below <= 0) return null;
     const byName = {};
@@ -274,7 +274,7 @@ function planFeeReserve(rooms, cfg, rich) {
 function planHoardFlush(rooms, cfg, rich) {
     const hf = cfg.hoardFlush || {};
     const names = Array.isArray(hf.rooms) ? hf.rooms : [];
-    const order = Array.isArray(cfg.priorityReceivers) ? cfg.priorityReceivers : [];
+    const order = (Array.isArray(cfg.priorityReceivers) ? cfg.priorityReceivers : []).filter((n) => !utils.lootHeldRoom(n));
     if (!names.length || !order.length) return null;
     const sendAbove = Number(hf.sendAbove) || 40000;
     const keep = Number(hf.keep) || 20000;
