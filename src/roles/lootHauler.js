@@ -14,30 +14,59 @@ function nonEnergyKey(store) {
     return null;
 }
 
+function deliver(creep, home) {
+    const room = Game.rooms[home];
+    if (!room || creep.room.name !== home || !room.storage) { goRoom(creep, home); return true; }
+    const carrying = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
+    if (!carrying) return false;
+    const order = creep.memory.lootOrder;
+    const res = (creep.memory.salvageLoot ? conquest.salvagePickResource(creep.store, order) : null) || nonEnergyKey(creep.store) || ENERGY;
+    if (creep.transfer(room.storage, res) === ERR_NOT_IN_RANGE) movement.go(creep, room.storage, { range: 1, reusePath: 15 });
+    return true;
+}
+
 function run(creep) {
     const target = creep.memory.targetRoom;
     const home = creep.memory.home;
     if (!target || !home) return;
+    const salvage = !!creep.memory.salvageLoot;
     const full = creep.store.getFreeCapacity ? creep.store.getFreeCapacity() <= 0 : false;
     const carrying = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
     const retreat = conquest.retreatFor(target);
     if (conquest.boostGateHold(target)) {
-        const carrying0 = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
-        if (!carrying0 && creep.room.name !== home) { goRoom(creep, home); return; }
-        if (!carrying0) return;
+        if (!carrying && creep.room.name !== home) { goRoom(creep, home); return; }
+        if (!carrying) return;
     }
-
     if (full || retreat || creep.memory.state === 'deliver') {
         creep.memory.state = 'deliver';
-        const room = Game.rooms[home];
-        if (!room || creep.room.name !== home || !room.storage) { goRoom(creep, home); return; }
-        if (!carrying) { if (retreat) { retireMod.retireAtSpawn(creep); return; } delete creep.memory.state; return; }
-        const res = nonEnergyKey(creep.store) || ENERGY;
-        if (creep.transfer(room.storage, res) === ERR_NOT_IN_RANGE) movement.go(creep, room.storage, { range: 1, reusePath: 15 });
+        if (!deliver(creep, home)) {
+            if (retreat) { retireMod.retireAtSpawn(creep); return; }
+            delete creep.memory.state;
+        }
         return;
     }
     if (retreat) { creep.memory.state = 'deliver'; return; }
     if (creep.room.name !== target) { goRoom(creep, target); return; }
+    if (salvage) {
+        const threat = conquest.salvageArmedThreat(creep.room);
+        if (threat) {
+            creep.memory.state = 'deliver';
+            deliver(creep, home);
+            return;
+        }
+        const ruins = conquest.salvageRuins(creep.room);
+        if (!ruins.length) {
+            if (carrying) { creep.memory.state = 'deliver'; return; }
+            return;
+        }
+        const order = creep.memory.lootOrder;
+        ruins.sort((a, b) => conquest.salvagePriorityScore(b.store, order) - conquest.salvagePriorityScore(a.store, order));
+        const c = creep.pos.findClosestByRange ? creep.pos.findClosestByRange(ruins.slice(0, Math.min(5, ruins.length))) || ruins[0] : ruins[0];
+        const res = conquest.salvagePickResource(c.store, order);
+        if (!res) { creep.memory.state = 'deliver'; return; }
+        if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) movement.go(creep, c, { range: 1, reusePath: 5 });
+        return;
+    }
     const containers = conquest.lootContainersOf(creep.room, creep.memory.lootTiles);
     if (!containers.length) { creep.memory.state = 'deliver'; return; }
     const c = creep.pos.findClosestByRange ? creep.pos.findClosestByRange(containers) : containers[0];

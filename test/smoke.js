@@ -17791,8 +17791,11 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const e = config.market.ownOrders.energy;
     const b0 = mk.energyBudget(e).budget;
     mk.notePixel(); mk.notePixel();
-    const eb = mk.energyBudget(e);
-    assert(eb.pixels === 2 && eb.pixelCredits === 20000 && eb.budget === b0 + 20000 && eb.base === b0, '买能量日预算 + 当天产的 pixel × 现价（没有自动卖 pixel，按 getHistory 最近一天均价估）（得 ' + JSON.stringify(eb) + '）');
+    let eb = mk.energyBudget(e);
+    assert(eb.pixels === 2 && eb.pixelSold === 0 && eb.pixelCredits === 0 && eb.budget === b0 && eb.base === b0, '买能量日预算只计 pixel 成交量，产 pixel 不加预算（得 ' + JSON.stringify(eb) + '）');
+    const led = Memory.market.ledger; led.sold = led.sold || {}; led.sold.pixel = 2;
+    eb = mk.energyBudget(e);
+    assert(eb.pixelSold === 2 && eb.pixelCredits === 20000 && eb.budget === Math.min(Number(e.budget.max) || Infinity, b0 + 20000), '卖掉 2 pixel 才加预算，且不超过 budget.max（得 ' + JSON.stringify(eb) + '）');
     Memory.market = savedMM; Game.market = savedGM;
     gate.reset(); for (let i = 0; i < 100; i++) gate.record(10);
     Game.cpu.bucket = savedBucket; Game.map = savedMap; Game.rooms = savedRooms; Memory.deposits = savedDep; Memory.highwayBlock = savedHB; Memory.pvpThreat = savedPT;

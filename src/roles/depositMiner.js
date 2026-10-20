@@ -41,7 +41,12 @@ function run(creep) {
         movement.go(creep, new RoomPosition(info.x, info.y, m.depositRoom), { range: 1, reusePath: 50 });
         return;
     }
-    if (m.travel == null) m.travel = Math.max(0, 1500 - creep.ticksToLive);
+    if (m.travel == null) {
+        const path = info && Number(info.pathLen);
+        const measured = Math.max(0, 1500 - creep.ticksToLive);
+        m.travel = path > 0 ? Math.max(path, measured) : Math.max(measured, Number(cfg.minTravel) || 80);
+        m.travelAt = Game.time;
+    }
     if (Game.time % 10 === 0) deposit.note(creep.room);
     const target = Game.getObjectById(m.depositId);
     const fresh = Memory.deposits.list[m.depositId];

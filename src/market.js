@@ -172,11 +172,13 @@ function energyBudget(e) {
         const base = legacy ? (Number(e && e.actualStopCredits) || Number(e && e.dailyBuyCredits) || 0) : Math.round(Math.min(hi, Math.max(lo, s.avg)));
         eb = led.energyBudget = { day: led.day, base, budget: base, salesAvg: s.avg, days: s.days, legacy, div: n };
     }
-    const pixels = Number(led.pixels) || 0;
-    const credits = pixels > 0 && !(e && e.pixelCredits === false) ? Math.round(pixels * pixelPrice()) : 0;
-    eb.pixels = pixels;
+    const sold = Number(led.sold && led.sold.pixel) || 0;
+    const credits = sold > 0 && !(e && e.pixelCredits === false) ? Math.round(sold * pixelPrice()) : 0;
+    eb.pixels = Number(led.pixels) || 0;
+    eb.pixelSold = sold;
     eb.pixelCredits = credits;
-    eb.budget = eb.base + credits;
+    const hi = Number(b.max) || Infinity;
+    eb.budget = Math.min(hi, eb.base + credits);
     return eb;
 }
 

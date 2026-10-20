@@ -792,6 +792,17 @@ function factoryPlan(room) {
         const eNeed = Number(cfg.energy) || 200;
         const eF = used(factory.store, RESOURCE_ENERGY);
         if (eF < eNeed) wants.push({ labId: factory.id, mineral: RESOURCE_ENERGY, amount: Number(cfg.energyFill || 1000) - eF });
+    } else if ((cfg.battery || {}).enabled !== false) {
+        const BATTERY = typeof RESOURCE_BATTERY !== 'undefined' ? RESOURCE_BATTERY : 'battery';
+        const need = Number((cfg.battery || {}).batch) || 50;
+        const inB = used(factory.store, BATTERY);
+        if (inB < need) {
+            const avail = roomHave(room, BATTERY);
+            const amount = Math.min(Number((cfg.battery || {}).fill) || 1000, avail, need * 4 - inB);
+            if (amount > 0) wants.push({ labId: factory.id, mineral: BATTERY, amount });
+        }
+        const eOut = used(factory.store, RESOURCE_ENERGY);
+        if (eOut > (Number((cfg.battery || {}).drainEnergy) || 500)) drains.push({ labId: factory.id, mineral: RESOURCE_ENERGY, amount: eOut });
     }
     return { factory: factory.id, gate, wants, drains, product: gate.ok ? cfg.product : null };
 }
@@ -821,15 +832,33 @@ function runOwnFactory(room, state, cfg) {
     const factory = factoryOf(room, cfg);
     const gate = factoryGate(room, cfg);
     state.factory = { present: 1, configured: true, active: false, product: cfg.product, gate: gate.ok ? 'ok' : gate.why };
-    if (!gate.ok || typeof factory.produce !== 'function') return;
+    if (typeof factory.produce !== 'function') return;
     if (factory.cooldown > 0) { state.factory.cooldown = factory.cooldown; return; }
-    const batch = Number(cfg.batch) || 500;
-    if (used(factory.store, cfg.input) < batch || used(factory.store, RESOURCE_ENERGY) < (Number(cfg.energy) || 200)) { state.factory.waiting = true; return; }
-    const ret = factory.produce(cfg.product);
+    if (gate.ok) {
+        const batch = Number(cfg.batch) || 500;
+        if (used(factory.store, cfg.input) < batch || used(factory.store, RESOURCE_ENERGY) < (Number(cfg.energy) || 200)) { state.factory.waiting = true; return; }
+        const ret = factory.produce(cfg.product);
+        state.factory.active = true;
+        state.factory.resource = cfg.product;
+        state.factory.result = ret;
+        if (ret === OK) noteFactory(room, cfg, Number(cfg.output) || 100);
+        return;
+    }
+    const bat = cfg.battery || {};
+    if (bat.enabled === false) return;
+    const BATTERY = typeof RESOURCE_BATTERY !== 'undefined' ? RESOURCE_BATTERY : 'battery';
+    const need = Number(bat.batch) || 50;
+    if (used(factory.store, BATTERY) < need) {
+        const avail = roomHave(room, BATTERY);
+        if (avail >= need) { /* labTech fills via factoryPlan drain/want extension */ }
+        else return;
+    }
+    if (used(factory.store, BATTERY) < need) { state.factory.batteryWait = true; return; }
+    const ret = factory.produce(RESOURCE_ENERGY);
     state.factory.active = true;
-    state.factory.resource = cfg.product;
+    state.factory.resource = 'energy';
     state.factory.result = ret;
-    if (ret === OK) noteFactory(room, cfg, Number(cfg.output) || 100);
+    state.factory.fromBattery = true;
 }
 
 function runFactory(room, mem, state, spendAllowed) {

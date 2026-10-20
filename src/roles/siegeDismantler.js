@@ -123,12 +123,44 @@ function run(creep) {
         }
         creep.memory.pushed = true;
     }
-    if (creep.memory.lootTiles) {
-        const rr = conquest.lootRampartTargets(creep.room, creep.memory.lootTiles);
-        if (!rr.length) { creep.memory.retired = true; retire.retireAtSpawn(creep); return; }
-        const lt = rr.reduce((low, t) => (t.hits < low.hits ? t : low), rr[0]);
-        if (creep.dismantle(lt) === ERR_NOT_IN_RANGE) movement.go(creep, lt, { range: 1, reusePath: 5 });
-        return;
+    if (creep.memory.lootTiles || creep.memory.salvageLoot) {
+        if (creep.memory.salvageLoot && conquest.retreatFor(target)) {
+            const back = creep.memory.staging || creep.memory.home || target;
+            if (creep.room.name !== back) movement.go(creep, new RoomPosition(25, 25, back), { range: 20, reusePath: 15 });
+            return;
+        }
+        const tiles = creep.memory.lootTiles || [];
+        const rr = tiles.length ? conquest.lootRampartTargets(creep.room, tiles) : [];
+        if (rr.length) {
+            const lt = rr.reduce((low, t) => (t.hits < low.hits ? t : low), rr[0]);
+            if (creep.dismantle(lt) === ERR_NOT_IN_RANGE) movement.go(creep, lt, { range: 1, reusePath: 5 });
+            return;
+        }
+        if (creep.memory.salvageLoot) {
+            const d = (Memory.conquest || []).find ? null : null;
+            let directive = null;
+            const raw = Memory.conquest;
+            const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+            for (const x of list) if (x && x.target === target && !x.completed) { directive = x; break; }
+            const structs = conquest.salvageStructures(creep.room, directive || { lootOpen: true, structures: ['storage', 'terminal', 'factory'], skipTypes: ['nuker'] });
+            if (structs.length) {
+                const open = structs.filter((s) => s.structureType === STRUCTURE_LAB || s.structureType === STRUCTURE_EXTENSION);
+                const core = structs.filter((s) => s.structureType === STRUCTURE_STORAGE || s.structureType === STRUCTURE_TERMINAL || s.structureType === STRUCTURE_FACTORY);
+                const pick = (core.length ? core : open).reduce((low, t) => (t.hits < low.hits ? t : low));
+                if (creep.dismantle(pick) === ERR_NOT_IN_RANGE) movement.go(creep, pick, { range: 1, reusePath: 5 });
+                return;
+            }
+            if (directive && directive.openWall) {
+                const here = creep.room.lookForAt(LOOK_STRUCTURES, directive.openWall.x, directive.openWall.y) || [];
+                const wall = here.find((s) => s.structureType === STRUCTURE_WALL || s.structureType === 'constructedWall');
+                if (wall) {
+                    if (creep.dismantle(wall) === ERR_NOT_IN_RANGE) movement.go(creep, wall, { range: 1, reusePath: 5 });
+                    return;
+                }
+            }
+            creep.memory.retired = true; retire.retireAtSpawn(creep); return;
+        }
+        creep.memory.retired = true; retire.retireAtSpawn(creep); return;
     }
     const towers = hostileStructures(creep.room, STRUCTURE_TOWER);
     let targets = towers.filter((t) => towerEnergy(t) >= TOWER_MIN_FIRE);

@@ -224,7 +224,7 @@ function run() {
     for (const d of directives()) runOne(d);
 }
 function runOne(d) {
-    if (d.type === 'strongholdLoot') return runStrongholdLoot(d);
+    if (d.type === 'strongholdLoot' || d.type === 'salvageLoot') return runStrongholdLoot(d);
     const room = Game.rooms[d.target];
     if (!room || !room.controller) return;
     const ctrl = room.controller;
@@ -260,7 +260,7 @@ function runOne(d) {
 function militaryCompounds() {
     const set = [];
     for (const d of directives()) {
-        if (d.type !== 'strongholdLoot') continue;
+        if (d.type !== 'strongholdLoot' && d.type !== 'salvageLoot') continue;
         for (const c of boostsFor('siegeDismantler', d).concat(boostsFor('siegeGuard', d))) if (set.indexOf(c) < 0) set.push(c);
     }
     return set;
@@ -342,14 +342,135 @@ function squadBelowHalf(targetRoom) {
     return n > 0 && max > 0 && hits < max / 2;
 }
 function retreatFor(targetRoom) {
-    for (const d of directives()) if (d.type === 'strongholdLoot' && d.target === targetRoom && d.retreat) return true;
+    for (const d of directives()) if ((d.type === 'strongholdLoot' || d.type === 'salvageLoot') && d.target === targetRoom && d.retreat) return true;
     return false;
 }
+function salvageArmedThreat(room) {
+    if (!room || typeof room.find !== 'function') return null;
+    const hostiles = room.find(FIND_HOSTILE_CREEPS) || [];
+    for (const c of hostiles) {
+        if (isAlly(c)) continue;
+        const body = c.body || [];
+        if (body.some((p) => p.hits > 0 && (p.type === ATTACK || p.type === RANGED_ATTACK || p.type === WORK))) return c;
+    }
+    return null;
+}
+
+function salvageStoreTypes(d) {
+    const skip = new Set(Array.isArray(d.skipTypes) ? d.skipTypes : ['nuker', 'powerSpawn', 'tower', 'spawn', 'link', 'observer', 'lab', 'extension']);
+    if (d.lootOpen) { skip.delete('lab'); skip.delete('extension'); }
+    const core = Array.isArray(d.structures) && d.structures.length ? d.structures : ['storage', 'terminal', 'factory'];
+    return { core: new Set(core), skip };
+}
+
+function salvageKeyTiles(d, room) {
+    if (Array.isArray(d.lootTiles) && d.lootTiles.length) return d.lootTiles.map((p) => [p[0], p[1]]);
+    if (!room || typeof room.find !== 'function') return [];
+    const { core } = salvageStoreTypes(d);
+    const out = [];
+    for (const s of room.find(FIND_STRUCTURES) || []) {
+        if (!s.owner || s.my || isAlly(s)) continue;
+        if (!core.has(s.structureType)) continue;
+        out.push([s.pos.x, s.pos.y]);
+    }
+    if (d.openWall && typeof d.openWall.x === 'number') out.push([d.openWall.x, d.openWall.y]);
+    return out;
+}
+
+function salvageRamparts(room, tiles) {
+    return lootRampartTargets(room, tiles);
+}
+
+function salvageStructures(room, d) {
+    if (!room || typeof room.find !== 'function') return [];
+    const { core, skip } = salvageStoreTypes(d);
+    const out = [];
+    for (const s of room.find(FIND_STRUCTURES) || []) {
+        if (!s.owner || s.my || isAlly(s)) continue;
+        if (skip.has(s.structureType) && !core.has(s.structureType)) continue;
+        if (!core.has(s.structureType) && !(d.lootOpen && (s.structureType === (typeof STRUCTURE_LAB === 'undefined' ? 'lab' : STRUCTURE_LAB) || s.structureType === (typeof STRUCTURE_EXTENSION === 'undefined' ? 'extension' : STRUCTURE_EXTENSION)))) continue;
+        const covered = (room.lookForAt(LOOK_STRUCTURES, s.pos.x, s.pos.y) || []).some((x) => x.structureType === STRUCTURE_RAMPART && x.owner && !x.my && !x.isPublic);
+        if (covered && !core.has(s.structureType)) continue;
+        if (covered && core.has(s.structureType)) continue;
+        const store = s.store;
+        const used = store && (typeof store.getUsedCapacity === 'function' ? store.getUsedCapacity() : Object.keys(store).reduce((n, k) => n + Number(store[k] || 0), 0));
+        if (!(used > 0) && !core.has(s.structureType)) continue;
+        out.push(s);
+    }
+    return out;
+}
+
+function salvageRuins(room) {
+    if (!room || typeof room.find !== 'function') return [];
+    const ruins = room.find(FIND_RUINS) || [];
+    const tombs = room.find(FIND_TOMBSTONES) || [];
+    return ruins.concat(tombs).filter((r) => {
+        const store = r.store;
+        if (!store) return false;
+        if (typeof store.getUsedCapacity === 'function') return store.getUsedCapacity() > 0;
+        return Object.keys(store).some((k) => Number(store[k]) > 0);
+    });
+}
+
+function salvagePriorityScore(store, order) {
+    if (!store) return -1;
+    const list = Array.isArray(order) && order.length ? order : ['XUH2O', 'XKHO2', 'XLHO2', 'XGHO2', 'XZHO2', 'ZHO2', 'XZH2O', 'ZH2O', 'battery', 'energy'];
+    for (let i = 0; i < list.length; i++) if (Number(store[list[i]]) > 0) return 1000 - i;
+    for (const k in store) if (k !== 'energy' && Number(store[k]) > 0) return 100;
+    if (Number(store.energy) > 0) return 1;
+    return -1;
+}
+
+function salvagePickResource(store, order) {
+    if (!store) return null;
+    const list = Array.isArray(order) && order.length ? order : ['XUH2O', 'XKHO2', 'XLHO2', 'XGHO2', 'XZHO2', 'ZHO2', 'XZH2O', 'ZH2O', 'battery', 'energy'];
+    for (const k of list) if (Number(store[k]) > 0) return k;
+    for (const k in store) if (k !== 'energy' && Number(store[k]) > 0) return k;
+    if (Number(store.energy) > 0) return 'energy';
+    return null;
+}
+
 function runStrongholdLoot(d) {
     const room = Game.rooms[d.target];
     const cfg = settings();
-    if (cfg.lootRetreatBelowHalf !== false) d.retreat = squadBelowHalf(d.target);
+    if (d.type === 'salvageLoot') {
+        if (room) {
+            const threat = salvageArmedThreat(room);
+            if (threat) {
+                d.retreat = true;
+                d.threatAt = Game.time;
+                d.threatUser = threat.owner && threat.owner.username;
+            } else if (d.retreat && !(d.threatHold && Game.time - Number(d.threatAt || 0) < Number(d.threatHold))) {
+                d.retreat = false;
+            }
+        }
+    } else if (cfg.lootRetreatBelowHalf !== false) {
+        d.retreat = squadBelowHalf(d.target);
+    }
     if (!room || typeof room.find !== 'function') return;
+    if (d.type === 'salvageLoot') {
+        const tiles = salvageKeyTiles(d, room);
+        if (tiles.length) d.lootTiles = tiles;
+        const ramparts = salvageRamparts(room, tiles);
+        const structs = salvageStructures(room, d);
+        const ruins = salvageRuins(room);
+        d.rampartsLeft = ramparts.length;
+        d.structsLeft = structs.length;
+        d.ruinsLeft = ruins.length;
+        d.lootLeft = ruins.reduce((sum, r) => {
+            const store = r.store;
+            if (!store) return sum;
+            if (typeof store.getUsedCapacity === 'function') return sum + store.getUsedCapacity();
+            return sum + Object.keys(store).reduce((n, k) => n + Number(store[k] || 0), 0);
+        }, 0);
+        if (!ramparts.length && !structs.length && !ruins.length) {
+            d.phase = 'done';
+            if (!d.completed) { d.completed = true; d.completedAt = Game.time; }
+            return;
+        }
+        d.phase = ramparts.length || structs.length ? 'breach' : 'loot';
+        return;
+    }
     const tiles = lootTilesOf(d, room);
     if (tiles.length) d.lootTiles = tiles;
     const use = (Array.isArray(d.lootTiles) && d.lootTiles.length) ? d.lootTiles : tiles;
@@ -379,7 +500,7 @@ function demandsFor(d, home) {
     const sponsors = sponsorRooms(d);
     if (sponsors.indexOf(home.name) < 0) return [];
     if (d.phase === 'done') return [];
-    if (d.type === 'strongholdLoot') return strongholdLootDemands(d, home, sponsors);
+    if (d.type === 'strongholdLoot' || d.type === 'salvageLoot') return strongholdLootDemands(d, home, sponsors);
     const cfg = settings();
     if (home.energyCapacityAvailable < cfg.minCapacity) return [];
     const storeEnergy = (home.storage && home.storage.store) ? (home.storage.store.energy || 0) : 0;
@@ -514,6 +635,14 @@ function strongholdLootDemands(d, home, sponsors) {
     const cfg = settings();
     if (home.energyCapacityAvailable < cfg.minCapacity) return [];
     if (d.retreat) return [];
+    if (d.type === 'salvageLoot') {
+        const minBucket = Number(d.minBucket) || 9000;
+        if (Game.cpu && Game.cpu.bucket != null && Game.cpu.bucket < minBucket && !(d.startedAt > 0)) return [];
+        const cpuMax = Number(d.cpuAvgMax) || 152;
+        try {
+            if (!require('deposit').statsCpuOk(cpuMax, 100, 0)) return [];
+        } catch (e) { /* ignore */ }
+    }
     const storeEnergy = (home.storage && home.storage.store) ? (home.storage.store.energy || 0) : 0;
     const floor = d.storageFloor != null ? Number(d.storageFloor) : cfg.storageFloor;
     if (floor && home.storage && storeEnergy < floor) return [];
@@ -522,14 +651,16 @@ function strongholdLootDemands(d, home, sponsors) {
     const staging = d.staging || null;
     const totalDismantlers = Math.max(0, Number(d.dismantlers) || 0);
     const totalGuards = Math.max(0, Number(d.guards) || 0);
-    const totalHaulers = Math.max(0, Number(d.haulers) || 0);
+    let totalHaulers = Math.max(0, Number(d.haulers) || 0);
+    const maxHaulers = Number(d.maxHaulersPerHome) || 8;
     const squad = Math.max(1, totalDismantlers + totalGuards);
     const lootTiles = Array.isArray(d.lootTiles) ? d.lootTiles : null;
     const phase = d.phase || 'breach';
-    if (phase === 'breach') {
-        const mem = attachAvoidance({ home: home.name, targetRoom: d.target, staging, squad, lootTiles, strongholdLoot: true }, d);
-        const dPer = Math.ceil(totalDismantlers / nSponsors);
-        const body = repeatBody(['work', 'move'], Math.min(home.energyCapacityAvailable, cfg.dismantlerBudget));
+    const salvage = d.type === 'salvageLoot';
+    if (phase === 'breach' || (salvage && phase === 'loot' && totalDismantlers > 0)) {
+        const mem = attachAvoidance({ home: home.name, targetRoom: d.target, staging, squad, lootTiles, strongholdLoot: true, salvageLoot: salvage, boosts: boostsFor('siegeDismantler', d) }, d);
+        const dPer = Math.min(Math.ceil(totalDismantlers / nSponsors), Number(d.maxDismantlersPerHome) || 99);
+        const body = repeatBody(['work', 'move'], Math.min(home.energyCapacityAvailable, Number(d.dismantlerBudget) || cfg.dismantlerBudget));
         for (let i = 0; i < dPer; i++) demands.push(demand('siegeDismantler', 'siegeLoot:' + d.target + ':' + home.name + ':' + i, body, mem, 80, i, d));
         const gPer = Math.ceil(totalGuards / nSponsors);
         if (gPer > 0) {
@@ -538,14 +669,20 @@ function strongholdLootDemands(d, home, sponsors) {
         }
     }
     if ((phase === 'loot' || phase === 'breach') && totalHaulers > 0) {
-        const closest = sponsors.slice().sort((a, b) => roomDistance(a, d.target) - roomDistance(b, d.target))[0];
-        if (home.name === closest) {
-            const hbody = repeatBody(['carry', 'move'], Math.min(home.energyCapacityAvailable, cfg.lootBudget));
-            const hmem = attachAvoidance({ home: home.name, targetRoom: d.target, lootTiles, staging }, d);
-            for (let i = 0; i < totalHaulers; i++) demands.push(demand('lootHauler', 'loot:' + d.target + ':' + i, hbody, hmem, 90, i, d));
+        const closest = salvage ? null : sponsors.slice().sort((a, b) => roomDistance(a, d.target) - roomDistance(b, d.target))[0];
+        if (!closest || home.name === closest) {
+            let per = salvage ? Math.min(maxHaulers, Math.ceil(totalHaulers / nSponsors)) : totalHaulers;
+            if (salvage) {
+                const live = Object.values(Game.creeps || {}).filter((c) => c.memory && c.memory.role === 'lootHauler' && c.memory.targetRoom === d.target && c.memory.home === home.name).length;
+                per = Math.max(0, Math.min(per, maxHaulers - live));
+            }
+            const hbody = repeatBody(['carry', 'move'], Math.min(home.energyCapacityAvailable, Number(d.lootBudget) || cfg.lootBudget));
+            const hmem = attachAvoidance({ home: home.name, targetRoom: d.target, lootTiles, staging, salvageLoot: salvage, lootOrder: d.lootOrder }, d);
+            for (let i = 0; i < per; i++) demands.push(demand('lootHauler', 'loot:' + d.target + ':' + home.name + ':' + i, hbody, hmem, 90, i, d));
         }
     }
+    if (salvage && !d.startedAt && demands.length) d.startedAt = Game.time;
     return demands;
 }
 
-module.exports = { allyTarget, run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick };
+module.exports = { allyTarget, run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick, salvageArmedThreat, salvageKeyTiles, salvageRamparts, salvageStructures, salvageRuins, salvagePickResource, salvagePriorityScore, salvageStoreTypes };
