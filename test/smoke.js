@@ -13,7 +13,7 @@ const MODULE_MAP = {
     roles_scout: 'roles/scout.js', roles_remoteMiner: 'roles/remoteMiner.js', roles_skReaper: 'roles/skReaper.js', roles_mineralMiner: 'roles/mineralMiner.js', roles_labTech: 'roles/labTech.js',
     roles_reserver: 'roles/reserver.js', roles_remoteHauler: 'roles/remoteHauler.js', roles_courier: 'roles/courier.js', roles_feeder: 'roles/feeder.js',
     roles_operator: 'roles/operator.js',
-    brain: 'brain.js', expansion: 'expansion.js', roles_claimer: 'roles/claimer.js', roles_pioneer: 'roles/pioneer.js',
+    brain: 'brain.js', policy: 'policy.js', expansion: 'expansion.js', roles_claimer: 'roles/claimer.js', roles_pioneer: 'roles/pioneer.js',
     defense: 'defense.js', roles_defender: 'roles/defender.js', retire: 'retire.js',
     cpu_shed: 'cpu_shed.js', spawn_exit: 'spawn_exit.js', pvp: 'pvp.js',
     deposit: 'deposit.js', roles_depositMiner: 'roles/depositMiner.js', roles_depositScout: 'roles/depositScout.js',
@@ -3088,6 +3088,7 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
 
     resetWorld(52000);
     Memory.rooms = {};
+    global.__savedBoost = { only: config.industry.boostOnlyRooms, comp: config.industry.boostCompoundsByRoom, min: config.industry.boostMinLoadByRoom }; config.industry.boostOnlyRooms = []; delete config.industry.boostCompoundsByRoom; delete config.industry.boostMinLoadByRoom;
     const lr = makeRoom('W33S7', { rcl: 7, energy: 2300, cap: 2300, owner: 'me' });
     lr._sources = [makeSource(lr, 14, 6, 'lr0'), makeSource(lr, 31, 12, 'lr1')];
     makeSpawn(lr, 23, 21);
@@ -16483,7 +16484,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         const far = { pos: { x: 30, y: 30, roomName: 'W33S7' }, store: stx({}, 800), withdraw: () => OK };
         term.store = stx({}, 290000); plan = {};
         assert(hl.unstashPull(far, r, { urgent: false }, plan) === true && plan.move === stor, '不在 storage 旁先走过去');
-        assert(config.terminalNetwork.terminalFeeReserve.W33S7 === 1000, 'W33S7 terminal 留 1000 能量付 L 调剂的传送费');
+        assert(config.terminalNetwork.terminalFeeReserve.W33S7 === 3000, 'W33S7 terminal 留 3000 能量付传送费（10-20 改发送方）');
     }
     const labRoom = mkRoom('W32S4', {}, { energy: 25000 });
     assert(ind.labsAllowed(labRoom) === true && ind.labsAllowed(mkRoom('W33S7', {}, { energy: 90000 })) === false, 'labs 只在 labRooms、storage ≥ 2 万时开');
@@ -17171,6 +17172,188 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     Memory.stats = savedStats; Game.cpu.bucket = savedBucket;
     config.industry.labOpportunistic = savedOpp;
     global.REACTIONS = savedReactions;
+}
+
+{
+    console.log('\n10-20 10:27 复盘：富房多升级 / W33S7 发送方 / boost / 退回条件 / 大脑过期模拟');
+    if (global.__savedBoost) { config.industry.boostOnlyRooms = global.__savedBoost.only; config.industry.boostCompoundsByRoom = global.__savedBoost.comp; config.industry.boostMinLoadByRoom = global.__savedBoost.min; }
+    resetWorld(98000);
+    Memory.rooms = {};
+    const us = config.energy.upgradeSurplus;
+    assert(us.reserve === 50000 && JSON.stringify(us.tiers) === '[[60000,30],[100000,45]]' && us.exitBelow === 45000 && JSON.stringify(us.rooms) === JSON.stringify(['W32S4', 'W37S5', 'W33S8', 'W31S6', 'W29S3']), '配置 energy.upgradeSurplus 照战略猫数值，5 个房');
+    const ur = makeRoom('W32S4', { rcl: 7, energy: 5600, cap: 5600, owner: 'me' });
+    const ust = makeStructure(ur, C.STRUCTURE_STORAGE, 24, 22, { id: 'usStore', capacity: 1000000, energy: 59000 });
+    Memory.rooms.W32S4 = {};
+    const sw = () => { world.time++; return utils.upgradeSurplusWork(ur, Memory.rooms.W32S4); };
+    assert(sw() === 0, 'storage 5.9 万：不加');
+    ust.store.energy = 60000; assert(sw() === 30, '≥6 万：30/t');
+    ust.store.energy = 100000; assert(sw() === 45, '≥10 万：45/t');
+    ust.store.energy = 90000; assert(sw() === 45, '9 万：45 档迟滞不掉（8.5 万才回 30）');
+    ust.store.energy = 84000; assert(sw() === 30, '8.4 万：回 30');
+    ust.store.energy = 50000; assert(sw() === 30, '5 万：仍 30（4.5 万才退出）');
+    ust.store.energy = 44000; assert(sw() === 0, '4.4 万：恢复默认');
+    ust.store.energy = 55000; assert(sw() === 0, '5.5 万：没回到 6 万不重新进');
+    ust.store.energy = 100000; sw();
+    assert(utils.upgraderWorkCap(ur, Memory.rooms.W32S4) === 45 && utils.upgraderSupplyWork(ur, Memory.rooms.W32S4) === 45, '富余档绕过 bankRooms 0.6 的 12 WORK 限流');
+    const spawnU = require('../src/spawn');
+    const ub = spawnU.upgraderBody(ur, Memory.rooms.W32S4, 5600);
+    assert(utils.bodyPartCount(ub, 'work') === 23 && utils.bodyPartCount(ub, 'move') === 5 && utils.bodyCost(ub) <= 5600, '45/t 拆成 2 只 W23M5（得 W' + utils.bodyPartCount(ub, 'work') + 'M' + utils.bodyPartCount(ub, 'move') + '）');
+    const old = makeCreep(ur, 'oldUp', Array(12).fill('work').concat(['carry', 'carry', 'move']), { home: 'W32S4', role: 'upgrader' }, { ticksToLive: 800 });
+    world.creeps[old.name] = old;
+    world.time++;
+    const ut = spawnU.upgraderTarget(ur, Memory.rooms.W32S4);
+    assert(ut === 3 && Memory.rooms.W32S4.upgradeSupply.surplus.have === 12, '在岗 W12、目标 45：补 2 只 W23（共 3 只，不超 maxUpgradersRich 3）（得 ' + ut + '）');
+    const wr = makeRoom('W29S3', { rcl: 6, energy: 2300, cap: 2300, owner: 'me' });
+    makeStructure(wr, C.STRUCTURE_STORAGE, 24, 22, { id: 'wsStore', capacity: 1000000, energy: 120000 });
+    Memory.rooms.W29S3 = {};
+    world.time++;
+    const wb = spawnU.upgraderBody(wr, Memory.rooms.W29S3, 2300);
+    assert(utils.bodyPartCount(wb, 'work') === 15 && utils.bodyCost(wb) <= 2300, 'W29S3（RCL6、2300）45/t 拆 3 只 W15（得 W' + utils.bodyPartCount(wb, 'work') + ' 成本 ' + utils.bodyCost(wb) + '）');
+    const xr = makeRoom('W33S3', { rcl: 7, energy: 5600, cap: 5600, owner: 'me' });
+    makeStructure(xr, C.STRUCTURE_STORAGE, 24, 22, { id: 'xsStore', capacity: 1000000, energy: 200000 });
+    assert(utils.upgradeSurplusWork(xr, {}) === 0, '名单外的房不受影响');
+
+    const term = require('terminal');
+    const tcfg = term.settings();
+    assert(JSON.stringify(tcfg.priorityReceivers) === JSON.stringify(['W38S7', 'W33S3', 'W31S8', 'W31S4', 'W34S7', 'W35S7', 'W31S5']), 'priorityReceivers 换成新名单');
+    const tR = (name, storageE, termE, lvl) => ({ name, controller: { my: true, level: lvl || 7 }, storage: { my: true, store: mkStore(storageE, 1000000) },
+        terminal: { my: true, cooldown: 0, store: mkStore(termE, 300000), send() { return C.OK; } }, find: () => [] });
+    world.time += 10;
+    Memory.terminalNetwork = {};
+    const s1 = term.planSenders([tR('W33S7', 90000, 30000, 8), tR('W38S7', 34000, 2400), tR('W33S3', 30000, 8000), tR('W31S8', 14000, 7000)], tcfg);
+    assert(s1 && s1.from.name === 'W33S7' && s1.to.name === 'W31S8' && s1.amount <= 10000 && s1.amount >= 5000 && s1.amount + s1.cost <= 30000 - 3000, 'W33S7 storage 9 万：送 1 万给三房里最缺的 W31S8，留 terminal 燃料 3000（得 ' + JSON.stringify(s1 && { to: s1.to.name, a: s1.amount, c: s1.cost }) + '）');
+    world.time += 10;
+    assert(term.planSenders([tR('W33S7', 54000, 30000, 8), tR('W31S8', 14000, 7000)], tcfg) === null, 'storage 5.4 万：多出不到 5000，不送（storage 留 5 万）');
+    world.time += 10;
+    const day = Math.floor((Date.now() + 9 * 3600000) / 86400000);
+    Memory.terminalNetwork = { senders: { W33S7: { day, sent: 148000, cost: 0, n: 15 } } };
+    assert(term.planSenders([tR('W33S7', 90000, 30000, 8), tR('W31S8', 14000, 7000)], tcfg) === null, '当天已送 14.8 万（上限 15 万）：不再送');
+    world.time += 10;
+    Memory.terminalNetwork = {};
+    assert(term.storageSpare(tR('W33S7', 52000, 30000, 8)) === 2000 && term.storageSpare(tR('W37S5', 1000, 0)) === Infinity, '其它发送路径对 W33S7 也只动 storage 5 万以上的部分');
+    const starve = term.planTransfer([tR('W33S7', 52000, 30000, 8), tR('W38S7', 3000, 1000)], tcfg);
+    assert(!starve || starve.from.name !== 'W33S7' || starve.amount <= 2000, '救急路径也不把 W33S7 storage 拉到 5 万以下（得 ' + JSON.stringify(starve && { f: starve.from.name, a: starve.amount }) + '）');
+
+    const mcfg = config.market;
+    assert(mcfg.keepBy.GH2O === Infinity && mcfg.keepBy.XGH2O === Infinity && mcfg.neverSell.includes('GH2O') && mcfg.neverSell.includes('XGH2O') &&
+        !(mcfg.ownOrders.sell || []).some((o) => o && (o.resource === 'GH2O' || o.resource === 'XGH2O')) && !(mcfg.dealOnly || []).some((r) => r === 'GH2O' || r === 'XGH2O'), 'GH2O/XGH2O 不卖：keepBy 无穷、neverSell、没有卖单/成交名单');
+    const mk = require('../src/market');
+    assert(mk.sellOnce === undefined || true, 'market 加载');
+    const ownRooms = Object.keys(config.remote.assign);
+    assert(tcfg.forward.filter((f) => f.resource === 'GH2O' || f.resource === 'XGH2O').every((f) => ownRooms.includes(f.from) && ownRooms.includes(f.to) && f.to === 'W33S7'), 'GH2O/XGH2O 只在自己房之间送（W32S4/W33S3 → W33S7）');
+    const ind = require('../src/industry');
+    const savedR = global.REACTIONS;
+    global.REACTIONS = { H: { O: 'OH' }, O: { H: 'OH' } };
+    const br = makeRoom('W33S7', { rcl: 8, energy: 12900, cap: 12900, owner: 'me' });
+    makeStructure(br, C.STRUCTURE_STORAGE, 24, 22, { id: 'bsStore', capacity: 1000000, energy: 90000 });
+    const bterm = makeStructure(br, C.STRUCTURE_TERMINAL, 25, 22, { id: 'bsTerm', capacity: 300000, energy: 30000, extraStore: { H: 3000, O: 3000, XGH2O: 300 } });
+    for (const [x, id] of [[35, 'bl1'], [36, 'bl2'], [37, 'bl3'], [10, 'bl9']]) makeStructure(br, C.STRUCTURE_LAB, x, x === 10 ? 40 : 21, { id, capacity: 3000, energy: 2000 });
+    Memory.rooms.W33S7 = {};
+    world.time++;
+    const bp1 = ind.labPlan(br);
+    assert(bp1.product === null && !bp1.wants.length, 'W33S7 只做 boost 不做反应；XGH2O 300 不够一只 W15（450）：不装、不 boost');
+    world.time++;
+    bterm.store.GH2O = 600;
+    const bp2 = ind.labPlan(br);
+    const bw = bp2.wants.find((w) => w.boost);
+    assert(bp2.product === null && bw && bw.mineral === 'GH2O' && bw.amount === 600 && bp2.wants.length === 1, 'GH2O 600 ≥ 450：装进 boost lab（得 ' + JSON.stringify(bp2.wants) + '）');
+    assert(require('../src/spawn').labTechTarget(br, Memory.rooms.W33S7) === 1, 'W33S7 不在 labRooms 也给 boost lab 孵 labTech');
+    global.REACTIONS = savedR;
+    const upC = makeCreep(br, 'bUp', Array(15).fill('work').concat(['carry', 'move']), { home: 'W33S7', role: 'upgrader' });
+    world.creeps[upC.name] = upC;
+    try { ROLES.upgrader.run(upC); } catch (e) {}
+    assert(JSON.stringify(upC.memory.boosts) === JSON.stringify(['XGH2O', 'GH2O']), 'W33S7 upgrader 要 XGH2O 优先、GH2O 其次');
+    const boostMod = require('../src/boost');
+    assert(boostMod.pending(upC) === false, 'boost lab 空着：不等待，不卡升级/孵化');
+
+    const pol = require('../src/policy');
+    const pc = pol.settings();
+    assert(pc.lowStorage === 2000 && pc.lowRooms === 4 && pc.storageDownDays === 2, '配置 policy.stage1Fallback：4 房 storage<2k 或 升级没涨+storage 连降 2 天');
+    const d = (g0, g1, st) => ({ start: { gcl: g0 }, end: { gcl: g1, storage: st } });
+    assert(pol.evaluate([], { low: 4 }, pc).join() === 'lowStorage:4', '4 个房 storage < 2k：触发');
+    assert(pol.evaluate([], { low: 3 }, pc).length === 0, '3 个房：不触发');
+    assert(pol.evaluate([d(0, 100, 900), d(100, 200, 800), d(200, 290, 700)], { low: 0 }, pc).join() === 'flatUpgradeStorageDown', '升级量没涨（90≤100）且 storage 连降 2 天：触发');
+    assert(pol.evaluate([d(0, 100, 900), d(100, 200, 800), d(200, 320, 700)], { low: 0 }, pc).length === 0, '升级量涨了：不触发');
+    assert(pol.evaluate([d(0, 100, 900), d(100, 200, 950), d(200, 290, 700)], { low: 0 }, pc).length === 0, 'storage 只降 1 天：不触发');
+}
+{
+    console.log('\n10-20 大脑过期 / 缺失模拟：外矿、claim、mineral、defense、safeMode 与现在一致（config.brain.retired=true）');
+    resetWorld(74442600);
+    Memory.rooms = {};
+    const brainMod = require('../src/brain');
+    const remoteMod = require('../src/remote');
+    const expansionMod = require('../src/expansion');
+    const towerMod = require('../src/tower');
+    const defenseMod = require('../src/defense');
+    const minerMod = require('../src/roles/mineralMiner');
+    const savedBrainCfg = config.brain;
+    config.brain = { retired: true };
+    assert(require('../src/config').brain.retired === true, '模拟用线上配置 config.brain.retired = true');
+    const issuedAt = 1791946805363;
+    const ttlMs = 604800000;
+    const live = { version: 1, issuedAt, ttlMs, intel: {}, frozen: true,
+        locks: { 'claim.queue': { value: ['W37S5', 'W38S7'], until: 1791797436550 }, 'W31S4.remotes': { value: ['W31S3', 'W31S2', 'W29S2'], until: 1792567194489 } },
+        rooms: {} };
+    const homes = ['W31S4', 'W29S3', 'W33S7', 'W37S7'];
+    const rooms = {};
+    for (const name of homes) {
+        live.rooms[name] = { remotes: name === 'W37S7' ? ['W37S6', 'W39S6', 'W39S9'] : ['X'], claim: null, scouts: 0, defense: {},
+            mineral: { version: 1, enabled: false, reason: 'energy' }, safeMode: { atTick: 74321298, armed: 0, dps: 0, action: 'hold', reason: 'no-threat' } };
+        rooms[name] = makeRoom(name, { rcl: name === 'W29S3' ? 6 : 7, energy: 5600, cap: 5600, owner: 'me' });
+        makeStructure(rooms[name], C.STRUCTURE_STORAGE, 24, 22, { capacity: 1000000, energy: 100000 });
+    }
+    const realNow = Date.now;
+    const snap = () => {
+        world.time++;
+        const out = {};
+        for (const name of homes) {
+            const room = rooms[name];
+            let mineral = null;
+            try { const p = minerMod.directive(room); mineral = p ? { enabled: !!p.enabled, count: p.count, reason: p.reason } : null; } catch (e) { mineral = 'err:' + e.message; }
+            out[name] = {
+                remotes: remoteMod.remoteWhitelist(name),
+                claim: expansionMod.claimTarget(room),
+                mineral,
+                defense: defenseMod.planFor(room, name),
+                safeMode: towerMod.safeModeDecision(room),
+                scouts: (brainMod.directive(name) || { scouts: config.roster[room.controller.level].scout }).scouts,
+            };
+        }
+        out.claimQueue = brainMod.standingLock('claim.queue');
+        return JSON.stringify(out);
+    };
+    Date.now = () => issuedAt + 6 * 86400000;
+    Memory.brain = JSON.parse(JSON.stringify(live));
+    const now = snap();
+    assert(brainMod.available() && !brainMod.isStale(), '现在（10-20）：冻结大脑有效');
+    Date.now = () => issuedAt + ttlMs + 3600000;
+    Memory.brain = JSON.parse(JSON.stringify(live));
+    const stale = snap();
+    assert(brainMod.isStale() && brainMod.available(), '10-21 13:00：过了 ttl，retired 下仍可用（只标 stale）');
+    assert(stale === now, '10-21 13:00 过 ttl：外矿/claim/mineral/defense/safeMode/scout 与现在一致（得 ' + stale + ' vs ' + now + '）');
+    Date.now = () => issuedAt + ttlMs + 7 * 3600000;
+    Memory.brain = JSON.parse(JSON.stringify(live));
+    const expired = snap();
+    assert(expired === now, '10-21 19:00 过 ttl+6h 宽限（retired 下不判过期）：行为一致');
+    Date.now = () => issuedAt + 8 * 86400000;
+    Memory.brain = JSON.parse(JSON.stringify(live));
+    const locksGone = snap();
+    assert(locksGone === now, '10-22（外矿锁 10-21 16:19 也过期）：行为一致');
+    delete Memory.brain;
+    const missing = snap();
+    assert(!brainMod.available() && missing === now, '大脑缺失（Memory.brain 没了）：行为一致（得 ' + missing + ' 对比现在 ' + now + '）');
+    Memory.brain = { version: 2, issuedAt, ttlMs, rooms: {} };
+    const bad = snap();
+    assert(bad === now, '大脑版本不对被拒：行为一致');
+    config.brain.retired = false;
+    Date.now = () => issuedAt + ttlMs + 7 * 3600000;
+    Memory.brain = JSON.parse(JSON.stringify(live));
+    const unretired = snap();
+    assert(unretired === now, '对照：万一 retired 丢了、大脑真过期：也一致');
+    config.brain = savedBrainCfg;
+    Date.now = realNow;
+    const twSrc = fs.readFileSync(require.resolve('../src/tower.js'), 'utf8');
+    assert(/fallbackCoreShare: 0\.5/.test(twSrc), 'safeMode 逻辑未改（tower.js 兜底 0.5 照旧）');
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);

@@ -1066,7 +1066,7 @@ function labTechTarget(room, mem) {
     const industry = require('industry');
     let militaryActive = false;
     try { militaryActive = require('conquest').militaryCompounds().length > 0; } catch (e) { militaryActive = false; }
-    if (!militaryActive && !(industry.labsAllowed ? industry.labsAllowed(room) : industry.canSpend(room))) return 0;
+    if (!militaryActive && !(industry.labsAllowed ? industry.labsAllowed(room) : industry.canSpend(room)) && !(industry.boostOnlyRoom && industry.boostOnlyRoom(room))) return 0;
     let plan = null;
     try { plan = industry.labPlan(room); } catch (error) { plan = null; }
     if (!plan) return 0;
@@ -1101,6 +1101,21 @@ function upgraderTarget(room, mem) {
         capCount = Math.max(base, Math.ceil(workCap / perBody));
     }
     supply.capCount = Number.isFinite(capCount) ? capCount : null;
+    const surplusWork = utils.upgradeSurplusWork(room, mem);
+    if (surplusWork > 0 && Number.isFinite(workCap)) {
+        const perBody = Math.max(1, bodyPartCount(upgraderBody(room, mem, room.energyCapacityAvailable), 'work'));
+        let have = 0;
+        let n = 0;
+        for (const creep of creepsHomeRole(room.name, 'upgrader')) {
+            if (isRetiring(creep.memory)) continue;
+            if (!creep.spawning && creep.ticksToLive != null && creep.ticksToLive <= replaceLead(creep, 'upgrader')) continue;
+            have += bodyPartCount(creep.body, 'work');
+            n++;
+        }
+        const want = Math.min(max, n + Math.ceil(Math.max(0, surplusWork - have) / perBody));
+        supply.surplus = { at: Game.time, work: surplusWork, have, n, want };
+        return Math.max(base, want);
+    }
     const planned = mem.plan && mem.plan.containers && mem.plan.containers.ctrl;
     const container = structureAt(room, planned, STRUCTURE_CONTAINER);
     const fedByStorage = layout.controllerFedByStorage(room, mem.plan || {});
@@ -1346,6 +1361,11 @@ function upgraderBody(room, mem, budget) {
         if (!seen || seen.at !== Game.time) {
             track.sizeCap = { at: Game.time, cap: supplyWork, would: Math.min(rclMax, 47, Math.floor((allowance - 150) / 100)), n: (Number(seen && seen.n) || 0) + 1 };
         }
+    }
+    const tier = utils.upgradeSurplusWork(room, mem);
+    if (tier > 0 && !(held && held.on) && room.controller && room.controller.level < 8) {
+        const sp = utils.surplusBodyPlan(room, tier);
+        return makeBody('upgrader', allowance, { maxWork: Math.min(sp.work, maxWork), move: sp.move });
     }
     return makeBody('upgrader', allowance, { maxWork });
 }

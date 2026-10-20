@@ -78,6 +78,59 @@ function feeReserveOf(room) {
     return Math.max(0, Number(map && map[room.name]) || 0);
 }
 
+function storageSpare(room) {
+    const keep = Number(((config.terminalNetwork || {}).storageKeepByRoom || {})[room.name]) || 0;
+    if (!(keep > 0)) return Infinity;
+    return energyOf(room.storage && room.storage.my !== false && room.storage.store) - keep;
+}
+
+function dayKey() {
+    return Math.floor((Date.now() + 9 * 3600000) / 86400000);
+}
+
+function senderLog(name) {
+    const net = Memory.terminalNetwork || (Memory.terminalNetwork = {});
+    const all = net.senders || (net.senders = {});
+    const day = dayKey();
+    const rec = all[name] && all[name].day === day ? all[name] : (all[name] = { day, sent: 0, cost: 0, n: 0 });
+    return rec;
+}
+
+function planSenders(rooms, cfg) {
+    const rules = cfg.senders || {};
+    const byName = {};
+    for (const room of rooms) byName[room.name] = room;
+    const feeKeep = Math.max(0, Number(cfg.feeReserve) || 0);
+    for (const name of Object.keys(rules)) {
+        const rule = rules[name] || {};
+        const from = byName[name];
+        if (!from || from.terminal.cooldown > 0 || usedThisTick(from.name)) continue;
+        const keep = Math.max(0, Number(rule.keep) || 0);
+        const spare = energyOf(from.storage && from.storage.my !== false && from.storage.store) - keep;
+        const minSend = Math.max(1, Number(rule.minSend) || cfg.minSend || 5000);
+        if (spare < minSend) continue;
+        const rec = senderLog(name);
+        const left = (Number(rule.dailyMax) || Infinity) - rec.sent - rec.cost;
+        if (left < minSend) continue;
+        const budget = energyOf(from.terminal.store) - Math.max(feeKeep, feeReserveOf(from));
+        const below = Number(rule.receiverBelow) || Infinity;
+        const targets = (rule.to || []).map((n) => byName[n]).filter((to) => to && to.name !== name && freeOf(to.terminal.store) > 0 && roomEnergy(to) < below)
+            .sort((a, b) => roomEnergy(a) - roomEnergy(b));
+        for (const to of targets) {
+            let amount = Math.min(spare, Number(rule.maxSend) || cfg.maxSend, freeOf(to.terminal.store), budget, left);
+            let cost = transactionCost(amount, from.name, to.name);
+            while (amount > 0 && (amount + cost > budget || amount + cost > left)) {
+                amount = Math.floor((Math.min(budget, left) - cost) * 0.98);
+                if (amount <= 0) break;
+                cost = transactionCost(amount, from.name, to.name);
+            }
+            if (amount < minSend) continue;
+            return { from, to, amount, cost, sender: true };
+        }
+    }
+    return null;
+}
+
 function planStarving(rooms, cfg, rich) {
     const order = Array.isArray(cfg.priorityReceivers) ? cfg.priorityReceivers : [];
     const below = Number(cfg.starvingBelow) || 0;
@@ -92,7 +145,7 @@ function planStarving(rooms, cfg, rich) {
     const isPeer = (room) => order.indexOf(room.name) >= 0;
     const senders = rooms.slice().sort((a, b) => roomEnergy(b) - roomEnergy(a)).filter((room) =>
         !(room.terminal.cooldown > 0) && !usedThisTick(room.name) && energyOf(room.terminal.store) > feeReserve &&
-        (isPeer(room) ? peerMin > 0 && roomEnergy(room) >= peerMin : roomEnergy(room) >= sendAbove && rich(room)));
+        storageSpare(room) > 0 && (isPeer(room) ? peerMin > 0 && roomEnergy(room) >= peerMin : roomEnergy(room) >= sendAbove && rich(room)));
     for (const name of order) {
         const to = byName[name];
         const until = Math.max(below, Number(cfg.starvingUntil && cfg.starvingUntil[name]) || 0);
@@ -100,7 +153,7 @@ function planStarving(rooms, cfg, rich) {
         for (const from of senders) {
             if (from.name === to.name) continue;
             const peer = isPeer(from);
-            const spare = roomEnergy(from) - (peer ? peerKeep : keep) - feeReserveOf(from);
+            const spare = Math.min(roomEnergy(from) - (peer ? peerKeep : keep) - feeReserveOf(from), storageSpare(from));
             const terminalBudget = energyOf(from.terminal.store) - Math.max(feeReserve, feeReserveOf(from));
             const budget = peer ? Math.min(terminalBudget, spare) : terminalBudget;
             let amount = Math.min(spare, Number(cfg.starveMaxSend) || cfg.maxSend, freeOf(to.terminal.store), budget);
@@ -140,7 +193,7 @@ function planFeeReserve(rooms, cfg, rich) {
         for (const from of rooms) {
             if (from.name === to.name || roomEnergy(from) < sendAbove || from.terminal.cooldown > 0 || usedThisTick(from.name) || !rich(from)) continue;
             const budget = energyOf(from.terminal.store) - Math.max(feeKeep, feeReserve(from, cfg));
-            let amount = Math.min(fee - have, roomEnergy(from) - keep - feeReserve(from, cfg), budget, freeOf(to.terminal.store));
+            let amount = Math.min(fee - have, roomEnergy(from) - keep - feeReserve(from, cfg), storageSpare(from), budget, freeOf(to.terminal.store));
             let cost = transactionCost(amount, from.name, to.name);
             while (amount > 0 && amount + cost > budget) { amount = Math.floor((budget - cost) * 0.98); if (amount <= 0) break; cost = transactionCost(amount, from.name, to.name); }
             if (amount < cfg.minSend) continue;
@@ -180,7 +233,7 @@ function planHoardFlush(rooms, cfg, rich) {
     for (const from of senders) {
         for (const to of want) {
             if (to.name === from.name) continue;
-            const spare = roomEnergy(from) - keep - feeReserveOf(from);
+            const spare = Math.min(roomEnergy(from) - keep - feeReserveOf(from), storageSpare(from));
             if (spare <= 0) continue;
             const budget = energyOf(from.terminal.store) - Math.max(feeReserve, feeReserveOf(from));
             let amount = Math.min(spare, maxSend, freeOf(to.terminal.store), budget);
@@ -203,6 +256,8 @@ function planTransfer(rooms, cfg, isRich) {
     if (urgent) return urgent;
     const fee = planFeeReserve(rooms, cfg, rich);
     if (fee) return fee;
+    const sender = planSenders(rooms, cfg);
+    if (sender) return sender;
     const hoard = planHoardFlush(rooms, cfg, rich);
     if (hoard) return hoard;
     const ranked = rooms.slice().sort((a, b) => roomEnergy(b) - roomEnergy(a));
@@ -213,7 +268,7 @@ function planTransfer(rooms, cfg, isRich) {
     for (const from of senders) {
         for (const to of receivers) {
             if (to.name === from.name) continue;
-            const spare = roomEnergy(from) - cfg.keep - feeReserveOf(from);
+            const spare = Math.min(roomEnergy(from) - cfg.keep - feeReserveOf(from), storageSpare(from));
             if (spare <= 0) continue;
             const budget = energyOf(from.terminal.store) - Math.max(feeReserve, feeReserveOf(from));
             let amount = Math.min(spare, cfg.maxSend, freeOf(to.terminal.store), budget);
@@ -373,6 +428,13 @@ function run(shed) {
     if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
         mem.sent = (Number(mem.sent) || 0) + 1;
         mem.amount = (Number(mem.amount) || 0) + plan.amount;
+        if (plan.sender) {
+            const rec = senderLog(plan.from.name);
+            rec.sent += plan.amount;
+            rec.cost += plan.cost;
+            rec.n++;
+            rec.last = record;
+        }
         if (plan.peer) {
             const peer = mem.peer || (mem.peer = { n: 0, amount: 0 });
             peer.n++;
@@ -400,4 +462,4 @@ function runMineral(rooms, cfg) {
     return record;
 }
 
-module.exports = { planForward, runForward, run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };
+module.exports = { planSenders, storageSpare, planForward, runForward, run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };

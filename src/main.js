@@ -194,6 +194,7 @@ module.exports.loop = function () {
         try { taskBroker.beginTick(); } catch (e) { logErr('taskBroker.beginTick', e); }
         cpuLap(cpuProf.mod, 'broker.begin');
         try { brain.run(); } catch (e) { logErr('brain.run', e); }
+        try { require('policy').run(); } catch (e) { logErr('policy.run', e); }
         cpuLap(cpuProf.mod, 'brain');
         if (!cpuFused('conquest')) {
             try { conquest.run(); } catch (e) { logErr('conquest.run', e); }

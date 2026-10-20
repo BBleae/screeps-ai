@@ -137,6 +137,14 @@ function makeBody(role, cap, opts) {
                 parts = ['work', 'work', 'carry', 'move'];
                 break;
             }
+            const mv = Math.max(1, Math.floor(Number(opts && opts.move) || 1));
+            if (mv > 1) {
+                let w2 = Math.max(1, Math.min(maxWork, Math.floor((cap - 100 - 50 * mv) / 100), 50 - mv - 2));
+                const c2 = Math.max(1, Math.min(4, Math.floor((cap - w2 * 100 - 50 * mv) / 50), 50 - w2 - mv));
+                if (w2 * 100 + c2 * 50 + mv * 50 > cap) w2 = Math.max(1, w2 - 1);
+                parts = repeat('work', w2).concat(repeat('carry', c2), repeat('move', mv));
+                break;
+            }
             const w = Math.max(1, Math.min(maxWork, Math.floor((cap - 150) / 100), 47));
             const c = Math.max(1, Math.min(Math.max(2, Math.min(6, Math.floor((cap - 150 - w * 100) / 50))), 50 - w - 1));
             parts = repeat('work', w).concat(repeat('carry', c), ['move']);
@@ -357,7 +365,46 @@ function bankingWorkCap(room) {
     return Math.max(1, Math.floor(sourceSupply(room) * share));
 }
 
+function upgradeSurplusWork(room, mem) {
+    const cfg = (config.energy || {}).upgradeSurplus;
+    if (!cfg || !room || !Array.isArray(cfg.rooms) || cfg.rooms.indexOf(room.name) < 0) return 0;
+    const store = room.storage && room.storage.my !== false && room.storage.store;
+    const energy = store ? Number(store[typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy'] || 0) : 0;
+    const m = mem || (Memory.rooms[room.name] || (Memory.rooms[room.name] = {}));
+    const prev = m.upgradeSurplus;
+    const now = typeof Game !== 'undefined' ? Game.time : 0;
+    if (prev && prev.t === now) return prev.work;
+    const tiers = (Array.isArray(cfg.tiers) ? cfg.tiers : []).slice().sort((a, b) => a[0] - b[0]);
+    const exitBelow = Math.max(Number(cfg.exitBelow) || 0, 0);
+    const reserve = Math.max(Number(cfg.reserve) || 0, 0);
+    const band = tiers.length ? Math.max(0, tiers[0][0] - exitBelow) : 0;
+    const was = prev ? Number(prev.work) || 0 : 0;
+    let work = 0;
+    for (const [at, w] of tiers) if (energy >= at) work = w;
+    if (!work && was && energy >= exitBelow) work = tiers.length ? tiers[0][1] : 0;
+    if (was > work && energy >= exitBelow) {
+        for (const [at, w] of tiers) if (w === was && energy >= at - band) work = Math.max(work, w);
+    }
+    if (energy < Math.max(exitBelow, reserve - band)) work = 0;
+    if (!prev || prev.work !== work) m.upgradeSurplus = { work, t: now, at: now, energy };
+    else { prev.t = now; }
+    return work;
+}
+
+function surplusBodyPlan(room, tier) {
+    const cfg = (config.energy || {}).upgradeSurplus || {};
+    const per = Math.max(1, Number(cfg.workPerMove) || 5);
+    const cap = Math.max(300, Number(room && room.energyCapacityAvailable) || 300);
+    let limit = Math.max(1, Number(cfg.maxWorkPerCreep) || 25);
+    while (limit > 1 && limit * 100 + Math.ceil(limit / per) * 50 + 100 > cap) limit--;
+    const k = Math.max(1, Math.ceil(tier / limit));
+    const work = Math.ceil(tier / k);
+    return { work, move: Math.ceil(work / per) };
+}
+
 function upgraderWorkCap(room, mem) {
+    const surplus = upgradeSurplusWork(room, mem);
+    if (surplus > 0) return surplus;
     const bank = bankingWorkCap(room);
     if (bank != null) return bank;
     if (!upgradeBudgetLow(room, mem)) return Infinity;
@@ -382,6 +429,8 @@ function upgraderSupplyWork(room, mem) {
     const settings = config.upgrading || {};
     const floor = Math.max(0, Number(settings.lowExitAbove) || 0);
     const drainTicks = Math.max(1, Number(settings.storageDrainTicks) || 1500);
+    const tier = upgradeSurplusWork(room, mem);
+    if (tier > 0) return room.controller && room.controller.level >= 8 ? Math.min(tier, 15) : tier;
     const surplus = Math.max(0, Number(storage.store[RESOURCE_ENERGY] || 0) - floor) / drainTicks;
     let cap = Math.max(1, Math.ceil(sourceSupply(room)) + Math.floor(surplus));
     if (room.controller && room.controller.level >= 8) cap = Math.min(cap, 15);
@@ -1103,6 +1152,8 @@ function pvpDangerRoom(name) {
 }
 
 module.exports = {
+    upgradeSurplusWork,
+    surplusBodyPlan,
     placeSite,
     siteAllowed,
     tallySites,

@@ -332,6 +332,8 @@ function run(creep) {
     const mem = Memory.rooms[room.name] || (Memory.rooms[room.name] = {});
     if (!creep.memory.boostDone) {
         const ind = config.industry || {};
+        const byRoom = ind.upgraderBoostByRoom && ind.upgraderBoostByRoom[room.name];
+        if (!creep.memory.boosts && ind.boostUpgraders && Array.isArray(byRoom)) creep.memory.boosts = byRoom.slice();
         if (!creep.memory.boosts && ind.boostUpgraders && Array.isArray(ind.labRooms) && ind.labRooms.indexOf(room.name) >= 0) creep.memory.boosts = ['XGH2O'];
         if (creep.memory.boosts) {
             let busy = false;

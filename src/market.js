@@ -905,6 +905,7 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
     const key = type + ':' + room + ':' + resource;
     const book = orderBook();
     if (book[key] || !(amount > 0) || !(price > 0)) return null;
+    if (type === 'sell' && Array.isArray(cfg.neverSell) && cfg.neverSell.indexOf(resource) >= 0) return null;
     const led = ledger();
     if (type === 'buy' && resource === ENERGY && roomEnergyOpen(market, room).length) {
         led.energyOpenBlocked = { at: Game.time, room, open: roomEnergyOpen(market, room).length };
@@ -1231,6 +1232,7 @@ function buyMilitaryBoosts(cfg, market) {
 }
 
 function sellOnce(cfg, market, room, entry, orders, floor) {
+    if (Array.isArray(cfg.neverSell) && cfg.neverSell.indexOf(entry.resource) >= 0) return null;
     const pick = pickBuyOrder(orders, room, entry, cfg, floor);
     if (!pick) return null;
     const ret = market.deal(pick.order.id, pick.amount, room.name);
