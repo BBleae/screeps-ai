@@ -38,11 +38,42 @@ function receiveOnly(room) {
     if (Array.isArray(list) && list.indexOf(room.name) >= 0) return true;
     const below = Number(((config.terminalNetwork || {}).receiveOnlyBelow || {})[room.name]) || 0;
     if (below > 0 && roomEnergy(room) < below) return true;
+    const head = sendHeadroom(room);
+    if (head === Infinity) return false;
+    return head < Math.max(1, Number((config.terminalNetwork || {}).minSend) || 5000) * 1.5;
+}
+
+function keepAfterSend(room) {
+    const net = config.terminalNetwork || {};
+    let floor = Number((net.keepAfterSend || {})[room.name]) || 0;
     const hold = ((config.upgrading || {}).hold || {})[room.name];
-    const until = hold && Number(hold.resumeAt);
-    if (!(until > 0)) return false;
+    if (hold && Number(hold.resumeAt) > 0) floor = Math.max(floor, Number(hold.resumeAt));
+    return floor;
+}
+
+function sendHeadroom(room) {
+    const floor = keepAfterSend(room);
+    if (!(floor > 0)) return Infinity;
     const st = room.storage && room.storage.my !== false && room.storage.store;
-    return energyOf(st) < until;
+    return energyOf(st) - floor;
+}
+
+function energySendOk(room, amount, cost) {
+    return (Number(amount) || 0) + (Number(cost) || 0) <= sendHeadroom(room);
+}
+
+function fitHeadroom(plan) {
+    const head = sendHeadroom(plan.from);
+    if (energySendOk(plan.from, plan.amount, plan.cost)) return true;
+    const ratio = plan.amount > 0 ? (Number(plan.cost) || 0) / plan.amount : 0.1;
+    let amount = Math.floor(head / (1 + ratio)) - 1;
+    let cost = amount > 0 ? transactionCost(amount, plan.from.name, plan.to.name) : 0;
+    while (amount > 0 && amount + cost > head) { amount -= 100; cost = transactionCost(amount, plan.from.name, plan.to.name); }
+    if (amount < Math.max(1, Number((config.terminalNetwork || {}).minSend) || 5000)) return false;
+    plan.amount = amount;
+    plan.cost = cost;
+    plan.fitted = true;
+    return true;
 }
 
 function noteBlocked(room, path) {
@@ -270,7 +301,7 @@ function planHoardFlush(rooms, cfg, rich) {
     for (const from of senders) {
         for (const to of want) {
             if (to.name === from.name) continue;
-            const spare = Math.min(roomEnergy(from) - keep - feeReserveOf(from), storageSpare(from));
+            const spare = Math.min(roomEnergy(from) - keep - feeReserveOf(from), storageSpare(from), sendHeadroom(from));
             if (spare <= 0) continue;
             const budget = energyOf(from.terminal.store) - Math.max(feeReserve, feeReserveOf(from));
             let amount = Math.min(spare, maxSend, freeOf(to.terminal.store), budget);
@@ -459,6 +490,7 @@ function planForward(rule) {
         cost = transactionCost(amount, from.name, to.name);
         if (amount < (Number(rule.minBatch) || 1000)) return { from, to, res, amount: 0, cost, blocked: 'energy' };
     }
+    if (res === RESOURCE && !energySendOk(from, amount, cost)) return { from, to, res, amount: 0, cost, blocked: 'keepAfter' };
     return { from, to, res, amount, cost };
 }
 
@@ -500,6 +532,7 @@ function run(shed) {
         if (mineral) return mineral;
     }
     if (receiveOnly(plan.from)) { noteBlocked(plan.from, 'balance'); return null; }
+    if (!fitHeadroom(plan)) { noteBlocked(plan.from, plan.feed ? 'keepAfterFeed' : 'keepAfter'); return null; }
     const ret = plan.from.terminal.send(RESOURCE, plan.amount, plan.to.name, 'balance');
     markUsed(plan.from.name);
     const record = { at: Game.time, from: plan.from.name, to: plan.to.name, amount: plan.amount, cost: plan.cost, result: ret };
@@ -550,4 +583,4 @@ function runMineral(rooms, cfg) {
     return record;
 }
 
-module.exports = { receiveOnly, planFeed, burnRoom, planStarving, planSenders, storageSpare, planForward, runForward, run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };
+module.exports = { receiveOnly, keepAfterSend, sendHeadroom, energySendOk, planFeed, burnRoom, planStarving, planSenders, storageSpare, planForward, runForward, run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };

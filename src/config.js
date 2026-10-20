@@ -474,6 +474,7 @@ module.exports = {
         senders: { W33S7: { keep: 50000, to: ['W37S5', 'W38S7', 'W33S3', 'W31S8'], maxSend: 10000, minSend: 5000, dailyMax: 150000, receiverBelow: 100000 } },
         storageKeepByRoom: { W33S7: 50000 },
         receiveOnlyBelow: { W33S7: 100000 },
+        keepAfterSend: { W37S5: 150000 },
         feedTo: { W33S7: { until: 100000, fromAbove: 75000, keep: 70000, maxSend: 10000, minSend: 3000 } },
         starvingBelow: 10000,
         burnRooms: ['W37S5'],

@@ -148,6 +148,7 @@ function oneShotByTerminal(home, o, remaining) {
     const cost = (a) => (typeof Game.market !== 'undefined' && Game.market.calcTransactionCost ? Game.market.calcTransactionCost(a, home.name, o.to) : 0);
     while (amount > 0 && amount + cost(amount) > have) amount -= 500;
     if (amount <= 0) return;
+    if (!require('terminal').energySendOk(home, amount, cost(amount))) return;
     if (t.send(RESOURCE_ENERGY, amount, o.to, 'aidOneShot') === OK) {
         o.withdrawn = (Number(o.withdrawn) || 0) + amount;
         (o.trips || (o.trips = [])).push([Game.time, 'terminal', amount]);

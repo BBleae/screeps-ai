@@ -15626,6 +15626,32 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
 }
 
 {
+    console.log('== 10-21 W37S5 发送后仍须 ≥ 15 万（keepAfterSend / hold.resumeAt），feed 也受限 ==');
+    const term = require('terminal');
+    const mk = (e) => ({ name: 'W37S5', storage: { my: true, store: { energy: e } }, terminal: { my: true, store: { energy: 30000 } } });
+    assert(term.keepAfterSend(mk(0)) === 150000, 'W37S5 发送底线 15 万');
+    assert(term.receiveOnly(mk(151224)) === true, '15.1 万时仍只收不发（发 1 万后会低于 15 万）');
+    assert(term.energySendOk(mk(170000), 10000, 1000) === true && term.energySendOk(mk(160000), 10000, 1000) === false, '发送量 + 手续费不得让 storage 低于 15 万');
+    assert(term.sendHeadroom({ name: 'W32S4', storage: { store: { energy: 1 } } }) === Infinity, '没配底线的房不受限');
+}
+
+{
+    console.log('== 10-21 W37S2 storage 墙破后拆迁者改打下一面保护 storage/terminal 的墙，terminal 周围能站的格子都算工位 ==');
+    const sd = require('roles_siegeDismantler');
+    const S = [];
+    const put = (t, x, y, hits) => S.push({ structureType: t, pos: { x, y }, hits, my: false, owner: { username: 'x' } });
+    put(STRUCTURE_TERMINAL, 25, 18, 3000); put(STRUCTURE_RAMPART, 25, 18, 7000000); put(STRUCTURE_STORAGE, 26, 18, 10000);
+    put(STRUCTURE_EXTENSION, 24, 18, 1000); put(STRUCTURE_EXTENSION, 24, 19, 1000); put(STRUCTURE_EXTENSION, 26, 19, 1000);
+    put(STRUCTURE_FACTORY, 29, 17, 1000); put(STRUCTURE_RAMPART, 29, 17, 12000000);
+    const room = { name: 'W37S2', getTerrain: () => ({ get: () => 0 }), lookForAt: (l, x, y) => S.filter((s) => s.pos.x === x && s.pos.y === y), find: () => S };
+    const dir = { lootTiles: [[26, 18], [25, 18], [29, 17]], posts: [{ t: [20, 14], s: [[19, 13]] }, { t: [26, 18], s: [[25, 17], [26, 17], [27, 17]], after: [[20, 14]] }, { t: [25, 18], s: [[24, 17]], after: [[20, 14]] }] };
+    const ip = sd.innerPosts(room, dir);
+    assert(ip.length === 2 && ip[0].t[0] === 25 && ip[0].t[1] === 18, 'storage rampart 没了就不再有 (26,18) 工位，先打 terminal (25,18)');
+    assert(ip[0].s.length === 7 && ip[0].s.some((p) => p[0] === 24 && p[1] === 18) && !ip[0].s.some((p) => p[0] === 26 && p[1] === 18), 'terminal 周围 7 格（扩展可拆开）都是工位，storage 格不算');
+    assert(ip[1].t[0] === 29 && ip[1].t[1] === 17, 'lootTiles 里还有墙的 factory (29,17) 自动排在后面');
+}
+
+{
     console.log('== 10-21 W33S7 分段修墙：每次挑最低的一面，补 1 万或补到 5 万就换下一面最低的 ==');
     const wf = require('wallfix');
     const savedTime = world.time;
