@@ -214,9 +214,18 @@ function openCheck(room, dir, e) {
     return ok;
 }
 
-function queueRun(creep, dir, target) {
+function queueRun(creep, dir, target, open) {
     const m = creep.memory;
-    const list = Array.isArray(dir.queue) && dir.queue.length ? dir.queue : null;
+    const qs = open ? dir.innerQueue : dir.queue;
+    const list = Array.isArray(qs) && qs.length ? qs : null;
+    if (open && !list) {
+        delete m.q;
+        const e = dir.posts.find((x) => Array.isArray(x.after) && x.after.length && x.s && x.s[0]);
+        if (!e) return false;
+        const wait = new RoomPosition(e.s[0][0], e.s[0][1], target);
+        if (creep.pos.getRangeTo(wait) > 2) movement.go(creep, wait, { range: 2, reusePath: 20 });
+        return true;
+    }
     if (list) {
         claimedStands(target);
         const q = postCache.q[target];
@@ -237,9 +246,15 @@ function queueRun(creep, dir, target) {
     return true;
 }
 
-function postUsable(room, dir, e) {
+function innerOpen(room, dir) {
+    return dir.posts.some((e) => Array.isArray(e.after) && e.after.length && e.after.some((t) => !barrierAt(room, t)));
+}
+
+function postUsable(room, dir, e, open) {
     if (!barrierAt(room, e.t)) return false;
-    if (Array.isArray(e.after) && e.after.length && !e.after.some((t) => !barrierAt(room, t))) return false;
+    const inner = Array.isArray(e.after) && e.after.length;
+    if (inner && !open) return false;
+    if (!inner && open) return false;
     return openCheck(room, dir, e);
 }
 
@@ -250,16 +265,22 @@ function postRun(creep) {
     let dir = null;
     for (const x of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (x && x.target === target && !x.completed) { dir = x; break; }
     if (!dir || !Array.isArray(dir.posts) || !dir.posts.length) { delete m.post; delete m.q; return false; }
+    const open = innerOpen(creep.room, dir);
+    if (open && !dir.innerOpenAt) dir.innerOpenAt = Game.time;
     let obj = m.post ? barrierAt(creep.room, m.post.t) : null;
+    let upgrade = false;
     if (m.post) {
         const e = dir.posts.find((x) => x.t[0] === m.post.t[0] && x.t[1] === m.post.t[1] && (x.s || []).some((p) => p[0] === m.post.s[0] && p[1] === m.post.s[1]));
-        if (!obj || !e || !openCheck(creep.room, dir, e)) { delete m.post; obj = null; }
+        if (!obj || !e || !postUsable(creep.room, dir, e, open)) { delete m.post; obj = null; }
+        else if (e.side && Game.time % 5 === 0) upgrade = true;
     }
-    if (!m.post) {
+    if (!m.post || upgrade) {
         const taken = claimedStands(target);
         const mine = power(creep);
+        const held = m.post;
         for (const e of dir.posts) {
-            if (!postUsable(creep.room, dir, e)) continue;
+            if (upgrade && e.side) continue;
+            if (!postUsable(creep.room, dir, e, open)) continue;
             let s = (e.s || []).find((p) => { const h = taken.get(p[0] + ',' + p[1]); return !h || !Game.creeps[h.name]; });
             if (!s) {
                 let low = null;
@@ -274,13 +295,15 @@ function postRun(creep) {
                 }
             }
             if (!s) continue;
+            if (held) taken.delete(held.s[0] + ',' + held.s[1]);
             m.post = { t: [e.t[0], e.t[1]], s: [s[0], s[1]] };
             delete m.q;
             taken.set(s[0] + ',' + s[1], { name: creep.name, power: mine });
             obj = barrierAt(creep.room, e.t);
             break;
         }
-        if (!m.post) return queueRun(creep, dir, target);
+        if (!m.post) return queueRun(creep, dir, target, open);
+        if (upgrade && m.post === held) upgrade = false;
     }
     if (creep.pos.x === m.post.s[0] && creep.pos.y === m.post.s[1]) {
         creep.dismantle(obj);

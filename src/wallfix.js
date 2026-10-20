@@ -5,29 +5,31 @@ const movement = require('movement');
 const DEFAULT_SKIP = ['harvester', 'remoteMiner', 'mineralMiner', 'depositMiner', 'skReaper', 'wallBreaker', 'siegeDismantler', 'remoteHauler', 'hauler', 'lootHauler'];
 const cache = { t: -1, rooms: {} };
 
-function settings() {
-    return config.wallFix || {};
+function settings(room) {
+    const base = config.wallFix || {};
+    const by = base.byRoom && room && room.name ? base.byRoom[room.name] : null;
+    return by ? Object.assign({}, base, by) : base;
 }
 
-function targetHits() {
-    const v = Number(settings().target);
+function targetHits(room) {
+    const v = Number(settings(room).target);
     return v > 0 ? v : 30000;
 }
 
-function fillHits() {
-    const v = Number(settings().fill);
-    return v > 0 ? Math.max(v, targetHits()) : targetHits() + 2000;
+function fillHits(room) {
+    const v = Number(settings(room).fill);
+    return v > 0 ? Math.max(v, targetHits(room)) : targetHits(room) + 2000;
 }
 
-function releaseHits() {
-    const v = Number(settings().release);
-    const t = triggerHits();
-    return v > 0 ? Math.min(Math.max(v, t), targetHits()) : Math.round((t + targetHits()) / 2);
+function releaseHits(room) {
+    const v = Number(settings(room).release);
+    const t = triggerHits(room);
+    return v > 0 ? Math.min(Math.max(v, t), targetHits(room)) : Math.round((t + targetHits(room)) / 2);
 }
 
-function triggerHits() {
-    const v = Number(settings().trigger);
-    return v > 0 ? Math.min(v, targetHits()) : targetHits();
+function triggerHits(room) {
+    const v = Number(settings(room).trigger);
+    return v > 0 ? Math.min(v, targetHits(room)) : targetHits(room);
 }
 
 function activeRamparts(room) {
@@ -40,11 +42,11 @@ function activeRamparts(room) {
         return list;
     }
     if (mem.wallFixOn) {
-        if (list[0].hits < releaseHits()) return list;
+        if (list[0].hits < releaseHits(room)) return list;
         delete mem.wallFixOn;
         return [];
     }
-    if (list[0].hits >= triggerHits()) return [];
+    if (list[0].hits >= triggerHits(room)) return [];
     mem.wallFixOn = Game.time;
     return list;
 }
@@ -83,7 +85,7 @@ function enabled() {
 function lowRamparts(room, cap) {
     if (!room || typeof room.find !== 'function') return [];
     if (cache.t !== Game.time) { cache.t = Game.time; cache.rooms = {}; }
-    const limit = cap > 0 ? cap : targetHits();
+    const limit = cap > 0 ? cap : targetHits(room);
     const key = room.name + ':' + limit;
     const hit = cache.rooms[key];
     if (hit && hit.room === room) return hit.list;
@@ -234,8 +236,11 @@ function run(creep) {
     if (creep.memory.wallFix === 'get') { gather(creep, room); return true; }
     const band = list.filter((r) => r.hits <= list[0].hits + 5000);
     const range = (r) => Math.max(Math.abs(r.pos.x - creep.pos.x), Math.abs(r.pos.y - creep.pos.y));
-    const keep = creep.memory.wallFixId ? lowRamparts(room, fillHits()).find((r) => r.id === creep.memory.wallFixId) : null;
-    const target = keep || band.reduce((best, r) => (range(r) < range(best) ? r : best), band[0]);
+    const keep = creep.memory.wallFixId ? lowRamparts(room, fillHits(room)).find((r) => r.id === creep.memory.wallFixId) : null;
+    const floor = Math.max(0, Number(config.towerWallHits) || 0);
+    const urgent = floor > 0 && list[0].hits < floor && (!keep || keep.hits >= floor) ? list.filter((r) => r.hits < floor) : null;
+    const pool = urgent && urgent.length ? urgent : null;
+    const target = pool ? pool.reduce((best, r) => (range(r) < range(best) ? r : best), pool[0]) : (keep || band.reduce((best, r) => (range(r) < range(best) ? r : best), band[0]));
     creep.memory.wallFixId = target.id;
     if (!creep.pos.inRangeTo(target, 3)) { movement.go(creep, target.pos, { range: 3, reusePath: 10 }); return true; }
     if (creep.repair(target) === OK) note(room, creep, target);

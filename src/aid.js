@@ -142,6 +142,7 @@ function oneShotRemaining() {
 function oneShotByTerminal(home, o, remaining) {
     const t = home.terminal, dest = Game.rooms[o.to], dt = dest && dest.terminal;
     if (!t || t.my === false || !dt || t.cooldown > 0) return;
+    if (require('terminal').receiveOnly(home)) return;
     const have = Number(t.store[RESOURCE_ENERGY] || 0);
     let amount = Math.min(remaining, 5000);
     const cost = (a) => (typeof Game.market !== 'undefined' && Game.market.calcTransactionCost ? Game.market.calcTransactionCost(a, home.name, o.to) : 0);

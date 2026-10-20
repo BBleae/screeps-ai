@@ -371,7 +371,7 @@ module.exports = {
     towerCriticalRange: 20,
     towerRepairReserve: 500,
     coreRamparts: { rooms: ['W37S5', 'W37S7'] },
-    wallFix: { enabled: true, target: 30000, trigger: 25000, builderSurge: { W33S7: { on: 20000, off: 27500, max: 2 } }, roads: { W31S5: { roles: ['builder'], criticalHits: 500, fixTo: 0.8 } } },
+    wallFix: { enabled: true, target: 30000, trigger: 25000, byRoom: { W33S7: { target: 50000, trigger: 45000 } }, builderSurge: { W33S7: { on: 45000, off: 50000, max: 2 } }, roads: { W31S5: { roles: ['builder'], criticalHits: 500, fixTo: 0.8 } } },
     storageDeliverBacklogCap: 10000,
     upgrading: {
         alpha: 0.02,
@@ -473,6 +473,8 @@ module.exports = {
         priorityReceivers: ['W37S5', 'W38S7', 'W33S3', 'W31S8', 'W31S4', 'W34S7', 'W35S7', 'W31S5'],
         senders: { W33S7: { keep: 50000, to: ['W37S5', 'W38S7', 'W33S3', 'W31S8'], maxSend: 10000, minSend: 5000, dailyMax: 150000, receiverBelow: 100000 } },
         storageKeepByRoom: { W33S7: 50000 },
+        receiveOnlyBelow: { W33S7: 100000 },
+        feedTo: { W33S7: { until: 100000, fromAbove: 75000, keep: 70000, maxSend: 10000, minSend: 3000 } },
         starvingBelow: 10000,
         burnRooms: ['W37S5'],
         starvingUntil: { W37S5: 100000, W31S8: 20000, W33S7: 25000, W32S4: 25000, W33S8: 25000 },
