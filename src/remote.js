@@ -1083,11 +1083,19 @@ function candidatePool(home, neighbors) {
 function newRemoteGate() {
     const gate = require('cpu_gate');
     if (gate.newWorkHeld()) return { ok: false, why: 'pixelRefill' };
+    const minBucket = Number(config.remote && config.remote.newBucketMin) || 0;
+    if (minBucket > 0 && Game.cpu && Number(Game.cpu.bucket) < minBucket) return { ok: false, why: 'bucket', bucket: Game.cpu.bucket };
     const max = Number(config.remote && config.remote.newCpuMax);
     if (!(max > 0)) return { ok: true };
     const a = gate.rollingAvg();
     if (!gate.avgOk(max)) return { ok: false, why: a.full ? 'cpu' : 'cpuWarmup', avg: a.avg };
     return { ok: true };
+}
+
+function noteAdded(home, room, how) {
+    const list = Memory.remoteAdded || (Memory.remoteAdded = []);
+    list.push({ home, room, at: Game.time, how });
+    while (list.length > 10) list.shift();
 }
 
 function admitCandidates(home, remotes) {
@@ -1147,6 +1155,7 @@ function admitCandidates(home, remotes) {
                 energyCapacity: source.energyCapacity,
             })),
         });
+        noteAdded(home.name, candidate.roomName, 'admit');
         count++;
     }
 }
@@ -1189,6 +1198,11 @@ function run(home) {
                 record.suspendReason = 'notWhitelisted';
             } else if (whitelist.includes(roomName) && !record.enabled &&
                 record.suspendedUntil !== Number.MAX_SAFE_INTEGER && withinRange(home.name, roomName)) {
+                if (record.suspendReason === 'notWhitelisted') {
+                    const g = newRemoteGate();
+                    if (!g.ok) { (Memory.remoteGate || (Memory.remoteGate = {}))[home.name] = { at: Game.time, why: g.why, avg: g.avg, room: roomName }; continue; }
+                    noteAdded(home.name, roomName, 'whitelist');
+                }
                 record.enabled = true;
                 if (record.suspendedUntil <= Game.time) {
                     record.suspendedUntil = 0;

@@ -179,6 +179,7 @@ module.exports = {
     },
     remote: {
         newCpuMax: 150,
+        newBucketMin: 9000,
         holdWhileAvoid: { W31S9: 'W30S8', W29S9: 'W30S8' },
         ceded: ['W36S7', 'W39S6'],
         holdReserver: { W31S9: 20000 },
@@ -190,7 +191,7 @@ module.exports = {
             W32S4: ['W33S4', 'W32S6', 'W33S5', 'W32S5'],
             W34S7: ['W34S8'],
             W33S8: ['W32S8'],
-            W37S5: [],
+            W37S5: ['W38S5'],
             W37S7: ['W37S6'],
             W35S7: [],
             W33S7: ['W32S7', 'W33S6'],

@@ -14695,7 +14695,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     const asg = liveRemoteAssign;
     assert(!asg.W37S7.includes('W36S7') && asg.W35S7.length === 0, '10-18 W36S7 让给 Alepoldar：W37S7、W35S7 都不挂（得 ' + JSON.stringify([asg.W37S7, asg.W35S7]) + '）');
     assert(!asg.W37S7.includes('W39S9'), 'W39S9 从 W37S7 撤掉');
-    assert(!['W37S4', 'W38S5', 'W38S6'].some((r) => asg.W37S5.includes(r)), 'W37S5 不开 >60 步（墙封死）的外矿');
+    assert(!['W37S4', 'W38S6'].some((r) => asg.W37S5.includes(r)), 'W37S5 不开 >60 步（墙封死）的外矿（W38S5 墙已拆，10-20 16:09 起单独并入）');
     const savedRooms = Memory.rooms, savedThreat = Memory.pvpThreat;
     Memory.pvpThreat = {};
     Memory.rooms = { W37S7: { remotes: { W36S7: { room: 'W36S7', enabled: true, clearReservation: false, suspendedUntil: Game.time + 17000,
@@ -14708,6 +14708,8 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
 }
 
 {
+    const savedAsgW37S5 = liveRemoteAssign.W37S5;
+    liveRemoteAssign.W37S5 = [];
     console.log('== 10-17 无主墙开口（wall_breach / wallBreaker）：只拆白名单坐标上的无主墙，拆完停孵，复量达标才解锁外矿 ==');
     const wb = require('wall_breach');
     const role = require('roles_wallBreaker');
@@ -14778,6 +14780,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     assert(liveRemoteAssign.W37S7.includes('W37S6') && !liveRemoteAssign.W37S5.includes('W37S6'), 'W37S6 改挂 W37S7');
     config.wallBreach = liveWB;
     Memory.wallBreach = savedWB; Memory.pvpThreat = savedThreat; config.remote.assign = savedAssign;
+    liveRemoteAssign.W37S5 = savedAsgW37S5;
 }
 
 {
@@ -14883,6 +14886,8 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
 }
 
 {
+    const savedAsgW37S5 = liveRemoteAssign.W37S5;
+    liveRemoteAssign.W37S5 = [];
     console.log('== 10-20 无主墙清线：W38S6 3 段 + W38S5 x=38 整列，一只拆机顺序拆完自动退休；W38S6 墙全拆完、复量 ≤105 才并入 W37S5 外矿 ==');
     const wb = require('wall_breach');
     const role = require('roles_wallBreaker');
@@ -14962,6 +14967,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     global.PathFinder = savedPF;
     if (savedW37S5) Game.rooms.W37S5 = savedW37S5; else delete Game.rooms.W37S5;
     Memory.wallBreach = savedWB; Memory.pvpThreat = savedThreat; config.remote.assign = savedAssign;
+    liveRemoteAssign.W37S5 = savedAsgW37S5;
 }
 
 {
@@ -18008,6 +18014,27 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(!pick, '101.7 的 L 买单：不卖');
     assert(cfg.keepAccount.L === 30000 && cfg.keepByRoom.W32S4.L === 3000 && cfg.keepByRoom.W33S3.L === 3000, 'L 储备：帐号留 3 万 + lab 房各 3000 给 UL 链');
     Memory.market = savedMM; Game.market = savedGM;
+}
+
+{
+    console.log('== 10-20 16:09 W38S5 作 W37S5 外矿：bucket ≥9000 才启用（新外矿闸加 bucket），记 Memory.remoteAdded ==');
+    const rm = require('remote');
+    const gate = require('cpu_gate');
+    assert(JSON.stringify(config.remote.assign.W37S5) === JSON.stringify(['W38S5']) && config.remote.newBucketMin === 9000 && config.remote.newCpuMax === 150, 'config：W37S5 白名单 [W38S5]，新外矿 bucket ≥9000、均值 ≤150');
+    const savedCpu = Game.cpu, savedFill = Memory.pixelFill;
+    delete Memory.pixelFill;
+    gate.reset && gate.reset();
+    for (let i = 0; i < 100; i++) gate.record(10);
+    Game.cpu = Object.assign({}, savedCpu, { bucket: 3422 });
+    let g = rm.newRemoteGate();
+    assert(!g.ok && g.why === 'bucket', 'bucket 3422：不加新外矿（得 ' + JSON.stringify(g) + '）');
+    Game.cpu = Object.assign({}, savedCpu, { bucket: 9000 });
+    g = rm.newRemoteGate();
+    assert(g.ok, 'bucket 9000：放行');
+    Memory.pixelFill = { at: 1 };
+    assert(rm.newRemoteGate().why === 'pixelRefill', 'pixel 后还没回到 9000 记录：仍挡');
+    Game.cpu = savedCpu;
+    if (savedFill === undefined) delete Memory.pixelFill; else Memory.pixelFill = savedFill;
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
