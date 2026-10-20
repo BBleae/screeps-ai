@@ -1,11 +1,10 @@
 'use strict';
-/** deposit 巡逻侦察（src/deposit.js）：1 MOVE，在母房 maxHops 内的过道房之间轮流看一眼，进房就记情报 */
 const movement = require('movement');
 const deposit = require('deposit');
 
 function run(creep) {
     const cfg = deposit.settings();
-    if (require('pvp').fleeHighThreat(creep)) return;   // 10-16：Jumpp/武装玩家 → 撤回母房
+    if (require('pvp').fleeHighThreat(creep)) return;
     if (!cfg.enabled) { creep.suicide(); return; }
     const m = creep.memory;
     if (deposit.isHighway(creep.room.name)) deposit.note(creep.room);
