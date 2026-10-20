@@ -639,6 +639,7 @@ module.exports = {
         W37S2: ['W37S7', 'W37S6', 'W37S5', 'W38S7', 'W38S6', 'W38S5', 'W38S4', 'W37S4', 'W37S3', 'W37S2'],
         W37S3: ['W37S7', 'W37S6', 'W37S5', 'W38S5', 'W38S4', 'W37S4', 'W37S3', 'W38S6', 'W38S7'],
         W35S1: ['W37S5', 'W38S5', 'W38S4', 'W37S4', 'W37S3', 'W36S3', 'W35S3', 'W35S2', 'W35S1'],
+        gates: { W38S5: ['W37S5', 'W38S4'] },
     },
     lootShed: {
         pauseAbove: 150,

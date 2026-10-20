@@ -141,6 +141,7 @@ function lootHoldRun(creep) {
     }
     const h = Memory.lootHold;
     if (!h || !(h === true || h[m.targetRoom])) return false;
+    if (h !== true && h[m.targetRoom] === 'haulers') return false;
     const home = m.home;
     if (!home) return false;
     if (creep.room.name !== home) { movement.go(creep, new RoomPosition(25, 25, home), { range: 15, reusePath: 50 }); return true; }
@@ -392,7 +393,7 @@ function postRun(creep) {
             obj = barrierAt(creep.room, e.t);
             break;
         }
-        if (!m.post && open && sideRun(creep, posts)) return true;
+        if (!m.post && open && dir.sideBarriers && sideRun(creep, posts)) return true;
         if (!m.post) return queueRun(creep, dir, target, open);
         if (upgrade && m.post === held) upgrade = false;
     }
@@ -434,9 +435,21 @@ function unboostedTimeout(creep) {
     return !!(dir && dir.retireUnboosted);
 }
 
+function bucketHold(creep) {
+    const m = creep.memory;
+    if (m.retired) return false;
+    let dir = null;
+    for (const x of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (x && x.target === m.targetRoom && !x.completed) { dir = x; break; }
+    const min = dir && Number(dir.dismantleBucketMin);
+    if (!(min > 0) || Game.cpu.bucket >= min) { delete m.bucketHold; return false; }
+    if (!m.bucketHold) m.bucketHold = Game.time;
+    return true;
+}
+
 function run(creep) {
     retireUnboosted(creep);
     if (creep.memory.retired) { retire.retireAtSpawn(creep); return; }
+    if (bucketHold(creep)) return;
     if (lootHoldRun(creep)) return;
     if (postRun(creep)) return;
     const target = creep.memory.targetRoom;
@@ -571,4 +584,4 @@ function run(creep) {
     if (creep.dismantle(tgt) === ERR_NOT_IN_RANGE) movement.go(creep, tgt, { range: 1, reusePath: 5 });
 }
 
-module.exports = { run, squadMates, power, openCheck, innerPosts, standAround, sideRun, unboostedTimeout };
+module.exports = { run, squadMates, power, openCheck, innerPosts, standAround, sideRun, unboostedTimeout, bucketHold };

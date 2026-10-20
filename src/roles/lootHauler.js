@@ -276,8 +276,60 @@ function lootHoldRun(creep) {
     return true;
 }
 
+const GATE_STALE = 50;
+function gateArmed(name) {
+    const mem = Memory.lootGate || (Memory.lootGate = {});
+    const room = Game.rooms[name];
+    if (room) {
+        const utils = require('utils');
+        const armed = room.find(FIND_HOSTILE_CREEPS).filter((c) => !utils.isAlly(c) && (c.body || []).some((p) => p.hits > 0 && (p.type === ATTACK || p.type === RANGED_ATTACK)));
+        const rec = mem[name];
+        if (!rec || rec.at !== Game.time) mem[name] = { at: Game.time, n: armed.length, user: armed.length && armed[0].owner ? armed[0].owner.username : null };
+        return armed.length > 0;
+    }
+    const rec = mem[name];
+    if (rec && Game.time - rec.at < GATE_STALE) return rec.n > 0;
+    if (!rec || !rec.obsAt || Game.time - rec.obsAt > 5) {
+        for (const r of Object.values(Game.rooms)) {
+            if (!r.controller || !r.controller.my) continue;
+            if (Game.map.getRoomLinearDistance(r.name, name) > 10) continue;
+            const obs = r.find(FIND_MY_STRUCTURES).find((x) => x.structureType === STRUCTURE_OBSERVER);
+            if (obs && obs.observeRoom(name) === OK) { mem[name] = Object.assign({}, rec || { at: 0, n: 0 }, { obsAt: Game.time }); break; }
+        }
+    }
+    return rec ? rec.n > 0 : false;
+}
+
+function nextRoom(creep, dest) {
+    const m = creep.memory;
+    const here = creep.room.name;
+    if (m.gNext && m.gNext.from === here && m.gNext.to === dest && Game.time - m.gNext.at < 20) return m.gNext.next;
+    const avoid = movement.lootAvoidFor ? movement.lootAvoidFor(creep, new RoomPosition(25, 25, dest)) : null;
+    const r = here === dest ? [] : Game.map.findRoute(here, dest, { routeCallback: (n) => (n !== dest && avoid && avoid.has(n) ? Infinity : 1) });
+    const next = Array.isArray(r) && r.length ? r[0].room : null;
+    m.gNext = { from: here, to: dest, next, at: Game.time };
+    return next;
+}
+
+function gateHold(creep) {
+    const gates = (require('config').lootRoutes || {}).gates || {};
+    const here = creep.room.name;
+    const m = creep.memory;
+    let gate = null;
+    for (const g of Object.keys(gates)) if (Array.isArray(gates[g]) && gates[g].indexOf(here) >= 0) { gate = g; break; }
+    if (!gate) { delete m.gateWait; return false; }
+    const dest = m.state === 'deliver' ? (m.eDeliver && m.eDeliver.to) || m.deliverTo || m.home : m.targetRoom;
+    if (!dest || nextRoom(creep, dest) !== gate) { delete m.gateWait; return false; }
+    if (!gateArmed(gate)) { delete m.gateWait; return false; }
+    if (!m.gateWait) m.gateWait = Game.time;
+    const p = creep.pos;
+    if (p.x <= 2 || p.x >= 47 || p.y <= 2 || p.y >= 47) movement.go(creep, new RoomPosition(25, 25, here), { range: 10, reusePath: 20 });
+    return true;
+}
+
 function run(creep) {
     if (lootHoldRun(creep)) return;
+    if (gateHold(creep)) return;
     if (creep.memory.pullLoot && creep.memory.salvageFrom && Game.time % 10 === 0) backToSalvage(creep);
     const target = creep.memory.targetRoom;
     const home = creep.memory.home;
@@ -372,4 +424,4 @@ function run(creep) {
     if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) movement.go(creep, c, { range: 1, reusePath: 5 });
 }
 
-module.exports = { run, freeStand, topLoot, topUpDrop };
+module.exports = { run, freeStand, topLoot, topUpDrop, gateArmed, gateHold };

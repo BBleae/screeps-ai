@@ -15673,6 +15673,20 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
 }
 
 {
+    console.log('== 10-21 lootHauler 进 W38S5 前看有没有带 ATTACK/RANGED 的敌人，有就在 W37S5/W38S4 等 ==');
+    const lh = require('roles_lootHauler');
+    const savedRooms = Game.rooms;
+    const hostile = { owner: { username: 'Jumpp' }, body: [{ type: RANGED_ATTACK, hits: 100 }] };
+    Game.rooms = Object.assign({}, savedRooms, { W38S5: { name: 'W38S5', find: (k) => (k === FIND_HOSTILE_CREEPS ? [hostile] : []) } });
+    delete Memory.lootGate;
+    assert(lh.gateArmed('W38S5') === true && Memory.lootGate.W38S5.n === 1, '看得见的 W38S5 有远程敌人 → 判危险并记 lootGate');
+    hostile.body = [{ type: MOVE, hits: 100 }];
+    assert(lh.gateArmed('W38S5') === false, '只有不带攻击部件的敌人 → 放行');
+    Game.rooms = savedRooms;
+    delete Memory.lootGate;
+}
+
+{
     console.log('== 10-21 W33S7 分段修墙：每次挑最低的一面，补 1 万或补到 5 万就换下一面最低的 ==');
     const wf = require('wallfix');
     const savedTime = world.time;
