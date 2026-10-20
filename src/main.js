@@ -28,6 +28,7 @@ const haulStats = require('haul_stats');
 const cpuShed = require('cpu_shed');
 const wallFix = require('wallfix');
 const pvp = require('pvp');
+const cpuRemote = require('cpu_remote');
 
 const ROLES = {
     harvester: require('roles_harvester'),
@@ -219,6 +220,7 @@ module.exports.loop = function () {
         cpuLap(cpuProf.mod, 'memory');
         const sampleRoles = Game.time % ROLE_SAMPLE_EVERY === 0;
         if (sampleRoles) cpuProf.roleTicks++;
+        if (sampleRoles) { try { cpuRemote.tick(); } catch (e) { logErr('cpuRemote.tick', e); } }
         try { require('utils').noteAggressorsAll(); } catch (e) { logErr('pvp.aggressors', e); }
         try { require('utils').ownerCacheObserve(); } catch (e) { logErr('pvp.ownerCache', e); }
         for (const room of Object.values(Game.rooms)) {
@@ -314,6 +316,7 @@ module.exports.loop = function () {
                 if (homeName) cpuProf.home[homeName] = (cpuProf.home[homeName] || 0) + (now - mark);
                 const remoteName = creep.memory.remoteRoom;
                 if (remoteName) cpuProf.remote[remoteName] = (cpuProf.remote[remoteName] || 0) + (now - mark);
+                try { cpuRemote.note(creep.memory, now - mark); } catch (e) { logErr('cpuRemote.note', e); }
                 if (sampleDisp) cpuProf.disp.run = (cpuProf.disp.run || 0) + (now - mark);
                 mark = now;
             }
@@ -425,8 +428,10 @@ function runRoom(room) {
     if (!Memory.rooms[room.name]) Memory.rooms[room.name] = {};
     assessRoomState(room);
     cpuLap(cpuProf.mod, 'assess');
+    const remoteFrom = cpuMark;
     remote.run(room);
     cpuLap(cpuProf.mod, 'remote');
+    if (Game.time % ROLE_SAMPLE_EVERY === 0) { try { cpuRemote.notePlan(room.name, cpuMark - remoteFrom); } catch (e) { logErr('cpuRemote.notePlan', e); } }
     if (!cpuFused('expansion')) {
         try { expansion.run(room); } catch (e) { logErr('expansion.run ' + room.name, e); }
     }

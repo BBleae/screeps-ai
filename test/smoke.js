@@ -17,7 +17,7 @@ const MODULE_MAP = {
     defense: 'defense.js', roles_defender: 'roles/defender.js', retire: 'retire.js',
     cpu_shed: 'cpu_shed.js', spawn_exit: 'spawn_exit.js', pvp: 'pvp.js',
     deposit: 'deposit.js', roles_depositMiner: 'roles/depositMiner.js', roles_depositScout: 'roles/depositScout.js',
-    wall_breach: 'wall_breach.js', wallfix: 'wallfix.js', roles_wallBreaker: 'roles/wallBreaker.js',
+    wall_breach: 'wall_breach.js', cpu_remote: 'cpu_remote.js', wallfix: 'wallfix.js', roles_wallBreaker: 'roles/wallBreaker.js',
     conquest: 'conquest.js', roles_siegeDismantler: 'roles/siegeDismantler.js', roles_siegeGuard: 'roles/siegeGuard.js', roles_downgrader: 'roles/downgrader.js', roles_lootHauler: 'roles/lootHauler.js',
 };
 const origResolve = Module._resolveFilename;
@@ -14775,6 +14775,41 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     assert(liveRemoteAssign.W37S7.includes('W37S6') && !liveRemoteAssign.W37S5.includes('W37S6'), 'W37S6 改挂 W37S7');
     config.wallBreach = liveWB;
     Memory.wallBreach = savedWB; Memory.pvpThreat = savedThreat; config.remote.assign = savedAssign;
+}
+
+{
+    console.log('== 10-20 15:09 外矿 CPU 遥测（只记账）：抽样 tick 按外矿房 × 角色桶累加，1500 tick 一窗滚动，母房 remote 规划另记 ==');
+    const cr = require('cpu_remote');
+    const savedCR = Memory.cpuRemote, savedTime = world.time, savedUsed = Game.cpu.getUsed;
+    let used = 0;
+    Game.cpu.getUsed = () => used;
+    Memory.cpuRemote = undefined;
+    world.time = 1000;
+    cr.tick();
+    const m = Memory.cpuRemote;
+    assert(m && m.window === 1500 && m.cur.from === 1000 && m.cur.ticks === 1, '首次抽样：建 Memory.cpuRemote，窗口 1500');
+    cr.note({ role: 'remoteMiner', home: 'W37S5', remoteRoom: 'W38S6' }, 0.4);
+    cr.note({ role: 'remoteHauler', home: 'W37S5', remoteRoom: 'W38S6' }, 0.6);
+    cr.note({ role: 'reserver', home: 'W37S5', remoteRoom: 'W38S6' }, 0.2);
+    cr.note({ role: 'defender', home: 'W37S5', targetRoom: 'W38S6' }, 0.3);
+    cr.note({ role: 'defender', home: 'W37S5', targetRoom: 'W37S5' }, 0.1);
+    cr.note({ role: 'harvester', home: 'W37S5' }, 0.5);
+    cr.note({ role: 'wallBreaker', home: 'W37S5' }, 0.05);
+    cr.notePlan('W37S5', 0.7);
+    const w = m.cur.rooms.W38S6;
+    assert(w && w.m === 0.4 && w.h === 0.6 && w.r === 0.2 && w.d === 0.3 && !w.o, 'W38S6：矿工/运输/预定/防守分桶（得 ' + JSON.stringify(w) + '）');
+    assert(Math.abs(m.cur.rooms.home.o - 0.55) < 1e-9 && Math.abs(m.cur.rooms.home.d - 0.1) < 1e-9, '非外矿 creep 记在 home（守家防守记 d）');
+    assert(m.cur.plan.W37S5 === 0.7, '母房 remote 规划 CPU 另记');
+    assert(m.cur.probe && m.cur.probe.calls === 7, '窗口第一个抽样 tick 量自身开销（7 次 note）');
+    world.time = 1005; cr.tick(); cr.note({ role: 'remoteMiner', remoteRoom: 'W38S6' }, 0.4);
+    assert(m.cur.ticks === 2 && m.cur.rooms.W38S6.m === 0.8 && m.cur.probe.calls === 7, '第二个抽样 tick 累加、不再量开销');
+    world.time = 2500; cr.tick();
+    assert(m.prev && m.prev.from === 1000 && m.prev.to === 2500 && m.prev.ticks === 2 && m.prev.rooms.W38S6.m === 0.8 && m.cur.ticks === 1 && !Object.keys(m.cur.rooms).length,
+        '满 1500 tick：本窗滚进 prev（四舍五入）并重开，只留两窗（大小有界）');
+    assert(JSON.stringify(m).length < 2000, '结构很小（得 ' + JSON.stringify(m).length + ' 字节）');
+    cr.note({ role: 'remoteMiner', remoteRoom: 'W38S6' }, 0);
+    assert(!m.cur.rooms.W38S6, '零开销不记');
+    Memory.cpuRemote = savedCR; world.time = savedTime; Game.cpu.getUsed = savedUsed;
 }
 
 {

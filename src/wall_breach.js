@@ -139,6 +139,7 @@ function measureUnlocks(doneKey) {
         if (!due.length) continue;
         const out = m.measured[homeName] = prior;
         for (const entry of due) {
+            const cpuFrom = Game.cpu && typeof Game.cpu.getUsed === 'function' ? Game.cpu.getUsed() : 0;
             const allowed = new Set([homeName, entry.room].concat(rule.via || [], entry.via || []));
             const steps = (entry.sources || []).map((source) => {
                 const result = PathFinder.search(home.storage.pos, { pos: new RoomPosition(source.x, source.y, entry.room), range: 1 }, {
@@ -151,7 +152,8 @@ function measureUnlocks(doneKey) {
                 });
                 return result.incomplete ? null : result.path.length;
             });
-            out[entry.room] = { steps, ok: steps.length > 0 && steps.every((n) => n != null && n <= entry.maxSteps), at: Game.time };
+            const cpu = Game.cpu && typeof Game.cpu.getUsed === 'function' ? Math.round((Game.cpu.getUsed() - cpuFrom) * 100) / 100 : null;
+            out[entry.room] = { steps, ok: steps.length > 0 && steps.every((n) => n != null && n <= entry.maxSteps), at: Game.time, cpu };
         }
     }
 }
