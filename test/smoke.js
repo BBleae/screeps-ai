@@ -17641,7 +17641,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(ind.labsAllowed(labRoom) === false, '不在补桶期、bucket 低、均值 160 > 145：lab 照旧停');
     Memory.stats = savedStats;
     const cfg = dep.settings();
-    assert(cfg.maxCooldown === 40 && cfg.returnMargin === 50 && JSON.stringify(cfg.allowRooms) === JSON.stringify([]), '15:48 先发：maxCooldown 40、回程余量 50、allowRooms 空（不开采）');
+    assert(cfg.maxCooldown === 40 && cfg.returnMargin === 50 && JSON.stringify(cfg.allowRooms) === JSON.stringify(['W30S5']) && cfg.maxActive === 1 && cfg.preferHome === 'W33S7' && cfg.preferHomeRatio === 1.5, '15:48 第二步：maxCooldown 40、回程余量 50、allowRooms [W30S5]、1 处、母房规则不变');
     const savedAllowDep = config.deposit.allowRooms;
     config.deposit.allowRooms = ['W30S5'];
     cfg.allowRooms = ['W30S5'];

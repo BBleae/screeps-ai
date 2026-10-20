@@ -444,7 +444,7 @@ module.exports = {
         minBucket: 3000,
         avoidRooms: ['W30S9'],
         pvpSkipTicks: 3000,
-        allowRooms: [],
+        allowRooms: ['W30S5'],
         returnMargin: 50,
         scoutRevisit: 3000,
         minHomeStorage: 30000,
