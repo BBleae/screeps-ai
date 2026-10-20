@@ -167,7 +167,7 @@ function focusFinish(d) {
     let hits = 0;
     for (const t of tiles) {
         const bs = room.lookForAt(LOOK_STRUCTURES, t[0], t[1]).filter((x) => x.structureType === STRUCTURE_RAMPART || x.structureType === STRUCTURE_WALL);
-        if (bs.length) { hits = bs.reduce((a, x) => a + x.hits, 0); break; }
+        hits += bs.reduce((a, x) => a + x.hits, 0);
     }
     if (!(hits > 0)) return null;
     let rate = 0;
