@@ -13,6 +13,7 @@ function settings() {
         holdRooms: ['W38S6', 'W38S5'],
         holdCheckEvery: 300,
         holdOkNeeded: 2,
+        warmup: 150,
     }, (config.lootShed || {}));
 }
 
@@ -27,6 +28,31 @@ function avgN(n) {
     const stats = Array.isArray(Memory.stats) ? Memory.stats : [];
     const recent = stats.slice(-Math.max(1, n)).map((s) => Number(s && s.cpu)).filter((v) => v > 0);
     if (recent.length < Math.min(n, settings().minSamples)) return null;
+    return recent.reduce((a, b) => a + b, 0) / recent.length;
+}
+
+let bootAt = null;
+
+function noteBoot(m) {
+    if (bootAt != null) return;
+    bootAt = Game.time;
+    if (!Array.isArray(m.boots)) m.boots = [];
+    m.boots.push(bootAt);
+    if (m.boots.length > 5) m.boots.splice(0, m.boots.length - 5);
+}
+
+function inWarmup(t, boots, w) {
+    return boots.some((b) => t >= b && t < b + w);
+}
+
+function avgClean(n) {
+    const cfg = settings();
+    const w = Number(cfg.warmup) || 0;
+    const boots = (Memory.lootShed && Array.isArray(Memory.lootShed.boots)) ? Memory.lootShed.boots : [];
+    const stats = Array.isArray(Memory.stats) ? Memory.stats : [];
+    const clean = stats.filter((s) => s && Number(s.cpu) > 0 && !(w > 0 && inWarmup(Number(s.t), boots, w)));
+    const recent = clean.slice(-Math.max(1, n)).map((s) => Number(s.cpu));
+    if (recent.length < Math.min(n, cfg.minSamples)) return null;
     return recent.reduce((a, b) => a + b, 0) / recent.length;
 }
 
@@ -136,7 +162,7 @@ function pauseRemote(entry) {
     rec.suspendedUntil = Number.MAX_SAFE_INTEGER;
     rec.suspendReason = 'lootShed';
     m.lastPauseAt = Game.time;
-    m.log.push({ at: Game.time, act: 'pause', room: entry.room, home: entry.home, avg10: avgN(10) });
+    m.log.push({ at: Game.time, act: 'pause', room: entry.room, home: entry.home, avg10: avgN(10), clean10: avgClean(10) });
     if (m.log.length > 40) m.log.splice(0, m.log.length - 40);
     return true;
 }
@@ -234,6 +260,7 @@ function run() {
     const existing = Memory.lootShed;
     if (!running && !(existing && existing.startedAt && !existing.restoredAt)) return existing || null;
     const m = mem();
+    noteBoot(m);
     if (running) {
         if (!m.startedAt) m.startedAt = Game.time;
         m.pixelOff = true;
@@ -245,7 +272,10 @@ function run() {
         forcePause(cfg);
         if (avg == null) return m;
         if (!cfg.holdUntilDone) releaseHeld(cfg, avg);
-        if (cfg.autoPause === true && avg > cfg.pauseAbove) {
+        const clean = avgClean(10);
+        m.clean10 = clean;
+        const warm = (Number(cfg.warmup) || 0) > 0 && Game.time - bootAt < Number(cfg.warmup);
+        if (cfg.autoPause === true && !warm && clean != null && clean > cfg.pauseAbove) {
             const gap = Number(cfg.pauseEvery) || 50;
             if (!(m.lastPauseAt > 0) || Game.time - m.lastPauseAt >= gap) {
                 const next = nextToPause();
@@ -258,4 +288,4 @@ function run() {
     return m;
 }
 
-module.exports = { run, settings, avgN, lootRunning, lootFinished, haulerBucketOk, pixelHeld, mem, nextToPause, activeRemotes, pauseOrder };
+module.exports = { run, settings, avgN, avgClean, lootRunning, lootFinished, haulerBucketOk, pixelHeld, mem, nextToPause, activeRemotes, pauseOrder };
