@@ -371,7 +371,7 @@ module.exports = {
     towerCriticalRange: 20,
     towerRepairReserve: 500,
     coreRamparts: { rooms: ['W37S5', 'W37S7'] },
-    wallFix: { enabled: true, target: 30000, trigger: 25000, byRoom: { W33S7: { target: 50000, trigger: 45000 } }, builderSurge: { W33S7: { on: 45000, off: 50000, max: 2 } }, roads: { W31S5: { roles: ['builder'], criticalHits: 500, fixTo: 0.8 } } },
+    wallFix: { enabled: true, target: 30000, trigger: 25000, byRoom: { W33S7: { target: 50000, trigger: 45000, step: 10000 } }, builderSurge: { W33S7: { on: 45000, off: 50000, max: 2 } }, roads: { W31S5: { roles: ['builder'], criticalHits: 500, fixTo: 0.8 } } },
     storageDeliverBacklogCap: 10000,
     upgrading: {
         alpha: 0.02,

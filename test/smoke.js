@@ -15626,6 +15626,31 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
 }
 
 {
+    console.log('== 10-21 W33S7 分段修墙：每次挑最低的一面，补 1 万或补到 5 万就换下一面最低的 ==');
+    const wf = require('wallfix');
+    const savedTime = world.time;
+    world.time += 29;
+    const pos = (x, y) => ({ x, y, roomName: 'W33S7', inRangeTo: (t, r) => Math.max(Math.abs((t.pos || t).x - x), Math.abs((t.pos || t).y - y)) <= r,
+        isNearTo: (t) => Math.max(Math.abs((t.pos || t).x - x), Math.abs((t.pos || t).y - y)) <= 1, findClosestByRange: (l) => (Array.isArray(l) ? l[0] : null) });
+    const ram = (x, y, hits) => ({ id: 's' + x + y, structureType: STRUCTURE_RAMPART, my: true, hits, hitsMax: 30000000, pos: pos(x, y) });
+    const a = ram(10, 10, 19000), b = ram(13, 10, 21000), c = ram(11, 10, 44000);
+    const room = { name: 'W33S7', controller: { my: true }, find: (k) => (k === FIND_STRUCTURES ? [a, b, c] : []) };
+    const repaired = [];
+    const bd = { name: 'bdS', spawning: false, room, memory: { home: 'W33S7', role: 'builder' }, body: [WORK, CARRY, MOVE].map((t) => ({ type: t, hits: 100 })),
+        pos: pos(11, 11), store: { energy: 40, getFreeCapacity: () => 10 }, repair: (t) => (repaired.push(t.id), OK), withdraw: () => OK, pickup: () => OK, harvest: () => OK };
+    delete Memory.rooms.W33S7;
+    assert(wf.run(bd) === true && repaired[0] === a.id && bd.memory.wallFixStop === 29000, '先修最低的 1.9 万，目标 = 当前 + 1 万');
+    a.hits = 25000; world.time += 1; repaired.length = 0;
+    assert(wf.run(bd) === true && repaired[0] === a.id, '没补满 1 万前不换（2.5 万 > 2.1 万也继续）');
+    a.hits = 29000; world.time += 1; repaired.length = 0;
+    assert(wf.run(bd) === true && repaired[0] === b.id && bd.memory.wallFixStop === 31000, '补够 1 万换下一面最低的 2.1 万');
+    a.hits = 45000; b.hits = 46000; c.hits = 44000; world.time += 1; repaired.length = 0;
+    assert(wf.run(bd) === true && repaired[0] === c.id && bd.memory.wallFixStop === 50000, '最多补到 5 万（target）');
+    delete Memory.rooms.W33S7;
+    world.time = savedTime;
+}
+
+{
     console.log('== 10-18 ④ 能量买单：每房一次挂当天剩余额度，价格变了只 changeOrderPrice，不重挂 ==');
     const mk = require('market');
     const savedRooms = Game.rooms, savedMem = Memory.market, savedGM = Game.market;

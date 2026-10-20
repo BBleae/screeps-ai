@@ -228,19 +228,26 @@ function run(creep) {
     if (!list.length) {
         if (creep.memory.wallFix) delete creep.memory.wallFix;
         if (creep.memory.wallFixId) delete creep.memory.wallFixId;
+        if (creep.memory.wallFixStop) delete creep.memory.wallFixStop;
         return fixRoads(creep, room);
     }
     const energy = creep.store[RESOURCE_ENERGY] || 0;
     if (energy === 0) creep.memory.wallFix = 'get';
     else if (creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0 || !creep.memory.wallFix) creep.memory.wallFix = 'fix';
     if (creep.memory.wallFix === 'get') { gather(creep, room); return true; }
-    const band = list.filter((r) => r.hits <= list[0].hits + 5000);
+    const step = Math.max(0, Number(settings(room).step) || 0);
+    const cap = targetHits(room);
+    const band = list.filter((r) => r.hits <= list[0].hits + (step > 0 ? 300 : 5000));
     const range = (r) => Math.max(Math.abs(r.pos.x - creep.pos.x), Math.abs(r.pos.y - creep.pos.y));
-    const keep = creep.memory.wallFixId ? lowRamparts(room, fillHits(room)).find((r) => r.id === creep.memory.wallFixId) : null;
+    const held = creep.memory.wallFixId ? lowRamparts(room, fillHits(room)).find((r) => r.id === creep.memory.wallFixId) : null;
+    const stopAt = Math.min(Number(creep.memory.wallFixStop) || cap, cap);
+    const keep = held && (step === 0 || held.hits < stopAt) ? held : null;
     const floor = Math.max(0, Number(config.towerWallHits) || 0);
     const urgent = floor > 0 && list[0].hits < floor && (!keep || keep.hits >= floor) ? list.filter((r) => r.hits < floor) : null;
     const pool = urgent && urgent.length ? urgent : null;
     const target = pool ? pool.reduce((best, r) => (range(r) < range(best) ? r : best), pool[0]) : (keep || band.reduce((best, r) => (range(r) < range(best) ? r : best), band[0]));
+    if (step > 0 && target !== keep) creep.memory.wallFixStop = Math.min(target.hits + step, cap);
+    else if (step === 0 && creep.memory.wallFixStop) delete creep.memory.wallFixStop;
     creep.memory.wallFixId = target.id;
     if (!creep.pos.inRangeTo(target, 3)) { movement.go(creep, target.pos, { range: 3, reusePath: 10 }); return true; }
     if (creep.repair(target) === OK) note(room, creep, target);
