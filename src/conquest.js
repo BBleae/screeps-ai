@@ -183,11 +183,29 @@ function boostPlanDemands(d, home, sponsors, body, mem) {
     if (idx < 0) return [];
     const wantBoosts = boostsFor('siegeDismantler', d);
     const parts = body.filter((p) => p === 'work').length;
-    if (!boostLabReady(home, wantBoosts, parts)) { plan.labWait = plan.labWait || {}; plan.labWait[home.name] = Game.time; return []; }
+    const floor = d.storageFloor != null ? Number(d.storageFloor) : settings().storageFloor;
+    const ready = sponsors.filter((name) => {
+        const r = Game.rooms[name];
+        if (!r || !r.controller || !r.controller.my) return false;
+        if (floor && r.storage && (r.storage.store.energy || 0) < floor) return false;
+        return boostLabReady(r, wantBoosts, parts);
+    });
+    plan.ready = { at: Game.time, rooms: ready };
+    if (ready.indexOf(home.name) < 0) { plan.labWait = plan.labWait || {}; plan.labWait[home.name] = Game.time; return []; }
+    const held = {};
+    for (const name in Game.creeps) {
+        const c = Game.creeps[name];
+        const k = String((c.memory && c.memory.slotKey) || '');
+        if (k.indexOf(prefix) !== 0 || (c.memory && c.memory.retired)) continue;
+        if (c.spawning || c.ticksToLive == null || c.ticksToLive > lead) held[k] = true;
+    }
     const out = [];
     const bmem = Object.assign({}, mem, { boostWait: true, boostWaitMax: Math.max(100, Number(plan.boostWaitMax) || 300) });
     for (let i = 0; i < slots; i++) {
-        if (i % sponsors.length !== idx) continue;
+        if (held[prefix + i]) continue;
+        const own = sponsors[i % sponsors.length];
+        const owner = ready.indexOf(own) >= 0 ? own : ready[i % ready.length];
+        if (owner !== home.name) continue;
         out.push(demand('siegeDismantler', prefix + i, body, bmem, lead, i, d));
     }
     return out;
@@ -819,14 +837,16 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
     const cfg = settings();
     if (home.energyCapacityAvailable < cfg.minCapacity) return [];
     if (d.retreat) return [];
+    let cpuHeld = false;
     if (d.type === 'salvageLoot') {
         const minBucket = Number(d.minBucket) || 9000;
         if (Game.cpu && Game.cpu.bucket != null && Game.cpu.bucket < minBucket && !(d.startedAt > 0)) return [];
         const cpuMax = Number(d.cpuAvgMax) || 150;
         const samples = Number(d.cpuSamples) || 10;
         try {
-            if (!require('deposit').statsCpuOk(cpuMax, samples, 0)) return [];
+            if (!require('deposit').statsCpuOk(cpuMax, samples, 0)) cpuHeld = true;
         } catch (e) { }
+        if (cpuHeld && !(d.boostPlan && d.startedAt > 0)) return [];
     }
     const storeEnergy = (home.storage && home.storage.store) ? (home.storage.store.energy || 0) : 0;
     const floor = d.storageFloor != null ? Number(d.storageFloor) : cfg.storageFloor;
@@ -858,14 +878,14 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
         } else {
             for (let i = 0; i < dPer; i++) demands.push(demand('siegeDismantler', 'siegeLoot:' + d.target + ':' + home.name + ':' + i, body, mem, 80, i, d));
         }
-        const gPer = Math.ceil(totalGuards / nSponsors);
+        const gPer = cpuHeld ? 0 : Math.ceil(totalGuards / nSponsors);
         if (gPer > 0) {
             const gbody = repeatBody(['ranged_attack', 'heal', 'move', 'move'], Math.min(home.energyCapacityAvailable, cfg.guardBudget));
             for (let i = 0; i < gPer; i++) demands.push(demand('siegeGuard', 'guardLoot:' + d.target + ':' + home.name + ':' + i, gbody, mem, 85, i, d));
         }
     }
     if (salvage && totalHaulers > 0 && Number(d.haulersMore) > 0 && Game.cpu && Game.cpu.bucket >= (Number(d.haulersMoreBucket) || 9000)) totalHaulers += Number(d.haulersMore);
-    if ((phase === 'loot' || phase === 'breach') && totalHaulers > 0) {
+    if (!cpuHeld && (phase === 'loot' || phase === 'breach') && totalHaulers > 0) {
         const closest = salvage ? null : sponsors.slice().sort((a, b) => roomDistance(a, d.target) - roomDistance(b, d.target))[0];
         if (!closest || home.name === closest) {
             const nHaul = new Set(sponsors.concat(Array.isArray(d.haulerSponsors) ? d.haulerSponsors : [])).size || 1;
