@@ -69,7 +69,7 @@ function inTarget(c) {
 }
 
 function squad() {
-    return { a: war.liveWar('attacker')[0], h: war.liveWar('healer')[0] };
+    return { a: war.liveWar('attacker')[0], h: war.primaryHealer() };
 }
 
 function leadClaimer(w, near) {
@@ -214,6 +214,15 @@ function run(creep) {
         if (war.paused()) holdPaused(creep);
         else retreatHome(creep);
         return;
+    }
+    if (creep.memory.warRole === 'healer' && w.phase === 'staging' && creep.ticksToLive != null && creep.ticksToLive < war.timing().healerEntryTtl) {
+        const other = war.liveWar('healer').find((c) => c.name !== creep.name);
+        if (other) {
+            creep.memory.retired = true;
+            war.logEvent('healerRetire', { name: creep.name, ttl: creep.ticksToLive, by: other.name });
+            retireMod.retireAtSpawn(creep);
+            return;
+        }
     }
     if (boostRetry(creep)) return;
     if (boost.run(creep)) return;

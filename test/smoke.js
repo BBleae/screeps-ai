@@ -3133,7 +3133,7 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
     {
         const warHome = config.war.home;
         config.war.home = 'W33S7';
-        Memory.ags131War = { enabled: true, phase: 'off' };
+        Memory.ags131War = { enabled: true, phase: 'staging' };
         lrTerminal.store.XGHO2 = 3000;
         world.time++;
         let wp = null, werr = null;

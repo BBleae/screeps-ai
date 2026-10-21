@@ -754,6 +754,8 @@ module.exports = {
         stagingToController: 60,
         reliefMargin: 60,
         claimerEntryTtl: 400,
+        healerEntryTtl: 500,
+        healerMax: 2,
         claimerMax: 3,
         breachGrace: 3,
         boostWaitMax: 400,
