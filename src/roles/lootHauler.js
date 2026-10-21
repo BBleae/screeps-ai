@@ -32,8 +32,9 @@ const DROP_REFRESH = 20000;
 function dropList(target) {
     const all = Memory.lootDrop || (Memory.lootDrop = {});
     const rec = all[target];
-    if (rec && Game.time - rec.at < DROP_REFRESH && Array.isArray(rec.list) && rec.list.length) return rec.list;
+    if (rec && rec.v === 2 && Game.time - rec.at < DROP_REFRESH && Array.isArray(rec.list) && rec.list.length) return rec.list;
     const lr = require('config').lootRoutes || {};
+    const onRoute = new Set(Array.isArray(lr[target]) ? lr[target] : []);
     const hard = new Set(lr.hardAvoid || []);
     const out = [];
     for (const name in Game.rooms) {
@@ -42,10 +43,10 @@ function dropList(target) {
         if (Game.map.getRoomLinearDistance(target, name) > 12) continue;
         const route = name === target ? [] : Game.map.findRoute(target, name, { routeCallback: (n) => (n !== name && hard.has(n) ? Infinity : 1) });
         if (!Array.isArray(route)) continue;
-        out.push([name, route.length]);
+        out.push([name, route.length, onRoute.has(name) ? 0 : 1]);
     }
-    out.sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1));
-    all[target] = { at: Game.time, list: out };
+    out.sort((a, b) => a[1] - b[1] || a[2] - b[2] || (a[0] < b[0] ? -1 : 1));
+    all[target] = { v: 2, at: Game.time, list: out };
     return out;
 }
 
@@ -100,7 +101,7 @@ function ttlCheck(creep, carrying) {
     if (!carrying && m.state !== 'deliver') {
         const target = m.targetRoom;
         const out = here === target ? 0 : routeSteps(creep, here, target);
-        if (ttl < (out + routeSteps(creep, target, drop)) * 1.2 + 50) return 'retire';
+        if (ttl < out + needTicks(creep, target, drop)) return 'retire';
     }
     return null;
 }
@@ -393,7 +394,7 @@ function track(creep) {
 function noteDeath(name, mem) {
     if (!mem || mem.role !== 'lootHauler' || !Array.isArray(mem.dk)) return;
     const log = Array.isArray(Memory.haulerDeaths) ? Memory.haulerDeaths : (Memory.haulerDeaths = []);
-    log.push({ name, at: Game.time, room: mem.dk[0], x: mem.dk[1], y: mem.dk[2], ttl: mem.dk[3], seen: mem.dk[4], store: mem.ds || {}, home: mem.home, target: mem.targetRoom, dying: mem.dying || null });
+    log.push({ name, at: Game.time, room: mem.dk[0], x: mem.dk[1], y: mem.dk[2], ttl: mem.dk[3], seen: mem.dk[4], store: mem.ds || {}, home: mem.home, target: mem.targetRoom, dying: mem.dying || null, retired: !!(mem.retireSpawn || mem.retired) });
     while (log.length > 50) log.shift();
 }
 

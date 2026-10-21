@@ -18371,16 +18371,16 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     console.log('== 10-21 13:00 搬运工：快老死先卸货、卸到离装货房最近的自己房（storage<90%）、绕 10 步内捡墓碑/非能量掉落、死亡记录；不挂卖单+撤卖单；W37S5 战利品不卖；W37S5 做 KH 留 1500 给搬运工 boost ==');
     const lh = require('roles_lootHauler');
     const savedMap = Game.map, savedRooms = Game.rooms, savedTime = world.time, savedDrop = Memory.lootDrop, savedDeaths = Memory.haulerDeaths, savedCreeps = Game.creeps;
-    const dist = { W37S2: { W37S5: 3, W37S7: 5, W38S7: 5 }, W35S1: { W37S5: 6, W37S7: 8, W38S7: 8 }, W38S5: { W37S5: 1, W38S7: 2, W37S7: 3, W35S1: 5 }, W37S5: { W35S1: 6, W37S2: 3 }, W38S6: { W38S7: 1, W37S5: 2, W37S7: 2 } };
+    const dist = { W37S2: { W37S5: 3, W37S7: 5, W38S7: 5 }, W35S1: { W37S5: 6, W37S7: 8, W38S7: 8, W32S4: 6, W33S3: 6 }, W38S5: { W37S5: 1, W38S7: 2, W37S7: 3, W35S1: 5 }, W37S5: { W35S1: 6, W37S2: 3 }, W38S6: { W38S7: 1, W37S5: 2, W37S7: 2 } };
     const hops = (a, b) => (dist[a] && dist[a][b] != null ? dist[a][b] : dist[b] && dist[b][a] != null ? dist[b][a] : 9);
     Game.map = Object.assign({}, savedMap, { findRoute: (a, b) => Array.from({ length: hops(a, b) }, (_, i) => ({ exit: 1, room: 'R' + i })), getRoomLinearDistance: (a, b) => hops(a, b) });
     const stRoom = (name, used) => ({ name, controller: { my: true }, storage: { store: { getCapacity: () => 1000000, getUsedCapacity: () => used } } });
-    Game.rooms = { W37S5: stRoom('W37S5', 229527), W37S7: stRoom('W37S7', 300000), W38S7: stRoom('W38S7', 300000) };
+    Game.rooms = { W37S5: stRoom('W37S5', 229527), W37S7: stRoom('W37S7', 300000), W38S7: stRoom('W38S7', 300000), W32S4: stRoom('W32S4', 1000), W33S3: stRoom('W33S3', 1000) };
     Memory.lootDrop = {};
     world.time = 1000;
     const list = lh.dropList('W37S2');
     assert(list[0][0] === 'W37S5' && Memory.lootDrop.W37S2 && Memory.lootDrop.W37S2.at === 1000, 'W37S2 卸货房按离装货房路程排：W37S5 第一，缓存在 Memory.lootDrop');
-    assert(lh.dropList('W35S1')[0][0] === 'W37S5', 'W35S1 也卸 W37S5');
+    assert(lh.dropList('W35S1')[0][0] === 'W37S5', 'W35S1：W32S4/W33S3/W37S5 都是 6 房，同距离先选在搬运路线上的 W37S5');
     Game.rooms.W37S5 = stRoom('W37S5', 950000);
     const mk = (o) => Object.assign({ name: 'c', spawning: false, body: [], memory: { role: 'lootHauler', home: 'W38S7', targetRoom: 'W37S2', salvageLoot: true }, room: { name: 'W38S5' }, pos: { x: 25, y: 25, roomName: 'W38S5' } }, o);
     assert(lh.dropRoom(mk({})) === 'W37S7', 'W37S5 storage 超过 90%：送下一个最近的');
@@ -18394,7 +18394,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const c2 = mk({ ticksToLive: 1000 });
     assert(lh.ttlCheck(c2, true) === null && !c2.memory.dying, 'TTL 充足：照常');
     const c3 = mk({ ticksToLive: 300, room: { name: 'W37S5' }, pos: { x: 25, y: 25, roomName: 'W37S5' } });
-    assert(lh.ttlCheck(c3, false) === 'retire', '空车在 W37S5、TTL 300 不够来回 W37S2（(175+175)×1.2+50=470）：不再去装货，退役');
+    assert(lh.ttlCheck(c3, false) === 'retire', '空车在 W37S5、TTL 300 不够去+回（175 + 175×1.2+50 = 435）：不再去装货，退役');
     const c4 = mk({ ticksToLive: 600, room: { name: 'W37S5' }, pos: { x: 25, y: 25, roomName: 'W37S5' } });
     assert(lh.ttlCheck(c4, false) === null, 'TTL 600 够来回：去装货');
     const mkObj = (id, x, y, extra) => Object.assign({ id, pos: { x, y, roomName: 'W38S6' } }, extra);
