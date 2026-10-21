@@ -18643,6 +18643,52 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(c.memory.stk[1] >= 10, '绕路变远/原地连续 10 次 → 认定走不到');
 }
 {
+    console.log('== 10-21 15:30 卡住误判修复：目标旁排队不计数；卡 10 次先用 PathFinder 确认，有路只换目标不拉黑；空车遇到全部拉黑就清掉重试 ==');
+    const lh = require('roles_lootHauler');
+    const cq = require('conquest');
+    const P = (x, y) => new RoomPosition(x, y, 'W37S3');
+    const st = (o) => Object.assign({ getUsedCapacity: () => Object.values(o).reduce((a, b) => a + b, 0) }, o);
+    let crowd = true;
+    const term = { id: 'term', structureType: STRUCTURE_TERMINAL, pos: P(15, 43), store: st({ K: 239654 }), my: false };
+    const sto = { id: 'sto', structureType: STRUCTURE_STORAGE, pos: P(30, 30), store: st({ energy: 1000 }), my: false };
+    const room = { name: 'W37S3', getTerrain: () => ({ get: () => 0 }),
+        lookForAt: (k, x, y) => (k === LOOK_CREEPS && crowd ? [{ name: 'other' }] : []),
+        find: (k) => (k === FIND_STRUCTURES ? [term, sto] : []) };
+    term.room = room; sto.room = room;
+    const byId = { term, sto };
+    const savedGet = Game.getObjectById, savedPF = PathFinder.search;
+    Game.getObjectById = (id) => byId[id] || null;
+    const creep = { name: 'h', room, fatigue: 0, pos: P(14, 45), memory: { src: 'term' }, store: { getUsedCapacity: () => 0, getFreeCapacity: () => 100 } };
+    creep.pos.getRangeTo = (a, b) => (typeof a === 'number' ? Math.max(Math.abs(a - 14), Math.abs(b - 45)) : Math.max(Math.abs(a.pos.x - 14), Math.abs(a.pos.y - 45)));
+    delete Memory.lootBad;
+    for (let i = 0; i < 20; i++) lh.stuckTick(creep, term);
+    assert(creep.memory.stk[1] === 0, '目标邻格都被占着（排队）：不计数');
+    crowd = false;
+    creep.memory.stk = [2, 9];
+    lh.loadStep(creep, false);
+    assert(!(Memory.lootBad && Memory.lootBad.W37S3 && Memory.lootBad.W37S3.term) && creep.memory.skip && creep.memory.skip[0] === 'term' && !creep.memory.src, '卡 10 次但 PathFinder 有路：只换目标，不进 lootBad');
+    const t = lh.pickTarget(creep);
+    assert(t && t.id === 'sto', '换目标：暂时跳过刚卡住的那个');
+    creep.memory.src = 'term'; creep.memory.stk = [2, 9]; delete creep.memory.skip;
+    PathFinder.search = () => ({ path: [], incomplete: true });
+    lh.loadStep(creep, false);
+    assert(Memory.lootBad.W37S3.term === world.time, 'PathFinder 确认无路才进 lootBad');
+    PathFinder.search = savedPF;
+    Memory.lootBad = { W37S3: { term: world.time, sto: world.time } };
+    delete creep.memory.src; delete creep.memory.skip; delete creep.memory.badClr;
+    const mv = movement.go; movement.go = () => 0;
+    lh.loadStep(creep, false);
+    movement.go = mv;
+    assert(!Object.keys(Memory.lootBad.W37S3 || {}).length && creep.memory.src === 'term', '空车遇到全部拉黑：清掉该房 lootBad 重新选（得 ' + creep.memory.src + '）');
+    Memory.lootBad = { W37S3: { term: world.time, sto: world.time } };
+    delete creep.memory.src;
+    creep.store.getUsedCapacity = () => 50;
+    lh.loadStep(creep, true);
+    assert(creep.memory.state === 'deliver' && Memory.lootBad.W37S3.term, '有货遇到全部拉黑：先回去卸');
+    Game.getObjectById = savedGet;
+    delete Memory.lootBad;
+}
+{
     console.log('== 10-21 13:36 走不到的目标记 Memory.lootBlocked：货、最短拆墙路线（hits/10 万为成本）、价值/拆墙成本/比值；同一路线合并；每房 1500 tick 最多重算一次 ==');
     const lb = require('loot_blocked');
     const P = (x, y) => new RoomPosition(x, y, 'W35S1');

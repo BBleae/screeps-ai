@@ -470,10 +470,16 @@ function distTo(creep, obj) {
     return rooms * 50 + Math.max(Math.abs(creep.pos.x - obj.pos.x), Math.abs(creep.pos.y - obj.pos.y));
 }
 
+function queued(creep, obj) {
+    if (creep.pos.roomName !== obj.pos.roomName || creep.pos.getRangeTo(obj) > 3) return false;
+    return !freeStand(creep, obj);
+}
+
 function stuckTick(creep, obj) {
     const m = creep.memory;
     const t = Array.isArray(m.stk) ? m.stk : (m.stk = [Infinity, 0]);
     if (creep.fatigue > 0) return t[1];
+    if (queued(creep, obj)) { t[0] = Infinity; t[1] = 0; return 0; }
     const d = distTo(creep, obj);
     if (d < t[0]) { t[0] = d; t[1] = 0; } else t[1]++;
     return t[1];
@@ -518,6 +524,19 @@ function closestByPath(creep, list) {
     return { obj: best, incomplete: false };
 }
 
+function reachable(creep, obj) {
+    if (creep.pos.roomName !== obj.pos.roomName) return true;
+    const res = PathFinder.search(creep.pos, { pos: obj.pos, range: 1 }, {
+        plainCost: 1, swampCost: 5, maxRooms: 1, maxOps: 4000,
+        roomCallback: (name) => (name === creep.room.name ? loadMatrix(creep.room) : false),
+    });
+    if (!res || res.incomplete) return false;
+    const end = res.path.length ? res.path[res.path.length - 1] : creep.pos;
+    return Math.max(Math.abs(obj.pos.x - end.x), Math.abs(obj.pos.y - end.y)) <= 1;
+}
+
+const SKIP_TICKS = 30;
+
 function biggest(store) {
     let best = null;
     for (const k in store) {
@@ -530,7 +549,11 @@ function biggest(store) {
 function pickTarget(creep) {
     const m = creep.memory;
     const book = badBook(creep.room.name);
-    const list = conquest.loadTargets(creep.room).filter((o) => !book[o.id]);
+    let list = conquest.loadTargets(creep.room).filter((o) => !book[o.id]);
+    if (m.skip && Game.time - m.skip[1] < SKIP_TICKS) {
+        const rest = list.filter((o) => o.id !== m.skip[0]);
+        if (rest.length) list = rest;
+    } else if (m.skip) delete m.skip;
     const got = closestByPath(creep, list);
     if (got.incomplete) for (const o of list) { book[o.id] = Game.time; lootBlocked.note(creep.room.name, o); }
     try { lootBlocked.analyze(creep.room, creep.pos); } catch (e) { }
@@ -550,6 +573,11 @@ function loadStep(creep, carrying) {
     let obj = m.src ? Game.getObjectById(m.src) : null;
     if (conquest.salvageArmedThreat(creep.room)) { if (carrying) m.state = 'deliver'; else parkInside(creep); return; }
     if (!stillLoadable(obj, creep.room.name)) obj = pickTarget(creep);
+    if (!obj && !carrying && Memory.lootBad && Memory.lootBad[creep.room.name] && Object.keys(Memory.lootBad[creep.room.name]).length && !(Game.time - (m.badClr || 0) < 50)) {
+        m.badClr = Game.time;
+        delete Memory.lootBad[creep.room.name];
+        obj = pickTarget(creep);
+    }
     if (!obj) {
         if (carrying) { m.state = 'deliver'; return; }
         if (toPull(creep)) return;
@@ -560,14 +588,15 @@ function loadStep(creep, carrying) {
     if (range > 1) {
         const k = stuckTick(creep, obj);
         if (k >= STUCK_TICKS) {
-            badBook(creep.room.name)[obj.id] = Game.time;
-            lootBlocked.note(creep.room.name, obj);
+            if (reachable(creep, obj)) m.skip = [obj.id, Game.time];
+            else { badBook(creep.room.name)[obj.id] = Game.time; lootBlocked.note(creep.room.name, obj); }
             delete m.src; delete m.stk;
             return;
         }
         movement.go(creep, obj, { range: 1, reusePath: 5 });
         return;
     }
+    delete m.stk;
     const ret = obj.store ? creep.withdraw(obj, biggest(obj.store)) : creep.pickup(obj);
     if (ret !== OK && ret !== ERR_NOT_IN_RANGE) { badBook(creep.room.name)[obj.id] = Game.time; delete m.src; delete m.stk; }
 }
@@ -611,4 +640,4 @@ function run(creep) {
     loadStep(creep, carrying);
 }
 
-module.exports = { pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };
+module.exports = { reachable, queued, pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };
