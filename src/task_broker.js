@@ -35,7 +35,7 @@ const ROLE_WEIGHT = {
     depositScout: 20,
 };
 const DEFAULT_WEIGHT = 20;
-const NO_SKIP = ['harvester', 'hauler', 'lootHauler', 'defender', 'siegeGuard', 'labTech'];
+const NO_SKIP = ['harvester', 'hauler', 'lootHauler', 'defender', 'siegeGuard', 'labTech', 'warrior'];
 const TASK_WEIGHT = {
     deliver: 8,
     harvest: 7,

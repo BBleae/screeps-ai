@@ -194,6 +194,7 @@ function isHighwayRoom(name) {
     return dx % 10 === 0 || dy % 10 === 0;
 }
 function isCombatCreep(creep) {
+    if (creep && creep.memory && creep.memory.role === 'warrior') return true;
     return !!(creep && (creep.body || []).some((p) => COMBAT_PARTS.indexOf(p.type || p) >= 0));
 }
 function highwayBlocks() {

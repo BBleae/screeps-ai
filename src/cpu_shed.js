@@ -93,6 +93,7 @@ function shedRank(creep, mode) {
     const role = memory && memory.role;
     if (!role) return null;
     const critical = mode === 'critical';
+    if (role === 'warrior') return null;
     switch (role) {
     case 'scout':
         return 0;

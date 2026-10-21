@@ -553,7 +553,12 @@ function computeLabPlan(room) {
         }
     }
     const cfg = labSettings(room);
-    const reaction = boostOnlyRoom(room) && !makeIn(room) ? null : chooseReaction(room, mem, roles, labsById, cfg);
+    let warBoost = false;
+    try { warBoost = require('war').labActive(room); } catch (e) { warBoost = false; }
+    if (warBoost && roles.outputs && roles.outputs.length) {
+        roles = Object.assign({}, roles, { outputs: [], configured: false });
+    }
+    const reaction = (boostOnlyRoom(room) && !makeIn(room)) || warBoost ? null : chooseReaction(room, mem, roles, labsById, cfg);
     const wants = [];
     const drains = [];
     const need = {};

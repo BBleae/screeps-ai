@@ -32,6 +32,7 @@ const cpuRemote = require('cpu_remote');
 const cpuGate = require('cpu_gate');
 const lootShed = require('loot_shed');
 const lastTrip = require('last_trip');
+const war = require('war');
 
 const ROLES = {
     harvester: require('roles_harvester'),
@@ -58,6 +59,7 @@ const ROLES = {
     depositMiner: require('roles_depositMiner'),
     depositScout: require('roles_depositScout'),
     wallBreaker: require('roles_wallBreaker'),
+    warrior: require('roles_warrior'),
 };
 
 function hasBodyPart(creep, type) {
@@ -184,6 +186,7 @@ module.exports.loop = function () {
     reuseParsedMemory();
     try { require('cfg_overlay').apply(); } catch (e) { logErr('cfgOverlay', e); }
     try { lootShed.run(); } catch (e) { logErr('lootShed', e); }
+    try { war.tick(); } catch (e) { logErr('war.tick', e); }
     try {
         if (typeof RawMemory !== 'undefined' && RawMemory && typeof RawMemory.setActiveSegments === 'function') {
             RawMemory.setActiveSegments([90, 91]);
@@ -261,9 +264,14 @@ module.exports.loop = function () {
         let overBudget = false;
         spkRoles = {}; spkArm = null;
         let spkHot = false, spkMark = 0, spkRan = 0;
+        for (const creep of creepQueue) {
+            if (creep.spawning || !creep.memory || creep.memory.role !== 'warrior') continue;
+            try { ROLES.warrior.run(creep); } catch (e) { logErr('creep ' + creep.name, e); }
+        }
         for (let qi = 0; qi < creepQueue.length; qi++) {
             const creep = creepQueue[qi];
             if (creep.spawning) continue;
+            if (creep.memory && creep.memory.role === 'warrior') continue;
             if (shed.armed && cpuShed.hardStopNow(shed)) {
                 let cut = 0;
                 for (let rest = qi; rest < creepQueue.length; rest++) if (!creepQueue[rest].spawning) cut++;

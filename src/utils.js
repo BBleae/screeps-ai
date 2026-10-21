@@ -794,6 +794,7 @@ const ROLE_CHARACTERS = {
     depositMiner: '萃香',
     depositScout: '琪露诺',
     siegeDismantler: '拆墙',
+    warrior: '战猫',
 };
 
 const UNNAMED_ROLE_CHARACTER = '妖精';

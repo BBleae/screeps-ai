@@ -119,6 +119,12 @@ function siegeCompounds() {
         if (!(Number(d.dismantlers) > 0)) continue;
         for (const c of boostsFor('siegeDismantler', d)) if (set.indexOf(c) < 0) set.push(c);
     }
+    try {
+        const war = require('war');
+        if (war.active && war.active()) {
+            for (const c of war.labCompounds()) if (set.indexOf(c) < 0) set.push(c);
+        }
+    } catch (e) {}
     return set;
 }
 
@@ -390,6 +396,12 @@ function militaryCompounds() {
         if (d.type !== 'strongholdLoot' && d.type !== 'salvageLoot') continue;
         for (const c of boostsFor('siegeDismantler', d).concat(boostsFor('siegeGuard', d))) if (set.indexOf(c) < 0) set.push(c);
     }
+    try {
+        const war = require('war');
+        if (war.labActive && war.labActive({ name: (war.home && war.home()) || 'W37S5' })) {
+            for (const c of war.labCompounds()) if (set.indexOf(c) < 0) set.push(c);
+        }
+    } catch (e) {}
     return set;
 }
 function directiveFor(targetRoom) {
@@ -992,7 +1004,8 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
                 const all = Object.values(Game.creeps || {}).filter((c) => c.memory && c.memory.role === 'lootHauler' && (c.memory.salvageLoot || c.memory.pullLoot));
                 const live = all.filter((c) => c.memory.salvageLoot && c.memory.targetRoom === d.target && c.memory.home === home.name).length;
                 const homeLive = all.filter((c) => c.memory.home === home.name).length;
-                per = Math.max(0, Math.min(per, live + maxHaulers - homeLive, live + Math.max(0, Number(settings().lootHaulerTotal) || Number(d.haulers) || 0) - all.length));
+                const totalCap = (() => { let n = Math.max(0, Number(settings().lootHaulerTotal) || Number(d.haulers) || 0); try { n = require('war').lootHaulerCap(n); } catch (e) {} return n; })();
+                per = Math.max(0, Math.min(per, live + maxHaulers - homeLive, live + totalCap - all.length));
             }
             const hbody = repeatBody(['carry', 'move'], Math.min(home.energyCapacityAvailable, Number(d.lootBudget) || cfg.lootBudget));
             const hmem = attachAvoidance({ home: home.name, targetRoom: d.target, lootTiles, staging, salvageLoot: salvage, lootOrder: d.lootOrder }, d);

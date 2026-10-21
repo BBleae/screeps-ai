@@ -14,6 +14,7 @@ const conquest = require('conquest');
 const depositMod = require('deposit');
 const wallBreach = require('wall_breach');
 const queue = require('spawn_queue');
+const war = require('war');
 const spawnExit = require('spawn_exit');
 const { makeBody, bodyCost, bodyPartCount, carryCapacity, packedPathLength, pathLength, repeat, logErr, needsRepair, creepName, bodyTicksPerTile, isRetiring } = utils;
 
@@ -1076,6 +1077,7 @@ function labTechTarget(room, mem) {
     const industry = require('industry');
     if (industry.boostOnlyRoom && industry.boostOnlyRoom(room)) {
         try { if (require('conquest').directives().some((d) => d.boostPlan && Array.isArray(d.sponsors) && d.sponsors.indexOf(room.name) >= 0 && d.phase !== 'done')) return count; } catch (e) { }
+        try { if (require('war').labActive(room)) return count; } catch (e) { }
     }
     let fp = null;
     try { fp = industry.factoryPlan ? industry.factoryPlan(room) : null; } catch (error) { fp = null; }
@@ -2279,6 +2281,8 @@ function runQueue(room) {
     lap('d.remote');
     const conquestDemands = idle.length && !state.recovering ? conquest.getDemands(room) : [];
     lap('d.conquest');
+    let warDemands = [];
+    if (idle.length) { try { warDemands = war.getDemands(room); } catch (e) { utils.logErr('war.getDemands', e); } }
     let depositDemands = [];
     if (idle.length && !state.recovering) { try { depositDemands = depositMod.getDemands(room); } catch (e) { utils.logErr('deposit.getDemands', e); } }
     let breachDemands = [];
@@ -2370,6 +2374,13 @@ function runQueue(room) {
         }));
     }
     lap('r.defense');
+    for (const request of warDemands) {
+        request.onSpawn = (memory, name) => {
+            try { war.logEvent('spawned', { role: memory.warRole, name }); } catch (e) {}
+        };
+        requests.push(request);
+    }
+    lap('r.war');
     for (const request of coreRequests(room, mem, state, sources, targets, survivalTargets, plannedCounts, baseUpgraders, settings)) {
         request.onSpawn = () => {
             plannedCounts[request.role]++;

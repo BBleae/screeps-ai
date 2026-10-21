@@ -19,6 +19,7 @@ const MODULE_MAP = {
     deposit: 'deposit.js', roles_depositMiner: 'roles/depositMiner.js', roles_depositScout: 'roles/depositScout.js',
     wall_breach: 'wall_breach.js', cpu_remote: 'cpu_remote.js', cpu_gate: 'cpu_gate.js',
     loot_shed: 'loot_shed.js', last_trip: 'last_trip.js', wallfix: 'wallfix.js', roles_wallBreaker: 'roles/wallBreaker.js',
+    war: 'war.js', roles_warrior: 'roles/warrior.js',
     conquest: 'conquest.js', roles_siegeDismantler: 'roles/siegeDismantler.js', roles_siegeGuard: 'roles/siegeGuard.js', roles_downgrader: 'roles/downgrader.js', roles_lootHauler: 'roles/lootHauler.js',
 };
 const origResolve = Module._resolveFilename;
