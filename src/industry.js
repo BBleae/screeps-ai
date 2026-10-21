@@ -622,7 +622,7 @@ function militaryBoostStaging(room, roles, labsById, cfg, wants, drains) {
     const prev = (mem.militaryLabs && typeof mem.militaryLabs === 'object') ? mem.militaryLabs : {};
     const assigned = new Set();
     for (const compound of compounds) {
-        let labId = prev[compound] && labsById[prev[compound]] && spare.indexOf(prev[compound]) >= 0 ? prev[compound] : null;
+        let labId = prev[compound] && labsById[prev[compound]] && spare.indexOf(prev[compound]) >= 0 && !assigned.has(prev[compound]) ? prev[compound] : null;
         if (!labId) { labId = spare.find((id) => !assigned.has(id)); }
         if (!labId) continue;
         assigned.add(labId);

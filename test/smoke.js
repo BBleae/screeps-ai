@@ -3142,6 +3142,11 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
         const ml = Memory.rooms.W33S7.militaryLabs || {};
         assert(ml.XGHO2 === plan0.output && wp.wants.some((w) => w.labId === plan0.output && w.mineral === 'XGHO2' && w.boost), '原输出 lab 改装 XGHO2 给战猫 boost（得 ' + JSON.stringify({ ml, wants: wp.wants }) + '）');
         assert(Memory.rooms.W33S7.labRoles.outputs[0] === plan0.output, 'Memory 里的 lab 分工不被改掉（停战后照旧反应）');
+        Memory.rooms.W33S7.militaryLabs = { XGHO2: plan0.output, XUH2O: plan0.output };
+        world.time++;
+        ind.labPlan(lr);
+        const ml2 = Memory.rooms.W33S7.militaryLabs || {};
+        assert(ml2.XGHO2 === plan0.output && ml2.XUH2O === undefined, '旧记录两种化合物指向同一个 lab 时只给排在前面的那种（得 ' + JSON.stringify(ml2) + '）');
         delete Memory.ags131War;
         delete Memory.rooms.W33S7.militaryLabs;
         delete lrTerminal.store.XGHO2;
