@@ -21,7 +21,21 @@ const ROLE_WEIGHT = {
     operator: 90,
     reserver: 45,
     scout: 20,
+    lootHauler: 80,
+    labTech: 80,
+    defender: 95,
+    siegeGuard: 95,
+    claimer: 65,
+    pioneer: 65,
+    mineralMiner: 65,
+    depositMiner: 65,
+    siegeDismantler: 25,
+    wallBreaker: 25,
+    downgrader: 25,
+    depositScout: 20,
 };
+const DEFAULT_WEIGHT = 20;
+const NO_SKIP = ['harvester', 'hauler', 'upgrader', 'lootHauler', 'defender', 'siegeGuard', 'labTech'];
 const TASK_WEIGHT = {
     deliver: 8,
     harvest: 7,
@@ -1027,7 +1041,7 @@ function orderCreeps(creeps) {
     const scored = (creeps || []).map((creep, index) => {
         const role = creep.memory && creep.memory.role;
         const bid = TASK_ROLES[role] ? bestTask(creep, tasksFor(creep)) : null;
-        const score = bid ? bid.score : (ROLE_WEIGHT[creep.memory && creep.memory.role] || 0) * ttlUrgency(creep, 0);
+        const score = bid ? bid.score : (ROLE_WEIGHT[creep.memory && creep.memory.role] || DEFAULT_WEIGHT) * ttlUrgency(creep, 0);
         runtime.scores[creep.name] = Math.round(score * 100) / 100;
         return { creep, score, index };
     });
@@ -1063,7 +1077,7 @@ function markSkipped(creep, reason) {
 function shouldRun(creep) {
     const score = runtime.scores[creep.name] || 0;
     const role = creep.memory && creep.memory.role;
-    if (['harvester', 'hauler', 'upgrader', 'lootHauler'].includes(role)) return true;
+    if (NO_SKIP.includes(role)) return true;
     return score >= 20;
 }
 
