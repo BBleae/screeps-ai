@@ -161,12 +161,47 @@ function getDemands(room) {
     if (Number(Game.cpu.bucket) < (Number(cfg().bucketMin) || 5000)) { w.bucketWait = Game.time; return []; }
     const out = [];
     const travelLead = Number(cfg().travelLead) || 260;
-    if (liveCount('attacker') < 1) out.push(demandRequest('attacker', 0, 0));
-    if (liveCount('healer') < 1) out.push(demandRequest('healer', 0, 0));
+    if (!slotHeld('attacker', 0, 0)) out.push(demandRequest('attacker', 0, 0));
+    if (!slotHeld('healer', 0, 0)) out.push(demandRequest('healer', 0, 0));
     const keep = Math.max(1, Number(cfg().claimerKeep) || 2);
-    const liveClaim = liveCount('claimer', travelLead);
-    for (let i = liveClaim; i < keep; i++) out.push(demandRequest('claimer', (w.claimSeq = (Number(w.claimSeq) || 0) + 1), travelLead));
+    const held = [];
+    for (let i = 0; i < keep; i++) held.push(slotHeld('claimer', i, travelLead));
+    let spare = liveCount('claimer', travelLead) - held.filter(Boolean).length;
+    for (let i = 0; i < keep; i++) {
+        if (held[i]) continue;
+        if (spare > 0) { spare--; continue; }
+        out.push(demandRequest('claimer', i, travelLead));
+    }
+    if (w.claimSeq != null) delete w.claimSeq;
     return out;
+}
+
+function slotHeld(warRole, idx, minTtl) {
+    const key = 'war:' + warRole + ':' + idx;
+    if (typeof Game === 'undefined' || !Game.creeps) return false;
+    for (const name in Game.creeps) {
+        const c = Game.creeps[name];
+        const mem = c.memory || {};
+        if (mem.role !== 'warrior' || mem.warRole !== warRole || mem.slotKey !== key) continue;
+        if (mem.retired) continue;
+        if (c.spawning) return true;
+        if (minTtl && c.ticksToLive != null && c.ticksToLive <= minTtl) continue;
+        return true;
+    }
+    return false;
+}
+
+const BOOST_PART = { XGHO2: 'tough', XUH2O: 'attack', XLHO2: 'heal' };
+
+function fullyBoosted(c) {
+    if (!c || !c.body) return false;
+    const list = (c.memory && Array.isArray(c.memory.boosts)) ? c.memory.boosts : [];
+    for (const compound of list) {
+        const type = BOOST_PART[compound];
+        if (!type) continue;
+        for (const part of c.body) if (part.type === type && part.boost !== compound) return false;
+    }
+    return true;
 }
 
 function squadAtStaging() {
@@ -178,6 +213,10 @@ function squadAtStaging() {
     const atStage = (c) => c && !c.spawning && c.room && c.room.name === staging;
     if (!atStage(a) || !atStage(h)) return false;
     if (!cs.some(atStage)) return false;
+    if (!fullyBoosted(a) || !fullyBoosted(h) || !cs.some((c) => atStage(c) && fullyBoosted(c))) {
+        logEvent('boostMissing', { a: fullyBoosted(a), h: fullyBoosted(h) });
+        return false;
+    }
     if (h.hits < h.hitsMax) return false;
     if (a.ticksToLive != null && a.ticksToLive < (Number(cfg().attackerMinTtl) || 900)) return false;
     return true;
@@ -239,5 +278,5 @@ function tick() {
 
 module.exports = {
     active, labActive, labCompounds, lootHaulerCap, getDemands, tick, logEvent,
-    home, target, boostsFor, cpuPressure, cfg, state, liveWar,
+    home, target, boostsFor, cpuPressure, cfg, state, liveWar, fullyBoosted,
 };
