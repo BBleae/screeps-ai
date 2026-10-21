@@ -7,10 +7,11 @@ function settings() {
         resumeBelow: 140,
         pauseEvery: 50,
         minSamples: 8,
-        prefer: ['W38S6', 'W38S5'],
+        prefer: [],
         haulerMinBucket: 3000,
         autoPause: false,
-        holdRooms: ['W38S6', 'W38S5'],
+        holdRooms: [],
+        restoreLogRooms: [],
         holdCheckEvery: 300,
         holdOkNeeded: 2,
         warmup: 150,
@@ -181,7 +182,7 @@ function restoreOne(entry) {
     const m = mem();
     m.log.push({ at: Game.time, act: 'restore', room: entry.room, home: entry.home, avg10: avgN(10) });
     if (m.log.length > 40) m.log.splice(0, m.log.length - 40);
-    if (entry.room === 'W38S6' || entry.room === 'W38S5') {
+    if ((settings().restoreLogRooms || []).indexOf(entry.room) >= 0) {
         const added = Memory.remoteAdded || (Memory.remoteAdded = []);
         added.push({ home: entry.home, room: entry.room, at: Game.time, how: 'lootShedRestore' });
         if (added.length > 30) added.splice(0, added.length - 30);
