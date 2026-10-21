@@ -360,7 +360,17 @@ function rampartRaiseWork(room, structures) {
     return n > 0;
 }
 
+const builderWorkMemo = { t: -1, rooms: {} };
 function hasBuilderWork(room) {
+    if (builderWorkMemo.t !== Game.time) { builderWorkMemo.t = Game.time; builderWorkMemo.rooms = {}; }
+    const hit = builderWorkMemo.rooms[room.name];
+    if (hit && hit.room === room && !utils.tickMemoOff()) return hit.v;
+    const v = hasBuilderWorkNow(room);
+    builderWorkMemo.rooms[room.name] = { room, v };
+    return v;
+}
+
+function hasBuilderWorkNow(room) {
     if (room.find(FIND_MY_CONSTRUCTION_SITES).some((site) => utils.siteWanted(room, site))) return true;
     const structures = room.find(FIND_STRUCTURES);
     const critical = structures.find((s) => needsRepair(room, s) && utils.criticallyDamaged(room, s));
@@ -1490,8 +1500,8 @@ function bodyUpgradeCandidates(room, state, mem, sources) {
     return candidates.sort((left, right) => right.score - left.score || left.creep.name.localeCompare(right.creep.name));
 }
 
-function tryBodyUpgrade(room, spawn, state, mem, sources, energyBudget) {
-    const candidates = bodyUpgradeCandidates(room, state, mem, sources);
+function tryBodyUpgrade(room, spawn, state, mem, sources, energyBudget, ready) {
+    const candidates = ready || bodyUpgradeCandidates(room, state, mem, sources);
     for (const candidate of candidates) {
         if (candidate.desiredCost > energyBudget) continue;
         const name = creepName(candidate.role, 'upgrade');
@@ -2010,10 +2020,12 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
     return requests;
 }
 
-function harvesterUpgradeRequests(room, state, mem, sources, settings) {
+function harvesterUpgradeRequests(room, state, mem, sources, settings, keep) {
     const requests = [];
     if (state.readyWorkers === 0) return requests;
-    for (const candidate of bodyUpgradeCandidates(room, state, mem, sources)) {
+    const all = bodyUpgradeCandidates(room, state, mem, sources);
+    if (keep) keep.list = all;
+    for (const candidate of all) {
         if (candidate.role !== 'harvester') continue;
         const memory = Object.assign({}, candidate.creep.memory, {
             home: room.name,
@@ -2382,7 +2394,8 @@ function runQueue(room) {
     }
     lap('r.demandReq');
     const upgrading = new Set();
-    for (const request of harvesterUpgradeRequests(room, state, mem, sources, settings)) {
+    const upgradeKeep = {};
+    for (const request of harvesterUpgradeRequests(room, state, mem, sources, settings, upgradeKeep)) {
         upgrading.add(request.sourceIdx);
         requests.push(request);
     }
@@ -2495,7 +2508,8 @@ function runQueue(room) {
     if (room.energyAvailable >= room.energyCapacityAvailable) {
         for (const spawn of idle) {
             if (usedSpawns.has(spawn)) continue;
-            const upgrade = tryBodyUpgrade(room, spawn, state, mem, sources, energyBudget);
+            const reuse = !spawnedKeys.length && !bodyUpgraded && upgradeKeep.list ? upgradeKeep.list : null;
+            const upgrade = tryBodyUpgrade(room, spawn, state, mem, sources, energyBudget, reuse);
             if (!upgrade) break;
             energyBudget -= upgrade.cost;
             usedSpawns.add(spawn);

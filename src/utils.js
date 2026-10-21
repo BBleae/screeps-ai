@@ -15,6 +15,7 @@ function cacheKeyFor(opts) {
 const EMPTY_CREEPS = [];
 let creepIndexRecount = false;
 function setCreepIndexRecount(on) { creepIndexRecount = !!on; }
+function tickMemoOff() { return creepIndexRecount; }
 function creepIndex() {
     const c = tickCache();
     let idx = c.__creepIndex;
@@ -98,8 +99,19 @@ function roomNameAt(x, y) {
     return (x < 0 ? 'W' + (-x - 1) : 'E' + x) + (y < 0 ? 'N' + (-y - 1) : 'S' + y);
 }
 
+const bodyMemo = new Map();
 function makeBody(role, cap, opts) {
     cap = Math.max(200, cap || 200);
+    const key = role + '|' + cap + '|' + (opts ? (opts.maxWork + '|' + opts.move + '|' + opts.carry) : '');
+    const hit = bodyMemo.get(key);
+    if (hit) return hit.slice();
+    const built = makeBodyNow(role, cap, opts);
+    if (bodyMemo.size > 2000) bodyMemo.clear();
+    bodyMemo.set(key, built.slice());
+    return built;
+}
+
+function makeBodyNow(role, cap, opts) {
     let parts;
     switch (role) {
         case 'harvester': {
@@ -1364,7 +1376,7 @@ function pvpDangerRoom(name) {
     return false;
 }
 
-module.exports = { setCreepIndexRecount,
+module.exports = { setCreepIndexRecount, tickMemoOff,
     allySettings,
     isAllyName,
     isAlly,
