@@ -15,38 +15,107 @@ function nonEnergyKey(store) {
     return null;
 }
 
-const stepCache = { at: -1, by: {} };
-function routeSteps(creep, from, to) {
+const STEP_REFRESH = 20000;
+const STEP_RETRY = 1500;
+const stepBudget = { at: -1, n: 0 };
+
+function anchor(name) {
+    const r = Game.rooms[name];
+    if (r && r.storage && r.storage.pos) return r.storage.pos;
+    return new RoomPosition(25, 25, name);
+}
+
+function roomCount(from, to, hard) {
+    const r = Game.map.findRoute(from, to, { routeCallback: (n) => (n !== to && hard && hard.has(n) ? Infinity : 1) });
+    return Array.isArray(r) ? r : null;
+}
+
+function pathCalc(from, to, hard) {
+    const route = roomCount(from, to, hard);
+    if (!route) return { s: Infinity, n: Infinity, ok: 0 };
+    const rough = route.length * 50 + 25;
+    if (typeof PathFinder === 'undefined' || !PathFinder.search) return { s: rough, n: rough, ok: 0 };
+    const allowed = new Set([from].concat(route.map((x) => x.room)));
+    const res = PathFinder.search(anchor(from), { pos: anchor(to), range: 1 }, {
+        plainCost: 1,
+        swampCost: 5,
+        maxOps: 20000,
+        maxRooms: allowed.size + 1,
+        roomCallback: (name) => {
+            if (!allowed.has(name)) return false;
+            const room = Game.rooms[name];
+            if (!room) return undefined;
+            const cm = new PathFinder.CostMatrix();
+            for (const st of room.find(FIND_STRUCTURES)) {
+                if (st.structureType === STRUCTURE_ROAD) cm.set(st.pos.x, st.pos.y, 1);
+                else if (st.structureType === STRUCTURE_CONTAINER) continue;
+                else if (st.structureType === STRUCTURE_RAMPART && st.my) continue;
+                else cm.set(st.pos.x, st.pos.y, 255);
+            }
+            return cm;
+        },
+    });
+    if (!res || res.incomplete || !Array.isArray(res.path) || !Number.isFinite(res.cost)) return { s: rough, n: rough, ok: 0 };
+    return { s: res.cost, n: res.path.length, ok: 1 };
+}
+
+function pathSteps(from, to) {
     if (from === to) return 25;
-    if (Game.time - stepCache.at > 1500) { stepCache.at = Game.time; stepCache.by = {}; }
+    const all = Memory.lootDrop || (Memory.lootDrop = {});
+    const book = all._steps || (all._steps = {});
     const key = from + ':' + to;
-    if (stepCache.by[key] != null) return stepCache.by[key];
-    const avoid = movement.lootAvoidFor ? movement.lootAvoidFor(creep, new RoomPosition(25, 25, to)) : null;
-    const r = Game.map.findRoute(from, to, { routeCallback: (n) => (n !== to && avoid && avoid.has(n) ? Infinity : 1) });
-    const steps = Array.isArray(r) ? r.length * 50 + 25 : Infinity;
-    stepCache.by[key] = steps;
-    return steps;
+    const rec = book[key];
+    if (rec && Game.time - rec.at < (rec.ok ? STEP_REFRESH : STEP_RETRY)) return rec.s;
+    if (stepBudget.at !== Game.time) { stepBudget.at = Game.time; stepBudget.n = 0; }
+    const lr = require('config').lootRoutes || {};
+    const hard = new Set(lr.hardAvoid || []);
+    if (stepBudget.n >= 1) {
+        if (rec) return rec.s;
+        const route = roomCount(from, to, hard);
+        return route ? route.length * 50 + 25 : Infinity;
+    }
+    stepBudget.n++;
+    let got;
+    try { got = pathCalc(from, to, hard); } catch (e) {
+        const route = roomCount(from, to, hard);
+        const rough = route ? route.length * 50 + 25 : Infinity;
+        got = { s: rough, n: rough, ok: 0 };
+    }
+    book[key] = { s: got.s, n: got.n, ok: got.ok, at: Game.time };
+    return got.s;
+}
+
+function routeSteps(creep, from, to) {
+    return pathSteps(from, to);
+}
+
+function emptySteps(from, to) {
+    const s = pathSteps(from, to);
+    const rec = Memory.lootDrop && Memory.lootDrop._steps && Memory.lootDrop._steps[from + ':' + to];
+    return rec && rec.ok && rec.n > 0 ? rec.n : s;
 }
 
 const DROP_REFRESH = 20000;
 function dropList(target) {
     const all = Memory.lootDrop || (Memory.lootDrop = {});
     const rec = all[target];
-    if (rec && rec.v === 2 && Game.time - rec.at < DROP_REFRESH && Array.isArray(rec.list) && rec.list.length) return rec.list;
+    if (rec && rec.v === 3 && Game.time - rec.at < DROP_REFRESH && Array.isArray(rec.list) && rec.list.length) return rec.list;
     const lr = require('config').lootRoutes || {};
     const onRoute = new Set(Array.isArray(lr[target]) ? lr[target] : []);
-    const hard = new Set(lr.hardAvoid || []);
     const out = [];
+    let partial = false;
     for (const name in Game.rooms) {
         const r = Game.rooms[name];
         if (!r.controller || !r.controller.my || !r.storage) continue;
         if (Game.map.getRoomLinearDistance(target, name) > 12) continue;
-        const route = name === target ? [] : Game.map.findRoute(target, name, { routeCallback: (n) => (n !== name && hard.has(n) ? Infinity : 1) });
-        if (!Array.isArray(route)) continue;
-        out.push([name, route.length, onRoute.has(name) ? 0 : 1]);
+        const steps = pathSteps(target, name);
+        if (!Number.isFinite(steps)) continue;
+        const book = all._steps && all._steps[target + ':' + name];
+        if (name !== target && !(book && book.ok)) partial = true;
+        out.push([name, steps, onRoute.has(name) ? 0 : 1]);
     }
     out.sort((a, b) => a[1] - b[1] || a[2] - b[2] || (a[0] < b[0] ? -1 : 1));
-    all[target] = { v: 2, at: Game.time, list: out };
+    all[target] = { v: 3, at: partial ? Game.time - DROP_REFRESH + 100 : Game.time, list: out };
     return out;
 }
 
@@ -62,6 +131,8 @@ function dropRoom(creep) {
     const m = creep.memory;
     const target = m.targetRoom;
     if (!target) return m.home;
+    const fixed = ((require('config').conquest || {}).lootDropFixed || {})[target];
+    if (fixed && storageOk(Game.rooms[fixed])) return fixed;
     const list = dropList(target);
     for (const [name] of list) if (storageOk(Game.rooms[name])) return name;
     return list.length ? list[0][0] : m.home;
@@ -100,7 +171,7 @@ function ttlCheck(creep, carrying) {
     }
     if (!carrying && m.state !== 'deliver') {
         const target = m.targetRoom;
-        const out = here === target ? 0 : routeSteps(creep, here, target);
+        const out = here === target ? 0 : emptySteps(here, target);
         if (ttl < out + needTicks(creep, target, drop)) return 'retire';
     }
     return null;
@@ -398,10 +469,24 @@ function noteDeath(name, mem) {
     while (log.length > 50) log.shift();
 }
 
+function boostDetour(creep) {
+    const m = creep.memory;
+    if (!m.boostRoom || m.boostDone || m.tripAt || !boost.wanted(creep).length) return false;
+    if (creep.room.name === m.boostRoom) return false;
+    if (!boost.boostRoomReady(creep)) { m.boostDone = true; return false; }
+    const room = Game.rooms[m.boostRoom];
+    movement.go(creep, room.storage || new RoomPosition(25, 25, m.boostRoom), { range: 3, reusePath: 20 });
+    return true;
+}
+
 function run(creep) {
     if (creep.spawning) return;
     track(creep);
-    if (creep.memory.boosts && creep.room.name === creep.memory.home && boost.run(creep)) return;
+    if (creep.memory.boosts && creep.room.name === (creep.memory.boostRoom || creep.memory.home)) {
+        if (boost.run(creep)) return;
+        if (creep.memory.boostRoom) creep.memory.boostDone = true;
+    }
+    if (boostDetour(creep)) return;
     if (lootHoldRun(creep)) return;
     if (gateHold(creep)) return;
     if (creep.memory.pullLoot && creep.memory.salvageFrom && Game.time % 10 === 0) backToSalvage(creep);
@@ -498,4 +583,4 @@ function run(creep) {
     if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) movement.go(creep, c, { range: 1, reusePath: 5 });
 }
 
-module.exports = { run, freeStand, topLoot, topUpDrop, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };
+module.exports = { pathSteps, pathCalc, boostDetour, run, freeStand, topLoot, topUpDrop, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };

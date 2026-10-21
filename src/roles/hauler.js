@@ -791,6 +791,32 @@ function unstashPull(creep, room, ctx, plan) {
     return true;
 }
 
+function exportPull(creep, room, ctx, plan) {
+    if (plan.withdraw || !room.terminal || !room.terminal.my || !room.storage || !room.storage.my) return false;
+    let rule = null;
+    let net = null;
+    try { net = require('terminal'); rule = net.lootExportRule(room); } catch (e) { rule = null; }
+    if (!rule) return false;
+    const stage = Number(rule.terminalStage) || 20000;
+    if (Number(room.terminal.store.getFreeCapacity()) <= Number(rule.terminalFree || 30000)) return false;
+    const st = room.storage.store;
+    const res = Object.keys(st).filter((k) => net.exportKind(k) && Number(st[k]) > 0 && Number(room.terminal.store[k] || 0) < stage)
+        .sort((a, b) => Number(st[b]) - Number(st[a]))[0];
+    if (!res) return false;
+    if (isUrgent(room, ctx)) return false;
+    const free = Number(creep.store.getFreeCapacity()) || 0;
+    if (free <= 0) return false;
+    if (!near(creep, room.storage)) { plan.move = room.storage; plan.moveRange = 1; return true; }
+    const amount = Math.min(free, Number(st[res]), stage - Number(room.terminal.store[res] || 0));
+    if (creep.withdraw(room.storage, res, amount) === OK) {
+        plan.withdraw = true;
+        const mem = Memory.rooms[room.name] || (Memory.rooms[room.name] = {});
+        const rec = mem.lootExportStaged || (mem.lootExportStaged = { amount: 0 });
+        rec.amount = (Number(rec.amount) || 0) + amount; rec.at = Game.time; rec.res = res;
+    }
+    return true;
+}
+
 function run(creep) {
     const room = Game.rooms[creep.memory.home];
     if (!room) { movement.go(creep, new RoomPosition(25, 25, creep.memory.home), { reusePath: 20 }); return; }
@@ -815,7 +841,7 @@ function run(creep) {
         if (collecting) {
             if (!collect(creep, room, ctx, plan, energy + plan.gained, capacity)) {
                 if (energy + plan.gained > 0) deliver(creep, room, ctx, plan, energy, capacity);
-                else if (!stashPull(creep, room, ctx, plan) && !unstashPull(creep, room, ctx, plan)) { haulStats.note(creep, 'park'); park(creep, room, plan); }
+                else if (!stashPull(creep, room, ctx, plan) && !unstashPull(creep, room, ctx, plan) && !exportPull(creep, room, ctx, plan)) { haulStats.note(creep, 'park'); park(creep, room, plan); }
             }
         } else {
             deliver(creep, room, ctx, plan, energy, capacity);
@@ -844,4 +870,4 @@ function srcIsPlanned(room, s) {
     ) <= 1);
 }
 
-module.exports = { run, srcIsPlanned, unstashPull };
+module.exports = { run, srcIsPlanned, unstashPull, exportPull };

@@ -528,12 +528,99 @@ function runForward(cfg) {
     return null;
 }
 
+function storeUsedShare(structure) {
+    const st = structure && structure.store;
+    if (!st || typeof st.getCapacity !== 'function') return 0;
+    const cap = Number(st.getCapacity()) || 0;
+    return cap > 0 ? (Number(st.getUsedCapacity()) || 0) / cap : 0;
+}
+
+function exportKind(res) {
+    if (res === 'battery') return 'battery';
+    return /^X[A-Z0-9]+$/.test(res) ? 'T3' : null;
+}
+
+function lootExportRule(room) {
+    const all = settings().lootExport;
+    const rule = all && room && all[room.name];
+    if (!rule || !room.storage || room.storage.my === false || !room.terminal || room.terminal.my === false) return null;
+    if (storeUsedShare(room.storage) < Number(rule.storageAbove || 0.7)) return null;
+    return rule;
+}
+
+function exportDests(kind, rule, fromName) {
+    let names = [];
+    if (kind === 'battery') {
+        if (Array.isArray(rule.batteryTo)) names = rule.batteryTo;
+        else { try { names = require('facts').factoryRooms(); } catch (e) { names = []; } }
+    } else names = Array.isArray(rule.t3To) ? rule.t3To : [];
+    return names.filter((n) => n !== fromName);
+}
+
+function planLootExport(cfg) {
+    const all = cfg.lootExport || {};
+    for (const name of Object.keys(all)) {
+        const from = Game.rooms[name];
+        if (!from || !from.controller || !from.controller.my) continue;
+        const rule = lootExportRule(from);
+        if (!rule || from.terminal.cooldown > 0 || usedThisTick(name)) continue;
+        const keep = Number(rule.energyKeep != null ? rule.energyKeep : 150000);
+        const batch = Number(rule.batch) || 5000;
+        const minBatch = Number(rule.minBatch) || 1000;
+        const recvTerminalFree = Number(rule.receiverTerminalFree != null ? rule.receiverTerminalFree : 20000);
+        const recvStorageFree = Number(rule.receiverStorageFree != null ? rule.receiverStorageFree : 50000);
+        const tStore = from.terminal.store;
+        const items = Object.keys(tStore).filter((k) => exportKind(k) && Number(tStore[k]) >= minBatch).sort((a, b) => Number(tStore[b]) - Number(tStore[a]));
+        const tEnergy = energyOf(tStore);
+        const total = roomEnergy(from);
+        for (const res of items) {
+            const kind = exportKind(res);
+            for (const toName of exportDests(kind, rule, name)) {
+                const to = Game.rooms[toName];
+                if (!to || !to.controller || !to.controller.my || !to.terminal || to.terminal.my === false || !to.storage || to.storage.my === false) continue;
+                const tFree = Number(to.terminal.store.getFreeCapacity()) || 0;
+                const sFree = Number(to.storage.store.getFreeCapacity()) || 0;
+                if (tFree - recvTerminalFree < minBatch || sFree < recvStorageFree) continue;
+                let amount = Math.min(Number(tStore[res]), batch, tFree - recvTerminalFree);
+                let cost = transactionCost(amount, name, toName);
+                while (amount >= minBatch && (cost > tEnergy || total - cost < keep)) {
+                    amount = Math.floor(amount / 2);
+                    cost = transactionCost(amount, name, toName);
+                }
+                if (amount < minBatch) return { from, to, res, amount: 0, cost, blocked: 'energy' };
+                return { from, to, res, amount, cost, kind };
+            }
+        }
+    }
+    return null;
+}
+
+function runLootExport(cfg) {
+    const plan = planLootExport(cfg);
+    if (!plan) return null;
+    const net = Memory.terminalNetwork || (Memory.terminalNetwork = {});
+    const mem = net.lootExport || (net.lootExport = { sent: {}, n: 0 });
+    if (!plan.amount) { mem.blocked = { at: Game.time, from: plan.from.name, res: plan.res, why: plan.blocked }; return null; }
+    const ret = plan.from.terminal.send(plan.res, plan.amount, plan.to.name, 'lootExport');
+    markUsed(plan.from.name);
+    const record = { at: Game.time, from: plan.from.name, to: plan.to.name, resource: plan.res, amount: plan.amount, cost: plan.cost, result: ret };
+    mem.last = record;
+    if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
+        mem.n = (Number(mem.n) || 0) + 1;
+        mem.sent[plan.res] = (Number(mem.sent[plan.res]) || 0) + plan.amount;
+        mem.cost = (Number(mem.cost) || 0) + plan.cost;
+    }
+    return record;
+}
+
 function run(shed) {
     const cfg = settings();
     if (!cfg.enabled || !(cfg.interval > 0) || Game.time % cfg.interval !== 0) return null;
     if (!cpuAllows(cfg, shed)) return null;
     const rooms = terminalRooms();
     if (rooms.length < 2) return null;
+    const ex = runLootExport(cfg);
+    if (ex) return ex;
     const fwd = runForward(cfg);
     if (fwd) return fwd;
     const isRich = (room) => utils.storageRichState(room, Memory.rooms && Memory.rooms[room.name], config.upgrading || {});
@@ -595,4 +682,4 @@ function runMineral(rooms, cfg) {
     return record;
 }
 
-module.exports = { priorityList, noEnergyIn, receiveOnly, keepAfterSend, sendHeadroom, energySendOk, planFeed, burnRoom, planStarving, planSenders, storageSpare, planForward, runForward, run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };
+module.exports = { lootExportRule, exportKind, planLootExport, runLootExport, priorityList, noEnergyIn, receiveOnly, keepAfterSend, sendHeadroom, energySendOk, planFeed, burnRoom, planStarving, planSenders, storageSpare, planForward, runForward, run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };

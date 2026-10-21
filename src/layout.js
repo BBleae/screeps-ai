@@ -982,7 +982,8 @@ function placeSites(room, mem, plan) {
     }
     if (luxuryOk && need('lab') > 0 && budget > 0) {
         let missing = need('lab');
-        for (const spot of plan.labs || []) {
+        const fixedLabs = ((config.sites || {}).labSpotsByRoom || {})[room.name];
+        for (const spot of Array.isArray(fixedLabs) && fixedLabs.length ? fixedLabs : plan.labs || []) {
             if (missing <= 0 || budget <= 0) break;
             if (trySite(room, spot, STRUCTURE_LAB)) { missing--; budget--; }
         }

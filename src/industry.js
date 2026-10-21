@@ -328,7 +328,7 @@ function fullOutputRoom(room) {
     return Array.isArray(list) && list.indexOf(room.name) >= 0;
 }
 
-function bestLayout(labs, current) {
+function bestLayout(labs, current, noSpare) {
     const sorted = labs.slice().sort(byId);
     const curIn = current && Array.isArray(current.inputs) ? current.inputs : [];
     const curOut = current && Array.isArray(current.outputs) ? current.outputs : [];
@@ -339,7 +339,7 @@ function bestLayout(labs, current) {
             const b = sorted[j];
             let outs = sorted.filter((lab) => lab !== a && lab !== b && chebyshev(lab.pos, a.pos) <= 2 && chebyshev(lab.pos, b.pos) <= 2);
             if (!outs.length) continue;
-            if (outs.length + 2 === sorted.length && sorted.length >= 4) {
+            if (!noSpare && outs.length + 2 === sorted.length && sorted.length >= 4) {
                 const keep = outs.filter((lab) => curOut.indexOf(lab.id) >= 0);
                 const drop = outs.filter((lab) => curOut.indexOf(lab.id) < 0);
                 outs = keep.concat(drop).slice(0, outs.length - 1);
@@ -358,7 +358,8 @@ function widenRoles(room, roles, labs, labsById) {
     if (roles.configured || !fullOutputRoom(room)) return false;
     if (roles.full === labs.length) return false;
     roles.full = labs.length;
-    const best = bestLayout(labs, roles);
+    const keepBoost = !!(makeIn(room) && roles.boost && labsById[roles.boost]);
+    const best = bestLayout(keepBoost ? labs.filter((lab) => lab.id !== roles.boost) : labs, roles, keepBoost);
     if (!best || best.outputs.length <= roles.outputs.length) return true;
     const sameInputs = best.inputs.every((id) => roles.inputs.indexOf(id) >= 0);
     roles.inputs = sameInputs ? roles.inputs.slice() : best.inputs;
@@ -698,7 +699,7 @@ function runLabs(room, mem, state, spendAllowed) {
         wants: plan ? plan.wants.length : 0,
         drains: plan ? plan.drains.length : 0,
         boostLab: plan ? plan.boost : null,
-        boostOut: plan && makeIn(room) ? plan.output : null,
+        boostOut: plan && makeIn(room) ? plan.outputs.slice() : null,
         active: false,
     };
     if (!ready) return;

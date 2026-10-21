@@ -47,16 +47,36 @@ function labFor(room, compound, parts, minParts) {
     return null;
 }
 
+function roomStock(room, compound) {
+    const labs = room.find(FIND_MY_STRUCTURES).filter((s) => s.structureType === STRUCTURE_LAB);
+    return labs.reduce((sum, lab) => sum + Number((lab.store && lab.store[compound]) || 0), 0);
+}
+
+function boostRoomReady(creep) {
+    const mem = creep.memory || {};
+    const room = mem.boostRoom && Game.rooms[mem.boostRoom];
+    if (!room || !room.controller || !room.controller.my) return false;
+    const reserve = Number(mem.boostReserve) || 0;
+    for (const compound of wanted(creep)) {
+        const partType = partTypeFor(compound);
+        const parts = (creep.body || []).filter((part) => part.type === partType && !part.boost).length;
+        if (parts && roomStock(room, compound) - parts * MINERAL_PER_PART >= reserve) return true;
+    }
+    return false;
+}
+
 function nextJob(creep) {
     const room = creep.room;
     if (!room || !room.controller || !room.controller.my) return null;
-    const home = creep.memory && creep.memory.home;
+    const home = creep.memory && (creep.memory.boostRoom || creep.memory.home);
     if (home && room.name !== home) return null;
+    const reserve = Number(creep.memory && creep.memory.boostReserve) || 0;
     for (const compound of wanted(creep)) {
         const partType = partTypeFor(compound);
         if (!partType) continue;
         const parts = (creep.body || []).filter((part) => part.type === partType && !part.boost).length;
         if (!parts) continue;
+        if (reserve > 0 && roomStock(room, compound) - parts * MINERAL_PER_PART < reserve) continue;
         const minParts = creep.memory && creep.memory.boostMinParts;
         const lab = labFor(room, compound, parts, minParts);
         if (lab) return { compound, partType, parts: usableParts(lab, compound, parts, minParts), lab, partial: usableParts(lab, compound, parts, minParts) < parts };
@@ -67,7 +87,7 @@ function nextJob(creep) {
 function pending(creep) {
     const mem = creep.memory || {};
     if (!Array.isArray(mem.boosts) || !mem.boosts.length || mem.boostDone) return false;
-    if (!nextJob(creep) && !(mem.boostWait && wanted(creep).length && creep.room && creep.room.name === mem.home)) return false;
+    if (!nextJob(creep) && !(mem.boostWait && wanted(creep).length && creep.room && creep.room.name === (mem.boostRoom || mem.home))) return false;
     if (mem.boostSince == null) mem.boostSince = Game.time;
     if (Game.time - mem.boostSince >= maxWait(creep)) {
         mem.boostDone = true;
@@ -105,4 +125,4 @@ function run(creep) {
     return !!(creep.memory.boostWait && !creep.memory.boostDone && wanted(creep).length && !nextJob(creep));
 }
 
-module.exports = { wanted, partTypeFor, usableParts, labFor, nextJob, pending, apply, run, noteBoost, MINERAL_PER_PART, ENERGY_PER_PART };
+module.exports = { roomStock, boostRoomReady, wanted, partTypeFor, usableParts, labFor, nextJob, pending, apply, run, noteBoost, MINERAL_PER_PART, ENERGY_PER_PART };

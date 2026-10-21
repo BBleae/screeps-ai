@@ -971,6 +971,8 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
             if (hb && Array.isArray(hb.homes) && hb.homes.indexOf(home.name) >= 0 && Array.isArray(hb.compounds) && hb.compounds.length) {
                 hmem.boosts = hb.compounds.slice();
                 hmem.boostMinParts = Number(hb.minParts) || 1;
+                if (hb.boostRoom && hb.boostRoom !== home.name) hmem.boostRoom = hb.boostRoom;
+                if (Number(hb.reserve) > 0) hmem.boostReserve = Number(hb.reserve);
             }
             for (let i = 0; i < per; i++) demands.push(demand('lootHauler', 'loot:' + d.target + ':' + home.name + ':' + i, hbody, hmem, 90, i, d));
         }

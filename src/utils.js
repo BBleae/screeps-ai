@@ -572,6 +572,7 @@ function siteSettings() {
         lowAfterRoadBlocked: n(cfg.lowAfterRoadBlocked, 1500),
         lowRooms: Array.isArray(cfg.lowRooms) ? cfg.lowRooms : null,
         labAtRcl8: cfg.labAtRcl8 === true,
+        labSpotRooms: cfg.labSpotsByRoom && typeof cfg.labSpotsByRoom === 'object' ? Object.keys(cfg.labSpotsByRoom) : [],
     };
 }
 
@@ -677,7 +678,8 @@ function siteAllowed(roomName, type, wave) {
     if (tier === 'road') return tally.total < cfg.limit - cfg.repairReserve;
     if (tally.nonRoad >= cfg.nonRoadMax || (tally.byRoom[roomName] || 0) >= cfg.nonRoadPerRoom) return false;
     if (tier === 'core') return true;
-    if (cfg.lowRooms && cfg.lowRooms.indexOf(roomName) < 0 && !(cfg.labAtRcl8 && type === (typeof STRUCTURE_LAB === 'undefined' ? 'lab' : STRUCTURE_LAB) && rcl8Room(roomName))) return false;
+    const isLab = type === (typeof STRUCTURE_LAB === 'undefined' ? 'lab' : STRUCTURE_LAB);
+    if (cfg.lowRooms && cfg.lowRooms.indexOf(roomName) < 0 && !(isLab && ((cfg.labAtRcl8 && rcl8Room(roomName)) || cfg.labSpotRooms.indexOf(roomName) >= 0))) return false;
     const roadBlockedAt = Math.max(Number(Memory.siteCap && Memory.siteCap.roadBlockedAt) || 0, tally.roadBlocked ? Game.time : 0);
     return !waveRoadsPending() && Game.time - roadBlockedAt >= cfg.lowAfterRoadBlocked;
 }

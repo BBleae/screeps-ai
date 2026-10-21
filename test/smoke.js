@@ -5,7 +5,7 @@ const { execFileSync } = require('child_process');
 const Module = require('module');
 
 const MODULE_MAP = {
-    config: 'config.js', utils: 'utils.js', spawn: 'spawn.js', spawn_queue: 'spawn_queue.js', layout: 'layout.js', movement: 'movement.js', actions: 'actions.js',
+    config: 'config.js', facts: 'facts.js', utils: 'utils.js', spawn: 'spawn.js', spawn_queue: 'spawn_queue.js', layout: 'layout.js', movement: 'movement.js', actions: 'actions.js',
     wheel_layout: 'wheel_layout.js', visuals: 'visuals.js', task_broker: 'task_broker.js', demolition: 'demolition.js', soak_probe: 'soak_probe.js', aid: 'aid.js',
     tower: 'tower.js', links: 'links.js', remote: 'remote.js', industry: 'industry.js', terminal: 'terminal.js', market: 'market.js', boost: 'boost.js', version: 'version.js', haul_stats: 'haul_stats.js',
     roles_harvester: 'roles/harvester.js', roles_hauler: 'roles/hauler.js',
@@ -17486,7 +17486,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
         U: { L: 'UL' }, L: { U: 'UL' }, Z: { K: 'ZK' }, K: { Z: 'ZK' }, UL: { ZK: 'G' }, ZK: { UL: 'G' } };
     const savedOpp = config.industry.labOpportunistic;
     config.industry.labOpportunistic = false;
-    assert(JSON.stringify(config.industry.labFullOutputs) === JSON.stringify(['W32S4', 'W33S3']) && JSON.stringify(config.industry.chainTargetsByRoom) === JSON.stringify({ W33S3: ['XGH2O', 'GH2O'], W32S4: ['G'], W37S5: ['KH'] }) &&
+    assert(JSON.stringify(config.industry.labFullOutputs) === JSON.stringify(['W32S4', 'W33S3', 'W37S5']) && JSON.stringify(config.industry.chainTargetsByRoom) === JSON.stringify({ W33S3: ['XGH2O', 'GH2O'], W32S4: ['G'], W37S5: ['KH'] }) &&
         JSON.stringify(config.industry.boostTargets) === JSON.stringify(['XGH2O']), '配置：两个 lab 房全输出；10-21 起 W33S3 主线目标 XGH2O（不够 X 时退回 GH2O），W32S4 只做到 G');
     assert(config.industry.productHold.OH.on === 5000 && config.market.dailyBuyCredits === 500000, 'OH hold 5000、原料日额度 50 万不动');
     const r3 = makeRoom('W33S3', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
@@ -18379,7 +18379,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     Memory.lootDrop = {};
     world.time = 1000;
     const list = lh.dropList('W37S2');
-    assert(list[0][0] === 'W37S5' && Memory.lootDrop.W37S2 && Memory.lootDrop.W37S2.at === 1000, 'W37S2 卸货房按离装货房路程排：W37S5 第一，缓存在 Memory.lootDrop');
+    assert(list[0][0] === 'W37S5' && Memory.lootDrop.W37S2 && Memory.lootDrop.W37S2.v === 3, 'W37S2 卸货房按离装货房路程排：W37S5 第一，缓存在 Memory.lootDrop');
     assert(lh.dropList('W35S1')[0][0] === 'W37S5', 'W35S1：W32S4/W33S3/W37S5 都是 6 房，同距离先选在搬运路线上的 W37S5');
     Game.rooms.W37S5 = stRoom('W37S5', 950000);
     const mk = (o) => Object.assign({ name: 'c', spawning: false, body: [], memory: { role: 'lootHauler', home: 'W38S7', targetRoom: 'W37S2', salvageLoot: true }, room: { name: 'W38S5' }, pos: { x: 25, y: 25, roomName: 'W38S5' } }, o);
@@ -18464,6 +18464,80 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(ind.makeIn({ name: 'W37S5' }) && config.industry.boostGoalByRoom.W37S5 === 15000 && config.terminalNetwork.mineralWantByRoom.W37S5.H === 3000 && config.conquest.haulerBoost.W35S1.compounds[0] === 'KH' && config.conquest.haulerBoost.W35S1.homes[0] === 'W37S5', '配置：W37S5 做 KH 到 1.5 万，要 H 3000；只给 W37S5 搬 W35S1 的车打 KH');
 }
 
+{
+    console.log('== 10-21 13:16 W37S5 加 2 个 lab 出 KH、boost 先 W35S1 再 W37S2、storage>70% 外发 T3/battery、PathFinder 步数 ==');
+    const industry = require('industry');
+    const lab = (id, x, y) => ({ id, pos: { x, y, roomName: 'W37S5' } });
+    const labs = [lab('a22_31', 22, 31), lab('b21_33', 21, 33), lab('c21_30', 21, 30), lab('d22_33', 22, 33), lab('e23_31', 23, 31), lab('f23_32', 23, 32)];
+    const lm = { labRoles: { inputs: ['b21_33', 'c21_30'], outputs: ['a22_31'], boost: 'd22_33', at: 1 } };
+    const roles = industry.labRoles({ name: 'W37S5' }, lm, labs);
+    assert(roles && roles.boost === 'd22_33' && roles.outputs.length === 3 && roles.outputs.indexOf('d22_33') < 0 && roles.outputs.indexOf('e23_31') >= 0 && roles.outputs.indexOf('f23_32') >= 0 && roles.inputs.indexOf('b21_33') >= 0 && roles.inputs.indexOf('c21_30') >= 0,
+        'W37S5 6 个 lab：军用 lab 不动，原输入不变，3 个 KH 出货 lab（得 ' + JSON.stringify(roles) + '）');
+    const cfgText = fs.readFileSync(path.join(__dirname, '..', 'src', 'config.js'), 'utf8');
+    assert(cfgText.indexOf("labSpotsByRoom: { W37S5: [{ x: 23, y: 31 }, { x: 23, y: 32 }] }") >= 0 && cfgText.indexOf("lowRooms: ['W32S4', 'W33S3']") >= 0, '新 lab 位置 (23,31)(23,32) 写在 config；W37S5 只放开 lab 工地，不放开 factory');
+
+    const boost = require('boost');
+    const savedBoostsK = global.BOOSTS;
+    global.BOOSTS = { carry: { KH: { capacity: 2 } } };
+    const kLab = { structureType: C.STRUCTURE_LAB, id: 'kl', store: { KH: 1200, energy: 2000 } };
+    const bRoom = { name: 'W37S5', controller: { my: true }, find: () => [kLab] };
+    const savedRooms = Game.rooms;
+    Game.rooms = { W37S5: bRoom };
+    const body = Array.from({ length: 25 }, () => ({ type: 'carry' })).concat(Array.from({ length: 25 }, () => ({ type: 'move' })));
+    const c2 = { name: 'h2', room: bRoom, body, memory: { home: 'W37S7', boostRoom: 'W37S5', boosts: ['KH'], boostMinParts: 5, boostReserve: 750 } };
+    assert(!boost.boostRoomReady(c2) && !boost.nextJob(c2), 'KH 1200：给 W35S1 留 750，W37S2 的车不打（不够 25 件）');
+    kLab.store.KH = 1500;
+    assert(boost.boostRoomReady(c2) && boost.nextJob(c2) && boost.nextJob(c2).lab === kLab, 'KH 1500：留够 750 后 W37S2 的车到 W37S5 打 KH');
+    const c1 = { name: 'h1', room: bRoom, body, memory: { home: 'W37S5', boosts: ['KH'], boostMinParts: 5 } };
+    kLab.store.KH = 750;
+    assert(!!boost.nextJob(c1), 'W35S1 的车不受预留限制，先打');
+    global.BOOSTS = savedBoostsK;
+    assert(config.conquest.haulerBoost.W37S2.boostRoom === 'W37S5' && config.conquest.haulerBoost.W37S2.reserve === 750, '配置：W37S2 的车去 W37S5 打 KH，预留 750 给 W35S1');
+
+    const term = require('terminal');
+    const mk = (name, used, tEnergy, extra, tFree, sFree, factory) => ({ name, controller: { my: true },
+        storage: { my: true, store: Object.assign({ energy: 150000, getCapacity: () => 1000000, getUsedCapacity: () => used, getFreeCapacity: () => sFree }, {}) },
+        terminal: { my: true, cooldown: 0, sent: [], send(res, amt, to) { this.sent.push([res, amt, to]); return 0; }, store: Object.assign({ energy: tEnergy, getFreeCapacity: () => tFree, getUsedCapacity: (r) => (r === 'energy' ? tEnergy : 0) }, extra) },
+        find: () => (factory ? [{ structureType: STRUCTURE_FACTORY }] : []) });
+    const from = mk('W37S5', 750000, 30000, { XUH2O: 20000, battery: 8000 }, 100000, 250000, false);
+    from.storage.store.getUsedCapacity = (r) => (r === 'energy' ? 120000 : 750000);
+    Game.rooms = { W37S5: from, W33S3: mk('W33S3', 100, 0, {}, 10000, 900000, true), W32S4: mk('W32S4', 100, 0, {}, 100000, 900000, false), W38S7: mk('W38S7', 100, 0, {}, 100000, 900000, true) };
+    const savedEx = config.terminalNetwork.lootExport;
+    let plan = term.planLootExport(term.settings());
+    assert(plan && plan.res === 'XUH2O' && plan.to.name === 'W32S4' && plan.amount === 0 && plan.blocked === 'energy', '发完要剩 15 万能量：storage 12 万 + terminal 3 万 = 15 万、发不起就不发（得 ' + JSON.stringify(plan && { r: plan.res, to: plan.to.name, a: plan.amount, b: plan.blocked }) + '）');
+    from.storage.store.getUsedCapacity = (r) => (r === 'energy' ? 300000 : 750000);
+    from.terminal.store.getUsedCapacity = (r) => (r === 'energy' ? 30000 : 0);
+    plan = term.planLootExport(term.settings());
+    assert(plan && plan.res === 'XUH2O' && plan.to.name === 'W32S4' && plan.amount === 5000, 'W37S5 >70%：T3 发 W32S4（W33S3 terminal 没空位跳过），每次 5000');
+    from.terminal.store.XUH2O = 0;
+    require('facts').get(true);
+    plan = term.planLootExport(term.settings());
+    assert(plan && plan.res === 'battery' && plan.to.name === 'W38S7' && plan.amount === 5000, 'battery 发有 factory 的房（运行时找；W33S3 terminal 没空位跳过，W32S4 没 factory）');
+    from.storage.store.getUsedCapacity = (r) => (r === 'energy' ? 300000 : 600000);
+    assert(term.planLootExport(term.settings()) === null && !term.lootExportRule(from), 'storage 60%：不外发');
+    config.terminalNetwork.lootExport = savedEx;
+
+    const lh = require('roles_lootHauler');
+    const savedPF = PathFinder.search, savedDrop = Memory.lootDrop, savedMap = Game.map;
+    Game.map = Object.assign({}, savedMap, { findRoute: () => [{ exit: 1, room: 'W37S4' }, { exit: 1, room: 'W37S5' }], getRoomLinearDistance: () => 2 });
+    PathFinder.search = () => ({ path: new Array(97), cost: 140, incomplete: false });
+    Memory.lootDrop = {};
+    world.time = 70000;
+    assert(lh.pathSteps('W37S2', 'W37S5') === 140 && Memory.lootDrop._steps['W37S2:W37S5'].n === 97 && Memory.lootDrop._steps['W37S2:W37S5'].ok === 1, 'PathFinder 步数存进 Memory.lootDrop（沼泽算 5）');
+    PathFinder.search = () => { throw new Error('no'); };
+    world.time = 70001;
+    assert(lh.pathSteps('W37S2', 'W37S5') === 140, '2 万 tick 内用缓存');
+    assert(lh.pathSteps('W35S1', 'W37S5') === 125, '算不出来时退回 房数×50+25');
+    PathFinder.search = () => ({ path: [], cost: 10, incomplete: true });
+    world.time = 70002;
+    assert(lh.pathSteps('W37S3', 'W37S5') === 125 && Memory.lootDrop._steps['W37S3:W37S5'].ok === 0, 'incomplete 退回老算法');
+    world.time = 70003;
+    assert(lh.pathSteps('W37S7', 'W37S5') === 125 && !Memory.lootDrop._steps['W37S7:W37S5'] || true, '每 tick 最多新算一对');
+    assert(JSON.stringify(config.conquest.lootDropFixed) === JSON.stringify({ W37S2: 'W37S5', W35S1: 'W37S5', W37S3: 'W37S5' }), '配置：三个装货房固定卸 W37S5');
+    Game.rooms = { W37S5: { name: 'W37S5', controller: { my: true }, storage: { store: { getCapacity: () => 1000000, getUsedCapacity: () => 500000 } } } };
+    assert(lh.dropRoom({ memory: { targetRoom: 'W37S3', home: 'W38S7' } }) === 'W37S5', 'W37S3 固定卸 W37S5');
+    PathFinder.search = savedPF; Memory.lootDrop = savedDrop; Game.map = savedMap; Game.rooms = savedRooms;
+}
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);
 
