@@ -5,7 +5,7 @@ const { execFileSync } = require('child_process');
 const Module = require('module');
 
 const MODULE_MAP = {
-    config: 'config.js', facts: 'facts.js', utils: 'utils.js', spawn: 'spawn.js', spawn_queue: 'spawn_queue.js', layout: 'layout.js', movement: 'movement.js', actions: 'actions.js',
+    config: 'config.js', facts: 'facts.js', loot_blocked: 'loot_blocked.js', utils: 'utils.js', spawn: 'spawn.js', spawn_queue: 'spawn_queue.js', layout: 'layout.js', movement: 'movement.js', actions: 'actions.js',
     wheel_layout: 'wheel_layout.js', visuals: 'visuals.js', task_broker: 'task_broker.js', demolition: 'demolition.js', soak_probe: 'soak_probe.js', aid: 'aid.js',
     tower: 'tower.js', links: 'links.js', remote: 'remote.js', industry: 'industry.js', terminal: 'terminal.js', market: 'market.js', boost: 'boost.js', version: 'version.js', haul_stats: 'haul_stats.js',
     roles_harvester: 'roles/harvester.js', roles_hauler: 'roles/hauler.js',
@@ -18607,6 +18607,32 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     c.pos = pos(11, 20);
     for (let i = 0; i < 10; i++) lh.stuckTick(c, obj);
     assert(c.memory.stk[1] >= 10, '绕路变远/原地连续 10 次 → 认定走不到');
+}
+{
+    console.log('== 10-21 13:36 走不到的目标记 Memory.lootBlocked：货、最短拆墙路线（hits/10 万为成本）、价值/拆墙成本/比值；同一路线合并；每房 1500 tick 最多重算一次 ==');
+    const lb = require('loot_blocked');
+    const P = (x, y) => new RoomPosition(x, y, 'W35S1');
+    const wall = { id: 'w1', structureType: STRUCTURE_WALL, pos: P(25, 20), hits: 3000000 };
+    const ramp = { id: 'r1', structureType: STRUCTURE_RAMPART, pos: P(27, 20), hits: 2000000, my: false, isPublic: false };
+    const t1 = { id: 't1', structureType: STRUCTURE_STORAGE, pos: P(30, 20), store: { XUH2O: 1000, energy: 5000 } };
+    const t2 = { id: 't2', structureType: STRUCTURE_TERMINAL, pos: P(26, 20), store: { battery: 100 } };
+    const byId = { t1, t2 };
+    const room = { name: 'W35S1', find: () => [wall, ramp], lookForAt: () => [] };
+    const savedGet = Game.getObjectById, savedMarket = Game.market, savedT = world.time;
+    Game.getObjectById = (id) => byId[id] || null;
+    Game.market = Object.assign({}, savedMarket, { getHistory: (r) => [{ volume: 10, avgPrice: r === 'XUH2O' ? 100 : r === 'battery' ? 50 : 1 }] });
+    delete Memory.lootBlocked; delete Memory.lootPrice;
+    world.time = 200000;
+    lb.note('W35S1', t1); lb.note('W35S1', t2);
+    const b = lb.analyze(room, P(20, 20));
+    const rt = b && b.routes;
+    assert(b && b.items.t1.type === STRUCTURE_STORAGE && b.items.t1.x === 30 && b.items.t1.store.XUH2O === 1000, '记类型、坐标、按种类的货');
+    const r1 = rt && rt.find((r) => r.targets.indexOf('t1') >= 0 && r.hits === 5000000);
+    assert(r1 && r1.dismantlers === 2 && r1.cost === 2300000 && r1.value === 100000 + 5000 + 5000 && r1.targets.indexOf('t2') >= 0, '拆墙路线：墙+rampart 共 500 万 hits → 2 只、230 万 credits；路线前面的 t2 合并进收益（得 ' + JSON.stringify(r1 && { h: r1.hits, d: r1.dismantlers, c: r1.cost, v: r1.value, t: r1.targets }) + '）');
+    assert(Memory.lootPrice.XUH2O.p === 100, '价格按 getHistory 加权均价缓存（一天一次）');
+    assert(lb.analyze(room, P(20, 20)) === null, '1500 tick 内不重算');
+    Game.getObjectById = savedGet; Game.market = savedMarket; world.time = savedT;
+    delete Memory.lootBlocked; delete Memory.lootPrice;
 }
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);

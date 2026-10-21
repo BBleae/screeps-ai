@@ -3,6 +3,7 @@ const movement = require('movement');
 const conquest = require('conquest');
 const retireMod = require('retire');
 const boost = require('boost');
+const lootBlocked = require('loot_blocked');
 
 const ENERGY = typeof RESOURCE_ENERGY === 'undefined' ? 'energy' : RESOURCE_ENERGY;
 
@@ -515,7 +516,8 @@ function pickTarget(creep) {
     const book = badBook(creep.room.name);
     const list = conquest.loadTargets(creep.room).filter((o) => !book[o.id]);
     const got = closestByPath(creep, list);
-    if (got.incomplete) for (const o of list) book[o.id] = Game.time;
+    if (got.incomplete) for (const o of list) { book[o.id] = Game.time; lootBlocked.note(creep.room.name, o); }
+    try { lootBlocked.analyze(creep.room, creep.pos); } catch (e) { }
     delete m.stk;
     if (!got.obj) { delete m.src; return null; }
     m.src = got.obj.id;
@@ -543,6 +545,7 @@ function loadStep(creep, carrying) {
         const k = stuckTick(creep, obj);
         if (k >= STUCK_TICKS) {
             badBook(creep.room.name)[obj.id] = Game.time;
+            lootBlocked.note(creep.room.name, obj);
             delete m.src; delete m.stk;
             return;
         }
