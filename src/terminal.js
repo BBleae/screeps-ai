@@ -32,6 +32,11 @@ function settings() {
     }, config.terminalNetwork || {});
 }
 
+function priorityList(cfg) {
+    const c = cfg || config.terminalNetwork || {};
+    return (Array.isArray(c.priorityReceivers) ? c.priorityReceivers : []).filter((n) => !utils.lootHeldRoom(n) && !utils.rcl8Room(n));
+}
+
 function noEnergyIn(room) {
     const list = (config.terminalNetwork || {}).noEnergyIn;
     return !!(room && Array.isArray(list) && list.indexOf(room.name) >= 0);
@@ -178,7 +183,7 @@ function planSenders(rooms, cfg) {
         if (left < minSend) continue;
         const budget = energyOf(from.terminal.store) - Math.max(feeKeep, feeReserveOf(from));
         const below = Number(rule.receiverBelow) || Infinity;
-        const targets = (rule.to || []).map((n) => byName[n]).filter((to) => to && to.name !== name && !noEnergyIn(to) && freeOf(to.terminal.store) > 0 && roomEnergy(to) < below)
+        const targets = (rule.to || []).map((n) => byName[n]).filter((to) => to && to.name !== name && !noEnergyIn(to) && !(to.controller && to.controller.level >= 8) && freeOf(to.terminal.store) > 0 && roomEnergy(to) < below)
             .sort((a, b) => (burnRoom(cfg, b) - burnRoom(cfg, a)) || (roomEnergy(a) - roomEnergy(b)));
         for (const to of targets) {
             let amount = Math.min(spare, Number(rule.maxSend) || cfg.maxSend, freeOf(to.terminal.store), budget, left);
@@ -201,7 +206,7 @@ function burnRoom(cfg, room) {
 }
 
 function planStarving(rooms, cfg, rich) {
-    const order = (Array.isArray(cfg.priorityReceivers) ? cfg.priorityReceivers : []).filter((n) => !utils.lootHeldRoom(n));
+    const order = priorityList(cfg);
     const below = Number(cfg.starvingBelow) || 0;
     if (!order.length || below <= 0) return null;
     const byName = {};
@@ -279,7 +284,7 @@ function planFeeReserve(rooms, cfg, rich) {
 function planHoardFlush(rooms, cfg, rich) {
     const hf = cfg.hoardFlush || {};
     const names = Array.isArray(hf.rooms) ? hf.rooms : [];
-    const order = (Array.isArray(cfg.priorityReceivers) ? cfg.priorityReceivers : []).filter((n) => !utils.lootHeldRoom(n));
+    const order = priorityList(cfg);
     if (!names.length || !order.length) return null;
     const sendAbove = Number(hf.sendAbove) || 40000;
     const keep = Number(hf.keep) || 20000;
@@ -588,4 +593,4 @@ function runMineral(rooms, cfg) {
     return record;
 }
 
-module.exports = { noEnergyIn, receiveOnly, keepAfterSend, sendHeadroom, energySendOk, planFeed, burnRoom, planStarving, planSenders, storageSpare, planForward, runForward, run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };
+module.exports = { priorityList, noEnergyIn, receiveOnly, keepAfterSend, sendHeadroom, energySendOk, planFeed, burnRoom, planStarving, planSenders, storageSpare, planForward, runForward, run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };

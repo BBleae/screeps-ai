@@ -705,7 +705,11 @@ function resetWorld(time) {
 const config = require('../src/config');
 config.sk.validate.enabled = false;
 const liveRemoteAssign = config.remote.assign;
+const realMarketCfg = structuredClone(config.market);
 const liveMarketCfg = structuredClone(config.market);
+liveMarketCfg.dailySellUnits.ZH2O = 5000;
+delete liveMarketCfg.minEffective.ZH2O;
+delete liveMarketCfg.keepAccount.ZH2O;
 const liveHaulingCfg = structuredClone(config.hauling);
 const liveBrainCfg = structuredClone(config.brain);
 config.remote.assign = {};
@@ -16722,10 +16726,13 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     Game.cpu.bucket = 9000;
     const st = (o) => Object.assign({ getUsedCapacity: (r) => (r ? Number(o[r] || 0) : 0), getFreeCapacity: () => 100000 }, o);
     const mkRoom = (name, term, stor) => ({ name, controller: { my: true, level: 7 }, terminal: { my: true, cooldown: 0, store: st(term) }, storage: { my: true, store: st(stor || {}) }, find: () => [] });
-    const sell = mk.sellable(mkRoom('W34S7', { ZH2O: 300000, GH: 500, silicon: 800, energy: 5000 }), cfg, null);
+    const zhRoom = mkRoom('W34S7', { ZH2O: 300000, GH: 500, silicon: 800, energy: 5000 });
+    Game.rooms = { W34S7: zhRoom };
+    world.time++;
+    const sell = mk.sellable(zhRoom, cfg, null);
     const zh = sell.find((e) => e.resource === 'ZH2O');
-    assert(zh && zh.amount === 5000 && !sell.find((e) => e.resource === 'GH') && sell.find((e) => e.resource === 'silicon').amount === 800,
-        'ZH2O 每日最多 5000、GH 永不卖、silicon 全卖（得 ' + JSON.stringify(sell) + '）');
+    assert(zh && zh.amount === 1500 && !sell.find((e) => e.resource === 'GH') && sell.find((e) => e.resource === 'silicon').amount === 800,
+        'ZH2O 每日最多 1500（10-21 战略猫）、GH 永不卖、silicon 全卖（得 ' + JSON.stringify(sell) + '）');
     mk.ledger().sold.ZH2O = 5000;
     assert(!mk.sellable(mkRoom('W34S7', { ZH2O: 300000 }), cfg, null).length, 'ZH2O 当日卖满 5000 就停');
     const room = mkRoom('W34S7', { energy: 50000 });
@@ -17313,7 +17320,9 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     world.time++;
     assert(utils.placeSite(r, 20, 10, C.STRUCTURE_LAB) !== C.OK, '补路刚被挡过（1500 tick 内）：lab 不放');
     world.time += 1500;
-    assert(utils.placeSite(r, 21, 10, C.STRUCTURE_LAB) !== C.OK && utils.placeSite(r, 21, 11, C.STRUCTURE_FACTORY) !== C.OK, '第一波不缺、补路没被挡，但 W31S4 不在 lowRooms：lab/factory 照样不放');
+    assert(utils.placeSite(r, 21, 11, C.STRUCTURE_FACTORY) !== C.OK, '第一波不缺、补路没被挡，但 W31S4 不在 lowRooms：factory 照样不放');
+    assert(utils.placeSite(r, 21, 10, C.STRUCTURE_LAB) === C.OK, '10-21 战略猫：RCL8 的房（sites.labAtRcl8）不在 lowRooms 也放 lab');
+    for (const key of Object.keys(world.constructionSites)) delete world.constructionSites[key];
     assert(JSON.stringify(liveSites.lowRooms) === JSON.stringify(['W32S4', 'W33S3']), '配置 config.sites.lowRooms 只放 W32S4、W33S3');
     const labRoom = makeRoom('W32S4', { rcl: 8, owner: 'me' });
     assert(utils.placeSite(labRoom, 21, 12, C.STRUCTURE_LAB) === C.OK, 'lab 房 W32S4：条件满足时 lab 可放');
@@ -17477,8 +17486,8 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
         U: { L: 'UL' }, L: { U: 'UL' }, Z: { K: 'ZK' }, K: { Z: 'ZK' }, UL: { ZK: 'G' }, ZK: { UL: 'G' } };
     const savedOpp = config.industry.labOpportunistic;
     config.industry.labOpportunistic = false;
-    assert(JSON.stringify(config.industry.labFullOutputs) === JSON.stringify(['W32S4', 'W33S3']) && JSON.stringify(config.industry.chainTargetsByRoom) === JSON.stringify({ W33S3: ['GH2O'], W32S4: ['G'] }) &&
-        JSON.stringify(config.industry.boostTargets) === JSON.stringify(['XGH2O']), '配置：两个 lab 房全输出；W33S3 主线目标 GH2O，10-20 15:29 起 W32S4 只做到 G');
+    assert(JSON.stringify(config.industry.labFullOutputs) === JSON.stringify(['W32S4', 'W33S3']) && JSON.stringify(config.industry.chainTargetsByRoom) === JSON.stringify({ W33S3: ['XGH2O', 'GH2O'], W32S4: ['G'] }) &&
+        JSON.stringify(config.industry.boostTargets) === JSON.stringify(['XGH2O']), '配置：两个 lab 房全输出；10-21 起 W33S3 主线目标 XGH2O（不够 X 时退回 GH2O），W32S4 只做到 G');
     assert(config.industry.productHold.OH.on === 5000 && config.market.dailyBuyCredits === 500000, 'OH hold 5000、原料日额度 50 万不动');
     const r3 = makeRoom('W33S3', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
     const st3 = makeStructure(r3, C.STRUCTURE_STORAGE, 28, 10, { id: 's3Store', capacity: 1000000, energy: 200000 });
@@ -17506,7 +17515,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     for (const id of Object.keys(L3)) { const lab = L3[id]; for (const k of Object.keys(lab.store)) if (k !== 'energy') delete lab.store[k]; }
     delete Memory.rooms.W33S3.labFallback;
     const q2 = ind.labPlan(r3);
-    assert(q2.product !== 'XGH2O' && q2.target !== 'XGH2O', 'W33S3 GH2O 3500、X 2000：也不做 XGH2O（得 ' + q2.product + '/' + q2.target + '）');
+    assert(q2.product === 'XGH2O' && q2.target === 'XGH2O', '10-21：W33S3 GH2O 3500、X 2000：做 XGH2O（得 ' + q2.product + '/' + q2.target + '）');
     const r4 = makeRoom('W32S4', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
     makeStructure(r4, C.STRUCTURE_STORAGE, 26, 14, { id: 's4Store', capacity: 1000000, energy: 200000 });
     makeStructure(r4, C.STRUCTURE_TERMINAL, 27, 15, { id: 's4Term', capacity: 300000, energy: 20000, extraStore: { GH2O: 3500, X: 2000 } });
@@ -17516,9 +17525,9 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(q4.outputs.length === 1 && q4.inputs.join() === 'b2,b3' && q4.product !== 'XGH2O', 'W32S4 的布局任何一对输入只够 1 个输出；10-20 15:29 起 W32S4 只做 ZK/G，有 GH2O+X 也不做 XGH2O（得 ' + JSON.stringify({ o: q4.outputs, p: q4.product }) + '）');
     const mk = require('../src/market');
     const b = config.market.buy;
-    assert(mk.buyRoomOk(b, 'W32S4', 'X') && !mk.buyRoomOk(b, 'W33S3', 'X') && !mk.buyRoomOk(b, 'W33S3', 'U') && !mk.buyRoomOk(b, 'W33S3', 'Z') && mk.buyRoomOk(b, 'W33S3', 'O'), 'X、U、Z 只给 W32S4 买（10-20 15:29 W33S3 不做 UL/ZK），O 照买');
+    assert(mk.buyRoomOk(b, 'W32S4', 'X') && mk.buyRoomOk(b, 'W33S3', 'X') && !mk.buyRoomOk(b, 'W33S3', 'U') && !mk.buyRoomOk(b, 'W33S3', 'Z') && mk.buyRoomOk(b, 'W33S3', 'O'), 'U、Z 只给 W32S4 买；10-21 起 X 也给 W33S3 买（做 XGH2O），O 照买');
     const term = require('terminal');
-    assert(term.settings().mineralWantByRoom.W33S3.X === 0 && term.settings().mineralWantByRoom.W33S3.UL === 0, 'W33S3 不再从别房要 X');
+    assert(term.settings().mineralWantByRoom.W33S3.X === 1000 && term.settings().mineralWantByRoom.W33S3.UL === 0, '10-21：W33S3 向别房要 X 1000（做 XGH2O），不要 UL');
     assert(config.industry.labTechClass === 'development' && config.industry.labTechStayWhileReacting === true, 'labTech 孵化提到 development 级，反应中不退役');
     const savedStats = Memory.stats; const savedBucket = Game.cpu.bucket;
     Memory.stats = Array.from({ length: 10 }, () => ({ cpu: 150 }));
@@ -18024,7 +18033,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
         '配置：H 上限扣 lab 用量、帐号 2 万停卖、两 lab 房各留 5000');
     const day = Math.floor(Date.now() / 86400000);
     Memory.labUse = { day, used: { H: 3000 }, made: {}, first: {} };
-    assert(mk.sellCapFor('H', cfg) === 17000 && mk.sellCapFor('ZH2O', cfg) === 5000, 'lab 今天用了 3000 H：H 上限 17000；ZH2O 不受影响');
+    assert(mk.sellCapFor('H', cfg) === 17000 && mk.sellCapFor('ZH2O', cfg) === 1500, 'lab 今天用了 3000 H：H 上限 17000；ZH2O 不受影响（1500）');
     Memory.labUse.day = day - 1;
     assert(mk.sellCapFor('H', cfg) === 20000, '换日：lab 用量归零，上限回 2 万');
     Memory.labUse = { day, used: { H: 3000 }, made: {}, first: {} };
@@ -18240,6 +18249,56 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     world.time += config.remote.reserverHoldTimeout;
     assert(config.remote.reserverHoldTimeout === 3000 && rm.reserverOnHold(home, rec) === false && rec.reserverHoldReleased === world.time && rec.reserverHoldTimeout, '挡满 3000 tick：解锁（避免外矿没 reserver → 收入低 → storage 不到 2 万的死锁）');
     Memory.highwayBlock = savedHB; Game.map = savedMap; Game.rooms = savedRooms; config.pvp.tempAvoid = savedTA;
+}
+
+{
+    console.log('== 10-21 10:25 战略猫：ZH2O 每天 ≤1500、到手 ≥1500、全帐号留 10 万；deposit 连续两个 avg10 >150 停孵并撤回；RCL8 不进 priorityReceivers ==');
+    resetWorld(123000);
+    assert(realMarketCfg.dailySellUnits.ZH2O === 1500 && realMarketCfg.minEffective.ZH2O === 1500 && realMarketCfg.keepAccount.ZH2O === 100000 && realMarketCfg.neverSell.indexOf('XZH2O') >= 0,
+        '线上配置：ZH2O 日上限 1500、到手价下限 1500、全帐号留 10 万，XZH2O 永不卖');
+    const mk = require('market');
+    const savedCfgMarket = config.market, savedMem = Memory.market, savedRooms = Game.rooms;
+    config.market = structuredClone(realMarketCfg);
+    const cfg = Object.assign({}, mk.settings());
+    Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 } };
+    assert(mk.sellFloorFor('ZH2O', 2700, cfg) === 1500 && mk.sellFloorFor('ZH2O', 1000, cfg) === 1500, '到手价下限固定 1500');
+    const zr = { name: 'W34S7', controller: { my: true, level: 8 }, terminal: { my: true, store: { ZH2O: 101000 } } };
+    Game.rooms = { W34S7: zr };
+    const z1 = mk.sellable(zr, cfg, null).find((e) => e.resource === 'ZH2O');
+    assert(z1 && z1.amount === 1000, '全帐号 10.1 万：只能卖 1000，留 10 万（得 ' + JSON.stringify(z1) + '）');
+    zr.terminal.store.ZH2O = 99000;
+    world.time++;
+    assert(!mk.sellable(zr, cfg, null).some((e) => e.resource === 'ZH2O'), '全帐号低于 10 万：不卖');
+    config.market = savedCfgMarket; Memory.market = savedMem; Game.rooms = savedRooms;
+
+    const dep = require('deposit');
+    const savedStats = Memory.stats, savedDep = Memory.deposits, savedCreeps = Game.creeps, savedLS = Memory.lootShed;
+    delete Memory.lootShed;
+    Memory.deposits = { list: {}, routes: {}, visits: {} };
+    const miner = { name: '萃香', memory: { role: 'depositMiner', depositId: 'd1' } };
+    Game.creeps = { 萃香: miner };
+    const mkStats = (t0, cpu) => Array.from({ length: 10 }, (_, i) => ({ t: t0 + i * 30, cpu }));
+    Memory.stats = mkStats(1000, 160);
+    assert(dep.cpuHold() === false, '只有一个 >150 的窗口：不挡');
+    Memory.stats = mkStats(1300, 120);
+    assert(dep.cpuHold() === false && !miner.memory.done, '第二个窗口 120：不挡');
+    Memory.stats = mkStats(1600, 155);
+    assert(dep.cpuHold() === false, '120 后面 155：还不是连续两个');
+    Memory.stats = mkStats(1900, 158);
+    assert(dep.cpuHold() === true && Memory.deposits.cpuHold && miner.memory.done === true, '连续两个窗口 155/158 >150：挡住并让在场 depositMiner 回家');
+    const home = { name: 'W33S7', controller: { my: true }, energyCapacityAvailable: 12900 };
+    Memory.deposits.list.d1 = { home: 'W33S7', room: 'W30S5', x: 1, y: 1, cd: 10, decayAt: 99999999, at: Game.time };
+    assert(dep.getDemands(home).length === 0, '挡住期间 deposit 不出任何孵化需求');
+    Memory.stats = mkStats(2200, 130);
+    assert(dep.cpuHold() === false && !Memory.deposits.cpuHold && Memory.deposits.cpuHoldLast, '最新窗口回到 150 以下：放开（记 cpuHoldLast）');
+    Memory.stats = savedStats; Memory.deposits = savedDep; Game.creeps = savedCreeps; Memory.lootShed = savedLS;
+
+    const term = require('terminal');
+    const savedR = Game.rooms;
+    Game.rooms = { W38S7: { name: 'W38S7', controller: { my: true, level: 8 } }, W33S3: { name: 'W33S3', controller: { my: true, level: 7 } } };
+    const list = term.priorityList({ priorityReceivers: ['W38S7', 'W33S3'] });
+    assert(JSON.stringify(list) === JSON.stringify(['W33S3']), 'RCL8 的房自动不算 priorityReceivers（得 ' + JSON.stringify(list) + '）');
+    Game.rooms = savedR;
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);

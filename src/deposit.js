@@ -139,7 +139,45 @@ function statsCpuOk(max, samples, minBucket) {
     return recent.reduce((a, b) => a + b, 0) / recent.length <= max;
 }
 
+function windowAvg() {
+    try { const v = require('loot_shed').avgClean(10); if (v != null) return v; } catch (e) { }
+    const stats = Array.isArray(Memory.stats) ? Memory.stats : [];
+    const recent = stats.slice(-10).map((s) => Number(s && s.cpu)).filter((v) => v > 0);
+    return recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : null;
+}
+
+function cpuHold(cfg) {
+    const c = cfg || settings();
+    const line = Number(c.holdAvg10) || Number(c.withdrawAvg) || 150;
+    const span = Math.max(30, Number(c.holdWindowTicks) || 300);
+    const m = mem();
+    const stats = Array.isArray(Memory.stats) ? Memory.stats : [];
+    const last = stats.length ? Number(stats[stats.length - 1] && stats[stats.length - 1].t) : 0;
+    const wins = Array.isArray(m.cpuWin) ? m.cpuWin : (m.cpuWin = []);
+    const prevT = wins.length ? Number(wins[wins.length - 1].t) : 0;
+    if (last > 0 && last - prevT >= span) {
+        const avg = windowAvg();
+        if (avg != null) {
+            wins.push({ t: last, avg: Math.round(avg * 10) / 10 });
+            while (wins.length > 2) wins.shift();
+        }
+    }
+    const hold = wins.length >= 2 && wins.every((w) => w.avg > line);
+    if (hold && !m.cpuHold) {
+        m.cpuHold = { at: Game.time, wins: wins.map((w) => w.avg) };
+        for (const name in Game.creeps) {
+            const cm = Game.creeps[name].memory;
+            if (cm && cm.role === 'depositMiner' && !cm.done) { cm.done = true; cm.cpuRecall = Game.time; }
+        }
+    } else if (!hold && m.cpuHold) {
+        m.cpuHoldLast = Object.assign({}, m.cpuHold, { until: Game.time });
+        delete m.cpuHold;
+    }
+    return hold;
+}
+
 function cpuOk(cfg) {
+    if (cpuHold(cfg)) return false;
     const gate = require('cpu_gate');
     if (gate.newWorkHeld()) return false;
     if (Game.cpu.bucket < (Number(cfg.newBucketMin) || 9000)) return false;
@@ -358,6 +396,11 @@ function getDemands(home) {
     if (!cfg.enabled || !home || !home.controller || !home.controller.my) return [];
     const out = [];
     const gate = require('cpu_gate');
+    if (cpuHold(cfg)) {
+        const hm = Memory.deposits;
+        if (hm && hm.list) for (const id in hm.list) if (hm.list[id].home === home.name) noteWait(hm, id, home.name, cfg, 'cpuHold');
+        return out;
+    }
     const m = Memory.deposits;
     if (m && m.list) {
         for (const id in m.list) {
@@ -386,4 +429,4 @@ function getDemands(home) {
 }
 
 module.exports = {
-    recentlyPvpDeposit, statsCpuOk, threatNear, pickHome, pathLen, minerFor, settings, run, note, hops, workable, cpuOk, minerBody, patrolTargets, getDemands, isHighway, isKeeperRoom, scoutHome };
+    recentlyPvpDeposit, statsCpuOk, cpuHold, threatNear, pickHome, pathLen, minerFor, settings, run, note, hops, workable, cpuOk, minerBody, patrolTargets, getDemands, isHighway, isKeeperRoom, scoutHome };

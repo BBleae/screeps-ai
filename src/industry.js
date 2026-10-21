@@ -494,8 +494,16 @@ function pickReaction(room, mem, roles, labsById, cfg, held, forced) {
     const boost = roles.boost && labsById[roles.boost];
     const targetStock = Object.assign({}, stock);
     if (boost) addStock(targetStock, boost.store);
-    const target = forced || wantedTarget(targetStock, cfg);
+    let target = forced || wantedTarget(targetStock, cfg);
     let step = target ? nextReactionFor(target, stock, cfg.minBatch, 0, held) : null;
+    if (!step && !forced) {
+        const goal = Math.max(1, num(cfg.boostGoal, 3000));
+        for (const t of (Array.isArray(cfg.chainTargets) ? cfg.chainTargets : [])) {
+            if (t === target || num(targetStock[t], 0) >= goal) continue;
+            const s2 = nextReactionFor(t, stock, cfg.minBatch, 0, held);
+            if (s2) { step = s2; target = t; break; }
+        }
+    }
     let stepTarget = step ? target : null;
     if (!step && cfg.opportunistic !== false) step = pickPair(stock, cfg.minBatch, held);
     if (!step) return null;
@@ -694,7 +702,7 @@ function runLabs(room, mem, state, spendAllowed) {
     for (const id of plan.outputs) {
         const output = getById(id);
         if (!output || output.room !== room || typeof output.runReaction !== 'function') continue;
-        if (output.cooldown > 0) continue;
+        if (output.cooldown > 0) { state.labs.cooling = (state.labs.cooling || 0) + 1; state.labs.active = true; continue; }
         const held = labMineral(output);
         if (held && held !== plan.product) continue;
         const ret = output.runReaction(inputA, inputB);

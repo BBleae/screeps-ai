@@ -585,7 +585,7 @@ function tryBuyEnergy(cfg, market, countScan) {
 
     const candidates = [];
     if (be.enabled && left > 0) {
-        const order = (config.terminalNetwork && config.terminalNetwork.priorityReceivers) || [];
+        const order = terminalNet.priorityList();
         for (const n of order) {
             const r = Game.rooms[n];
             if (!r || !r.terminal || r.terminal.my === false || r.terminal.cooldown > 0) continue;
@@ -1173,7 +1173,7 @@ function runOwnOrders(cfg, market) {
             return energyHave(rm) > sendAbove;
         });
         if (!senderReady && Number(market.credits) >= eFloor) {
-            const names = e.rooms === 'priorityReceivers' ? ((config.terminalNetwork || {}).priorityReceivers || []) : (e.rooms || []);
+            const names = e.rooms === 'priorityReceivers' ? terminalNet.priorityList() : (e.rooms || []);
             const cap = Number(e.maxPrice) || 45;
             let price;
             if (e.followHighestBuy) {

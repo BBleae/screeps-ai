@@ -571,6 +571,7 @@ function siteSettings() {
         lowTypes: Array.isArray(cfg.lowTypes) ? cfg.lowTypes : [STRUCTURE_LAB, STRUCTURE_FACTORY],
         lowAfterRoadBlocked: n(cfg.lowAfterRoadBlocked, 1500),
         lowRooms: Array.isArray(cfg.lowRooms) ? cfg.lowRooms : null,
+        labAtRcl8: cfg.labAtRcl8 === true,
     };
 }
 
@@ -606,6 +607,11 @@ function siteTier(type, wave) {
     return siteSettings().lowTypes.indexOf(type) >= 0 ? 'low' : 'core';
 }
 
+function rcl8Room(roomName) {
+    const room = typeof Game !== 'undefined' && Game.rooms && Game.rooms[roomName];
+    return !!(room && room.controller && room.controller.my && room.controller.level >= 8);
+}
+
 function siteAllowed(roomName, type, wave) {
     const cfg = siteSettings();
     const tally = tallySites();
@@ -615,7 +621,7 @@ function siteAllowed(roomName, type, wave) {
     if (tier === 'road') return tally.total < cfg.limit - cfg.repairReserve;
     if (tally.nonRoad >= cfg.nonRoadMax || (tally.byRoom[roomName] || 0) >= cfg.nonRoadPerRoom) return false;
     if (tier === 'core') return true;
-    if (cfg.lowRooms && cfg.lowRooms.indexOf(roomName) < 0) return false;
+    if (cfg.lowRooms && cfg.lowRooms.indexOf(roomName) < 0 && !(cfg.labAtRcl8 && type === (typeof STRUCTURE_LAB === 'undefined' ? 'lab' : STRUCTURE_LAB) && rcl8Room(roomName))) return false;
     const roadBlockedAt = Math.max(Number(Memory.siteCap && Memory.siteCap.roadBlockedAt) || 0, tally.roadBlocked ? Game.time : 0);
     return !waveRoadsPending() && Game.time - roadBlockedAt >= cfg.lowAfterRoadBlocked;
 }
@@ -1326,6 +1332,7 @@ module.exports = {
     conserveUpgradeAllowed,
     upgradeHold,
     lootExcessWork,
+    rcl8Room,
     lootActive,
     lootHeldRoom,
     towerFirstHold,
