@@ -5,7 +5,7 @@ const { execFileSync } = require('child_process');
 const Module = require('module');
 
 const MODULE_MAP = {
-    config: 'config.js', facts: 'facts.js', loot_blocked: 'loot_blocked.js', utils: 'utils.js', spawn: 'spawn.js', spawn_queue: 'spawn_queue.js', layout: 'layout.js', movement: 'movement.js', actions: 'actions.js',
+    config: 'config.js', facts: 'facts.js', cfg_overlay: 'cfg_overlay.js', loot_blocked: 'loot_blocked.js', utils: 'utils.js', spawn: 'spawn.js', spawn_queue: 'spawn_queue.js', layout: 'layout.js', movement: 'movement.js', actions: 'actions.js',
     wheel_layout: 'wheel_layout.js', visuals: 'visuals.js', task_broker: 'task_broker.js', demolition: 'demolition.js', soak_probe: 'soak_probe.js', aid: 'aid.js',
     tower: 'tower.js', links: 'links.js', remote: 'remote.js', industry: 'industry.js', terminal: 'terminal.js', market: 'market.js', boost: 'boost.js', version: 'version.js', haul_stats: 'haul_stats.js',
     roles_harvester: 'roles/harvester.js', roles_hauler: 'roles/hauler.js',
@@ -18652,6 +18652,31 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     Game.rooms = savedRooms;
     facts.get(true);
     delete Memory.factsMismatch;
+}
+{
+    console.log('== 10-21 去写死(3)：Memory.cfg 深合并覆盖层，重置时和每 100–500 tick 合并，记 Memory.cfgApplied，类型不对忽略，safeMode 不许覆盖 ==');
+    const ov = require('cfg_overlay');
+    const savedT = world.time, savedErr = Memory.errors;
+    const was = { keepByRoom: JSON.stringify(config.market.keepByRoom), share: config.conquest.lootDropFullShare, sm: JSON.stringify(config.safeMode), fixed: JSON.stringify(config.conquest.lootDropFixed) };
+    ov.state.at = null;
+    Memory.cfg = { conquest: { lootDropFullShare: 0.85, lootDropFixed: { W99S1: 'W37S5' }, haulerBoost: 'x' }, safeMode: { decisionTtl: 1 }, defense: { mySafeModeFlag: true }, nope: 1 };
+    const log = ov.apply();
+    assert(log && log.reset && config.conquest.lootDropFullShare === 0.85 && config.conquest.lootDropFixed.W99S1 === 'W37S5' && config.conquest.lootDropFixed.W35S1 === 'W37S5', '全局重置后马上合并：数值覆盖、map 里加新键、原有键保留');
+    assert(typeof config.conquest.haulerBoost === 'object' && log.ignored.some((x) => x.path === 'conquest.haulerBoost' && x.why === 'type'), '类型不对：忽略并记下');
+    assert(JSON.stringify(config.safeMode) === was.sm && log.ignored.some((x) => x.path === 'safeMode' && x.why === 'safeMode') && log.ignored.some((x) => x.why === 'safeMode' && x.path.indexOf('defense') === 0), 'safeMode 相关键（任何层级）一律不覆盖');
+    assert(log.ignored.some((x) => x.path === 'nope' && x.why === 'unknownTop') && Memory.cfgApplied === log && log.applied.indexOf('conquest.lootDropFullShare') >= 0, '未知顶层键忽略；Memory.cfgApplied 记时间、覆盖了哪些、忽略了哪些');
+    world.time += 50;
+    assert(ov.apply() === null, '间隔内不重合并');
+    world.time += 200;
+    Memory.cfg = { market: { keepByRoom: { W99S1: 5 } } };
+    ov.apply();
+    assert(config.conquest.lootDropFullShare === was.share && JSON.stringify(config.conquest.lootDropFixed) === was.fixed && config.market.keepByRoom.W99S1 === 5, 'Memory.cfg 删掉的覆盖下次合并时还原');
+    delete Memory.cfg;
+    world.time += 200;
+    ov.apply();
+    assert(JSON.stringify(config.market.keepByRoom) === was.keepByRoom && Memory.cfgApplied.applied.length === 0, '清空 Memory.cfg 后全部还原');
+    assert(ov.interval() >= 100 && ov.interval() <= 500, '间隔夹在 100–500');
+    world.time = savedT; Memory.errors = savedErr; delete Memory.cfgApplied; ov.state.at = null;
 }
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);

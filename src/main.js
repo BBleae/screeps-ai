@@ -182,6 +182,7 @@ module.exports.loop = function () {
     const spkT0 = Game.cpu.getUsed();
     spkTick = {}; spkRoom = {};
     reuseParsedMemory();
+    try { require('cfg_overlay').apply(); } catch (e) { logErr('cfgOverlay', e); }
     try { lootShed.run(); } catch (e) { logErr('lootShed', e); }
     try {
         if (typeof RawMemory !== 'undefined' && RawMemory && typeof RawMemory.setActiveSegments === 'function') {

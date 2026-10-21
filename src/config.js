@@ -720,6 +720,7 @@ module.exports = {
             },
         },
     },
+    cfgOverlay: { interval: 200 },
     brain: { retired: true },
     energy: {
         upgradeSurplus: { reserve: 50000, tiers: [[60000, 30], [100000, 45]], exitBelow: 45000, tiersByRoom: { W37S5: [[50000, 30], [60000, 'link']] }, exitBelowByRoom: { W37S5: 50000 }, linkWorkCap: 75, rooms: ['W32S4', 'W37S5', 'W33S8', 'W31S6', 'W29S3'], maxWorkPerCreep: 25, workPerMove: 5, maxCreepsByRoom: { W32S4: 1, W31S6: 1 } },
