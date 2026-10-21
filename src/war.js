@@ -79,10 +79,15 @@ function liveWar(warRole) {
         const mem = c.memory || {};
         if (mem.role !== 'warrior' || mem.targetRoom !== tgt) continue;
         if (warRole && mem.warRole !== warRole) continue;
-        if (mem.retired) continue;
+        if (mem.retired || recycleListed(name)) continue;
         out.push(c);
     }
     return out;
+}
+
+function recycleListed(name) {
+    const w = typeof Memory !== 'undefined' && Memory.ags131War;
+    return !!(w && Array.isArray(w.recycle) && w.recycle.indexOf(name) >= 0);
 }
 
 function logEvent(e, data) {
@@ -513,5 +518,5 @@ module.exports = {
     active, labActive, labCompounds, lootHaulerCap, getDemands, tick, logEvent,
     home, target, boostsFor, cpuPressure, cfg, state, liveWar, fullyBoosted,
     paused, gatherPos, staging, dist, roomOf, locked, schedule, entryCheck, cohesion, timing, deathTick,
-    primaryHealer, healerNeeded, warLive,
+    primaryHealer, healerNeeded, warLive, recycleListed,
 };

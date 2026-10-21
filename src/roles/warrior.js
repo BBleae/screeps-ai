@@ -208,6 +208,10 @@ function boostRetry(creep) {
 }
 
 function run(creep) {
+    if (!creep.memory.retired && war.recycleListed(creep.name)) {
+        creep.memory.retired = true;
+        war.logEvent('recycle', { name: creep.name, ttl: creep.ticksToLive });
+    }
     if (creep.memory.retired) { retireMod.retireAtSpawn(creep); return; }
     const w = war.state();
     if (!w) {

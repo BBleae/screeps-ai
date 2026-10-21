@@ -389,4 +389,18 @@ assert.strictEqual(ev('retreat').slice(-1)[0].d.reason, 'noSquad');
 assert.ok(!sa.acts.some((x) => x[0] === 'move') && !sh.acts.some((x) => x[0] === 'move'));
 console.log('OK');
 
+
+console.log('--- Memory.ags131War.recycle list retires claimers and they are not counted ---');
+reset();
+mk('A', 'attacker', 'W38S3', 19, 1, 1200);
+mk('H', 'healer', 'W38S3', 20, 1, 1300);
+const rc = mk('C', 'claimer', 'W38S3', 21, 1, 590);
+W().recycle = ['C'];
+assert.strictEqual(war.liveWar('claimer').length, 0);
+step();
+assert.ok(rc.memory.retired, 'listed claimer marked retired');
+assert.strictEqual(W().entryWait, 'claimer');
+assert.ok(ev('recycle').length === 1);
+console.log('OK');
+
 console.log('ALL WAR SCENARIO TESTS PASSED');
