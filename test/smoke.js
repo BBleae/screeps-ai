@@ -15213,7 +15213,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     const liveMarket = liveMarketCfg;
     const liveHauling = liveHaulingCfg;
     assert(liveMarket.keepBy.H === 0 && liveMarket.keepByRoom.W32S4.H === 5000 && liveMarket.keepByRoom.W33S3.H === 5000 && liveMarket.keepBy.K === Infinity && liveMarket.keepBy.O === Infinity, 'keepBy：H 其他房全卖、W32S4/W33S3 各留 5000，K/O 永不卖');
-    assert(liveMarket.dailySellUnits.H === 10000 && liveMarket.maxDeal === 5000 && liveMarket.minEffective.H === 450, 'H 日上限 1 万（10-21 12:56 KH 做够前）、单笔 5000、到手下限 450');
+    assert(liveMarket.dailySellUnits.H === 20000 && liveMarket.dailySellUnitsUntil.H.units === 10000 && liveMarket.dailySellUnitsUntil.H.made.KH === 15000 && liveMarket.maxDeal === 5000 && liveMarket.minEffective.H === 450, 'H 日上限 2 万，KH 累计做够 1.5 万前 1 万；单笔 5000、到手下限 450');
     assert(liveMarket.energyPrice === 44 && liveMarket.energyPriceAuto, '能量价兜底 44，开自动计算');
     assert(liveHauling.unstash.W32S4.resource === 'H' && liveHauling.unstash.W32S4.target > liveMarket.keepBy.H, 'W32S4 storage 的 H 分批搬进 terminal（目标高于保留量）');
     const savedMarketApi = Game.market, savedMem = Memory.market;
@@ -18450,6 +18450,16 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(mkt.sellable(w5, cfgS, null).map((e) => e.resource).includes('battery'), '搬完（无搜刮指令）：放开');
     Memory.market = savedMarket; Memory.conquest = savedConquest;
 
+    const savedLabUse = Memory.labUse, savedMk2 = Memory.market;
+    Memory.market = {};
+    const cfgH = Object.assign({}, mkt.settings(), { sellCapMinusLabUse: [] });
+    Memory.labUse = { day: 0, used: {}, made: {}, first: {}, total: { KH: 14995 } };
+    assert(mkt.sellCapFor('H', cfgH) === 10000, 'KH 累计 14995：H 日上限 1 万');
+    Memory.labUse.total.KH = 15000;
+    assert(mkt.sellCapFor('H', cfgH) === 20000 && Memory.market.capReleased.H, 'KH 累计到 1.5 万：自动回 2 万并记 Memory.market.capReleased');
+    Memory.labUse.total.KH = 0;
+    assert(mkt.sellCapFor('H', cfgH) === 20000, '放开后 KH 被用掉也不再收回');
+    Memory.labUse = savedLabUse; Memory.market = savedMk2;
     const ind = require('industry');
     assert(ind.makeIn({ name: 'W37S5' }) && config.industry.boostGoalByRoom.W37S5 === 15000 && config.terminalNetwork.mineralWantByRoom.W37S5.H === 3000 && config.conquest.haulerBoost.W35S1.compounds[0] === 'KH' && config.conquest.haulerBoost.W35S1.homes[0] === 'W37S5', '配置：W37S5 做 KH 到 1.5 万，要 H 3000；只给 W37S5 搬 W35S1 的车打 KH');
 }

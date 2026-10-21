@@ -745,6 +745,7 @@ function noteLabUse(roomName, a, b, product) {
     const made = use.made || (use.made = {});
     const mine = made[roomName] || (made[roomName] = {});
     if (product) mine[product] = (mine[product] || 0) + amount;
+    if (product) { const total = use.total || (use.total = {}); total[product] = (total[product] || 0) + amount; }
     const first = use.first || (use.first = {});
     const key = roomName + ':' + product;
     if (product && first[key] == null) first[key] = Game.time;

@@ -467,8 +467,22 @@ function labUsedToday(resource) {
     return Math.max(0, Number(use.used[resource]) || 0);
 }
 
+function capUntilMade(resource, cfg) {
+    const rule = cfg.dailySellUnitsUntil && cfg.dailySellUnitsUntil[resource];
+    if (!rule || !rule.made || typeof rule.made !== 'object') return null;
+    const mem = Memory.market || (Memory.market = {});
+    const done = mem.capReleased || (mem.capReleased = {});
+    if (done[resource]) return null;
+    const total = (Memory.labUse && Memory.labUse.total) || {};
+    const reached = Object.keys(rule.made).every((p) => Number(total[p] || 0) >= Number(rule.made[p]));
+    if (reached) { done[resource] = Game.time; return null; }
+    return Number(rule.units);
+}
+
 function sellCapFor(resource, cfg) {
     let base = cfg.dailySellUnits && cfg.dailySellUnits[resource];
+    const until = capUntilMade(resource, cfg);
+    if (until != null && Number.isFinite(until)) base = base == null ? until : Math.min(Number(base), until);
     const share = cfg.dailySellShare && Number(cfg.dailySellShare[resource]);
     if (share > 0) {
         const vol = dailyVolume(resource, cfg);
