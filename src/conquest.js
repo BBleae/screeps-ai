@@ -762,8 +762,7 @@ function pullLootDemands(d, home, sponsors) {
     if (!n) return out;
     const cfg = settings();
     const hbody = repeatBody(['carry', 'move'], Math.min(home.energyCapacityAvailable, Number(d.lootBudget) || cfg.lootBudget));
-    const dest = (d.deliverTo && d.deliverTo[home.name]) || home.name;
-    const hmem = attachAvoidance({ home: home.name, targetRoom: d.target, pullLoot: true, pull: d.pull, deliverTo: dest, lootOrder: d.lootOrder }, d);
+    const hmem = attachAvoidance({ home: home.name, targetRoom: d.target, pullLoot: true, pull: d.pull, lootOrder: d.lootOrder }, d);
     for (let i = 0; i < n; i++) out.push(demand('lootHauler', 'pull:' + d.target + ':' + home.name + ':' + (live + i), hbody, hmem, 90, i, d));
     if (!d.startedAt) d.startedAt = Game.time;
     return out;

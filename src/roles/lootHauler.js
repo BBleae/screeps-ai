@@ -245,11 +245,19 @@ function boostedCarry(creep) {
     return (creep.body || []).some((p) => p.type === CARRY && p.boost);
 }
 
+function lootStats() {
+    const cur = Memory.lootStats;
+    if (cur && cur.v === 2) return cur;
+    Memory.lootStats = { v: 2, since: Game.time, by: {}, hours: [] };
+    if (cur) Memory.lootStats.prev = { since: cur.since, until: Game.time, by: cur.by };
+    return Memory.lootStats;
+}
+
 function noteUnload(creep, res, amount) {
     const m = creep.memory;
-    const st = Memory.lootStats || (Memory.lootStats = { since: Game.time, by: {} });
+    const st = lootStats();
     const key = m.targetRoom || '?';
-    const rec = st.by[key] || (st.by[key] = { amt: 0, bAmt: 0, nonE: 0, trips: 0, tripT: 0, bTrips: 0, bTripT: 0, to: {} });
+    const rec = st.by[key] || (st.by[key] = { amt: 0, bAmt: 0, nonE: 0, trips: 0, tN: 0, tripT: 0, bTrips: 0, bTN: 0, bTripT: 0, to: {}, res: {} });
     rec.amt += amount;
     if (res !== ENERGY) rec.nonE += amount;
     if (boostedCarry(creep)) rec.bAmt += amount;
@@ -266,14 +274,17 @@ function noteUnload(creep, res, amount) {
 
 function noteTrip(creep) {
     const m = creep.memory;
-    if (m.tripAt && !m.dying) {
-        const st = Memory.lootStats || (Memory.lootStats = { since: Game.time, by: {} });
-        const rec = st.by[m.targetRoom];
-        if (rec) {
+    const st = lootStats();
+    const rec = st.by[m.targetRoom || '?'];
+    if (rec) {
+        const b = boostedCarry(creep);
+        rec.trips++;
+        if (b) rec.bTrips++;
+        if (m.tripAt && !m.dying) {
             const t = Game.time - m.tripAt;
-            rec.trips++;
+            rec.tN++;
             rec.tripT += t;
-            if (boostedCarry(creep)) { rec.bTrips++; rec.bTripT += t; }
+            if (b) { rec.bTN++; rec.bTripT += t; }
         }
     }
     m.tripAt = Game.time;
@@ -435,11 +446,17 @@ function noteDeath(name, mem) {
     while (log.length > 50) log.shift();
 }
 
+const STALE_KEYS = ['deliverTo', 'energyTo', 'salvageDeliver'];
+
+function boostedWith(creep, list) {
+    return (creep.body || []).some((p) => p.boost && list.indexOf(p.boost) >= 0);
+}
+
 function boostDetour(creep) {
     const m = creep.memory;
     if (!m.boostRoom || m.boostDone || m.tripAt || !boost.wanted(creep).length) return false;
     if (creep.room.name === m.boostRoom) return false;
-    if (!boost.boostRoomReady(creep)) { m.boostDone = true; return false; }
+    if (!boost.boostRoomReady(creep)) return false;
     const room = Game.rooms[m.boostRoom];
     movement.go(creep, room.storage || new RoomPosition(25, 25, m.boostRoom), { range: 3, reusePath: 20 });
     return true;
@@ -559,9 +576,13 @@ function loadStep(creep, carrying) {
 function run(creep) {
     if (creep.spawning) return;
     track(creep);
-    if (creep.memory.boosts && creep.room.name === (creep.memory.boostRoom || creep.memory.home)) {
-        if (boost.run(creep)) return;
-        if (creep.memory.boostRoom) creep.memory.boostDone = true;
+    const m0 = creep.memory;
+    for (const k of STALE_KEYS) if (m0[k] !== undefined) delete m0[k];
+    if (Array.isArray(m0.boosts) && m0.boosts.length) {
+        if (boostedWith(creep, m0.boosts)) m0.boostDone = true;
+        else if (m0.boostDone) delete m0.boostDone;
+        if (m0.boostSince !== undefined) delete m0.boostSince;
+        if (!m0.boostDone && creep.room.name === (m0.boostRoom || m0.home) && boost.nextJob(creep) && boost.apply(creep)) return;
     }
     if (boostDetour(creep)) return;
     if (lootHoldRun(creep)) return;
