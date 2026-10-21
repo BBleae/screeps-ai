@@ -18589,21 +18589,24 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     Game.rooms = savedRooms;
 }
 {
-    console.log('== 10-21 13:34 卡住判定：没疲劳、位置没变、没到目标旁才计数，10 次算走不到；一动或换目标清零 ==');
+    console.log('== 10-21 13:35 卡住判定：只在 fatigue 为 0 的 tick 比离目标的距离，变小就更新最小值并清零，没变小 +1，连续 10 次记 lootBad 换目标 ==');
     const lh = require('roles_lootHauler');
-    const c = { memory: {}, fatigue: 0, pos: { x: 10, y: 10 } };
-    assert(lh.stuckTick(c) === 0, '第一次记位置');
-    for (let i = 0; i < 4; i++) lh.stuckTick(c);
-    c.fatigue = 4;
-    for (let i = 0; i < 5; i++) lh.stuckTick(c);
-    assert(c.memory.stk[2] === 4, '有疲劳（沼泽）的 tick 不计数');
+    const pos = (x, y) => ({ x, y, roomName: 'W37S2', getRangeTo: (o) => Math.max(Math.abs(o.pos.x - x), Math.abs(o.pos.y - y)) });
+    const obj = { pos: { x: 20, y: 20, roomName: 'W37S2' } };
+    const c = { memory: {}, fatigue: 0, pos: pos(10, 20) };
+    assert(lh.stuckTick(c, obj) === 0 && c.memory.stk[0] === 10, '第一次记最小距离 10');
+    for (let i = 0; i < 4; i++) lh.stuckTick(c, obj);
+    assert(c.memory.stk[1] === 4, '距离没变小：+1');
+    c.fatigue = 6;
+    c.pos = pos(9, 20);
+    for (let i = 0; i < 5; i++) lh.stuckTick(c, obj);
+    assert(c.memory.stk[1] === 4 && c.memory.stk[0] === 10, '有疲劳（沼泽）的 tick 不计数也不清零');
     c.fatigue = 0;
-    for (let i = 0; i < 5; i++) lh.stuckTick(c);
-    assert(c.memory.stk[2] === 9, '没疲劳原地 9 次');
-    c.pos = { x: 11, y: 10 };
-    assert(lh.stuckTick(c) === 0, '一移动就清零');
-    for (let i = 0; i < 10; i++) lh.stuckTick(c);
-    assert(c.memory.stk[2] >= 10, '累计 10 次 → 认定走不到');
+    c.pos = pos(12, 20);
+    assert(lh.stuckTick(c, obj) === 0 && c.memory.stk[0] === 8, '离目标更近：更新最小值并清零');
+    c.pos = pos(11, 20);
+    for (let i = 0; i < 10; i++) lh.stuckTick(c, obj);
+    assert(c.memory.stk[1] >= 10, '绕路变远/原地连续 10 次 → 认定走不到');
 }
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);

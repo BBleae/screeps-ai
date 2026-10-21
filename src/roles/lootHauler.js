@@ -447,14 +447,19 @@ function boostDetour(creep) {
 const BAD_RETRY = 1500;
 const STUCK_TICKS = 10;
 
-function stuckTick(creep) {
+function distTo(creep, obj) {
+    if (creep.pos.roomName === obj.pos.roomName) return creep.pos.getRangeTo(obj);
+    const rooms = Game.map.getRoomLinearDistance(creep.pos.roomName, obj.pos.roomName);
+    return rooms * 50 + Math.max(Math.abs(creep.pos.x - obj.pos.x), Math.abs(creep.pos.y - obj.pos.y));
+}
+
+function stuckTick(creep, obj) {
     const m = creep.memory;
-    const x = creep.pos.x;
-    const y = creep.pos.y;
-    const t = Array.isArray(m.stk) ? m.stk : null;
-    if (!t || t[0] !== x || t[1] !== y) { m.stk = [x, y, 0]; return 0; }
-    if (creep.fatigue === 0) t[2]++;
-    return t[2];
+    const t = Array.isArray(m.stk) ? m.stk : (m.stk = [Infinity, 0]);
+    if (creep.fatigue > 0) return t[1];
+    const d = distTo(creep, obj);
+    if (d < t[0]) { t[0] = d; t[1] = 0; } else t[1]++;
+    return t[1];
 }
 const OBSTACLES = new Set(typeof OBSTACLE_OBJECT_TYPES !== 'undefined' ? OBSTACLE_OBJECT_TYPES : ['spawn', 'extension', 'constructedWall', 'link', 'storage', 'tower', 'observer', 'powerSpawn', 'extractor', 'lab', 'terminal', 'nuker', 'factory', 'invaderCore']);
 
@@ -535,7 +540,7 @@ function loadStep(creep, carrying) {
     }
     const range = creep.pos.getRangeTo(obj);
     if (range > 1) {
-        const k = stuckTick(creep);
+        const k = stuckTick(creep, obj);
         if (k >= STUCK_TICKS) {
             badBook(creep.room.name)[obj.id] = Game.time;
             delete m.src; delete m.stk;
