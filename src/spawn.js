@@ -2208,7 +2208,8 @@ function runQueue(room) {
     if (!idle.length) {
         const interval = Math.max(1, Math.floor(Number(queueSettings().busyDemandInterval) || 1));
         if (interval > 1 && !utils.isRoomPhaseTick(room.name, interval)) {
-            try { upgraderTarget(room, mem); } catch (error) { logErr('spawn.upgraderTarget ' + room.name, error); }
+            lap('q.cond');
+        try { upgraderTarget(room, mem); } catch (error) { logErr('spawn.upgraderTarget ' + room.name, error); }
             mem.spawnQueue = { at: Game.time, busy: true };
             if (mem.demand) mem.demand.skipped = (mem.demand.skipped || 0) + 1;
             lap('busy');
@@ -2220,6 +2221,7 @@ function runQueue(room) {
     if (idle.length && quietInterval > 1 && quiet && Number(quiet.at) <= Game.time && Game.time - Number(quiet.at) < quietInterval &&
         !utils.isRoomPhaseTick(room.name, quietInterval) && !state.recovering && state.readyWorkers > 0 &&
         !(room.find(FIND_HOSTILE_CREEPS) || []).length) {
+        lap('q.cond');
         try { upgraderTarget(room, mem); } catch (error) { logErr('spawn.upgraderTarget ' + room.name, error); }
         mem.spawnQueue = Object.assign({}, mem.spawnQueue, { at: Game.time, idle: idle.length, quiet: true });
         if (mem.demand) mem.demand.quietSkipped = (mem.demand.quietSkipped || 0) + 1;
@@ -2237,6 +2239,7 @@ function runQueue(room) {
         !(lastQueue.spawned && lastQueue.spawned.length) &&
         (waitInterval > baseWait || !utils.isRoomPhaseTick(room.name, waitInterval)) && !state.recovering && state.readyWorkers > 0 &&
         !(room.find(FIND_HOSTILE_CREEPS) || []).length) {
+        lap('q.cond');
         try { upgraderTarget(room, mem); } catch (error) { logErr('spawn.upgraderTarget ' + room.name, error); }
         if (mem.demand) mem.demand.waitSkipped = (mem.demand.waitSkipped || 0) + 1;
         lap('quiet');
@@ -2249,10 +2252,15 @@ function runQueue(room) {
     for (const role of PRIORITY) plannedCounts[role] = countPlannedRole(room, role);
     lap('counts');
     const defenseDemands = idle.length ? defense.getDemands(room) : [];
+    lap('d.defense');
     const expansionDemands = idle.length && !state.recovering ? expansion.getDemands(room) : [];
+    lap('d.expansion');
     const aidDemands = idle.length && !state.recovering ? aid.getDemands(room) : [];
+    lap('d.aid');
     const remoteOnly = idle.length && !state.recovering ? remote.getDemands(room) : [];
+    lap('d.remote');
     const conquestDemands = idle.length && !state.recovering ? conquest.getDemands(room) : [];
+    lap('d.conquest');
     let depositDemands = [];
     if (idle.length && !state.recovering) { try { depositDemands = depositMod.getDemands(room); } catch (e) { utils.logErr('deposit.getDemands', e); } }
     let breachDemands = [];
@@ -2372,6 +2380,7 @@ function runQueue(room) {
         upgrading.add(request.sourceIdx);
         requests.push(request);
     }
+    lap('r.hUp');
     for (const request of elasticHarvesterRequests(room, mem, state, sources, targets, survivalTargets, plannedCounts, settings, upgrading)) {
         request.onSpawn = () => {
             plannedCounts.harvester++;
@@ -2474,6 +2483,7 @@ function runQueue(room) {
     lap('x.write2');
 
     const pending = requests.some((request) => !request.opportunistic && !request.reserve && !spawnedKeys.includes(request.key));
+    lap('x.pending');
     if (pending) return;
     let bodyUpgraded = false;
     if (room.energyAvailable >= room.energyCapacityAvailable) {
@@ -2486,7 +2496,9 @@ function runQueue(room) {
                 bodyUpgraded = true;
             }
         }
+        lap('x.body');
         writeDemand(room, mem, state, plannedCounts, remoteDemands, builderBacklog, targets);
+        lap('x.write3');
     }
     if (!requests.length && !spawnedKeys.length && !bodyUpgraded) mem.spawnQuiet = { at: Game.time };
 }
