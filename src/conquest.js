@@ -960,10 +960,10 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
             const nHaul = hh ? hh.length : new Set(sponsors.concat(Array.isArray(d.haulerSponsors) ? d.haulerSponsors : [])).size || 1;
             let per = salvage ? Math.min(maxHaulers, Math.ceil(totalHaulers / nHaul)) : totalHaulers;
             if (salvage) {
-                const all = Object.values(Game.creeps || {}).filter((c) => c.memory && c.memory.role === 'lootHauler' && c.memory.salvageLoot);
-                const live = all.filter((c) => c.memory.targetRoom === d.target && c.memory.home === home.name).length;
+                const all = Object.values(Game.creeps || {}).filter((c) => c.memory && c.memory.role === 'lootHauler' && (c.memory.salvageLoot || c.memory.pullLoot));
+                const live = all.filter((c) => c.memory.salvageLoot && c.memory.targetRoom === d.target && c.memory.home === home.name).length;
                 const homeLive = all.filter((c) => c.memory.home === home.name).length;
-                per = Math.max(0, Math.min(per, maxHaulers - live, live + maxHaulers - homeLive, live + Math.max(0, Number(settings().lootHaulerTotal) || Number(d.haulers) || 0) - all.length));
+                per = Math.max(0, Math.min(per, live + maxHaulers - homeLive, live + Math.max(0, Number(settings().lootHaulerTotal) || Number(d.haulers) || 0) - all.length));
             }
             const hbody = repeatBody(['carry', 'move'], Math.min(home.energyCapacityAvailable, Number(d.lootBudget) || cfg.lootBudget));
             const hmem = attachAvoidance({ home: home.name, targetRoom: d.target, lootTiles, staging, salvageLoot: salvage, lootOrder: d.lootOrder }, d);

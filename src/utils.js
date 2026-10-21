@@ -378,6 +378,8 @@ function linkSupplyWork(room, m, cfg) {
 }
 
 function upgradeSurplusWork(room, mem) {
+    const lx = lootExcessWork(room);
+    if (lx != null) return lx;
     const cfg = (config.energy || {}).upgradeSurplus;
     if (!cfg || !room || !Array.isArray(cfg.rooms) || cfg.rooms.indexOf(room.name) < 0) return 0;
     const store = room.storage && room.storage.my !== false && room.storage.store;
@@ -961,6 +963,15 @@ function lootHeldRoom(name) {
     return lootActive(map[name]);
 }
 
+function lootExcessWork(room) {
+    const cfg = (((config.upgrading || {}).hold) || {})[room && room.name];
+    if (!cfg || !(Number(cfg.lootFloor) > 0) || !lootActive(cfg.untilLootDone)) return null;
+    if (!room.controller || !room.controller.my) return null;
+    const key = typeof RESOURCE_ENERGY === 'undefined' ? 'energy' : RESOURCE_ENERGY;
+    const energy = Number((room.storage && room.storage.my !== false && room.storage.store && room.storage.store[key]) || 0);
+    return Math.max(0, Math.floor((energy - Number(cfg.lootFloor)) / Math.max(1, Number(cfg.lootDrainTicks) || 1500)));
+}
+
 function upgradeHold(room, mem) {
     const cfg = (((config.upgrading || {}).hold) || {})[room && room.name];
     if (!cfg || !room.controller || !room.controller.my) return null;
@@ -972,7 +983,8 @@ function upgradeHold(room, mem) {
     const holdBelow = Math.min(resumeAt, Number(cfg.holdBelow) || resumeAt);
     const level = holdLevel(m, cfg, energy);
     const looting = lootActive(cfg.untilLootDone);
-    const on = looting || ((prev ? !!prev.on : true) ? level < resumeAt : level < holdBelow);
+    const lx = looting ? lootExcessWork(room) : null;
+    const on = looting ? !(lx > 0) : ((prev ? !!prev.on : true) ? level < resumeAt : level < holdBelow);
     const table = typeof CONTROLLER_DOWNGRADE !== 'undefined' ? CONTROLLER_DOWNGRADE : {};
     const full = Number(table[room.controller.level]) || 0;
     const ttd = Number(room.controller.ticksToDowngrade);
@@ -980,6 +992,8 @@ function upgradeHold(room, mem) {
     const high = full * (Number(cfg.guardHigh) || 0.9);
     const guard = on && full > 0 && Number.isFinite(ttd) && (prev && prev.guard ? ttd < high : ttd < low);
     if (!prev || prev.on !== on || prev.guard !== guard || !!prev.looting !== looting) m.upgradeHold = { on, guard, at: Game.time, energy, level, ttd, looting };
+    if (looting) m.upgradeHold.lootWork = lx;
+    else if (m.upgradeHold.lootWork != null) delete m.upgradeHold.lootWork;
     return m.upgradeHold;
 }
 
@@ -1311,6 +1325,7 @@ module.exports = {
     conserving,
     conserveUpgradeAllowed,
     upgradeHold,
+    lootExcessWork,
     lootActive,
     lootHeldRoom,
     towerFirstHold,

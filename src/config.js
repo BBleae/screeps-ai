@@ -117,7 +117,7 @@ module.exports = {
         autoClaimCpuSamples: 5,
     },
     conquest: {
-        lootHaulerTotal: 12,
+        lootHaulerTotal: 14,
         boostPlanMinBucket: 8000,
         cpuExemptHaulers: ['W37S2', 'W35S1'],
         cpuExemptHaulerBucket: 9000,
@@ -391,7 +391,7 @@ module.exports = {
         storageFeedRate: 20,
         maxUpgradersRich: { 1: 1, 2: 4, 3: 4, 4: 4, 5: 3, 6: 3, 7: 3, 8: 1 },
         forceRichUpgraders: [],
-        hold: { W31S5: { resumeAt: 10000, holdBelow: 6000, guardLow: 0.5, guardHigh: 0.9, work: 2, smooth: 0.02, retireMaxTtl: 1400 }, W37S5: { resumeAt: 150000, holdBelow: 140000, guardLow: 0.5, guardHigh: 0.9, work: 2, smooth: 0.02, retireMaxTtl: 1400, untilLootDone: ['W37S2', 'W35S1', 'W37S3'] } },
+        hold: { W31S5: { resumeAt: 10000, holdBelow: 6000, guardLow: 0.5, guardHigh: 0.9, work: 2, smooth: 0.02, retireMaxTtl: 1400 }, W37S5: { resumeAt: 150000, holdBelow: 140000, guardLow: 0.5, guardHigh: 0.9, work: 2, smooth: 0.02, retireMaxTtl: 1400, untilLootDone: ['W37S2', 'W35S1', 'W37S3'], lootFloor: 150000, lootDrainTicks: 1500 } },
         storageFullAt: 30000,
         poorBelow: 10000,
         poorBudgetShare: 0.5,
