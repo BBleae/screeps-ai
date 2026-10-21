@@ -1993,13 +1993,15 @@ function coreRequests(room, mem, state, sources, targets, survivalTargets, plann
             },
         });
     }
+    let warLabs = false;
+    try { warLabs = war.labActive(room); } catch (e) { warLabs = false; }
     for (let n = planned.labTech; n < (targets.labTech || 0); n++) {
         requests.push({
             key: 'core:labTech:' + n,
             role: 'labTech',
-            priority: (config.industry || {}).labTechClass ? settings.classes[(config.industry || {}).labTechClass] : settings.classes.opportunistic,
+            priority: warLabs ? settings.classes.survival : (config.industry || {}).labTechClass ? settings.classes[(config.industry || {}).labTechClass] : settings.classes.opportunistic,
             grace: 0,
-            opportunistic: true,
+            opportunistic: !warLabs,
             memory: { home: room.name, role: 'labTech' },
             body: (budget) => {
                 const body = labTechBody(Math.min(cap, Math.max(200, budget)));

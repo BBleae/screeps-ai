@@ -499,7 +499,9 @@ function repairTargetHits(room, structure) {
         const floorHits = Math.max(0, Number(settings.floorHits) || 0);
         const affordable = roomEnergyBudget(room) * share * raiseTicks * hitsPerEnergy / rampartCount(room);
         const roomFloor = room && config.rampartFloorByRoom ? Math.min(structure.hitsMax, Number(config.rampartFloorByRoom[room.name]) || 0) : 0;
-        return Math.max(roomFloor, Math.max(0, Math.min(cap, Math.max(floorHits, affordable))));
+        const posTable = room && config.rampartFloorByPos ? config.rampartFloorByPos[room.name] : null;
+        const posFloor = posTable && structure.pos ? Math.min(structure.hitsMax, Number(posTable[structure.pos.x + ',' + structure.pos.y]) || 0) : 0;
+        return Math.max(roomFloor, posFloor, Math.max(0, Math.min(cap, Math.max(floorHits, affordable))));
     }
     return structure.hitsMax;
 }

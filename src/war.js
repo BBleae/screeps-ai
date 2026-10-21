@@ -54,7 +54,7 @@ function boostsFor(warRole) {
 
 function warLive() {
     const w = state();
-    return !!w && w.phase !== 'won' && w.phase !== 'done' && w.phase !== 'off';
+    return !!w && !w.costCapped && w.phase !== 'won' && w.phase !== 'done' && w.phase !== 'off';
 }
 
 function labCompounds() {
@@ -79,16 +79,12 @@ function liveWar(warRole) {
         const mem = c.memory || {};
         if (mem.role !== 'warrior' || mem.targetRoom !== tgt) continue;
         if (warRole && mem.warRole !== warRole) continue;
-        if (mem.retired || recycleListed(name)) continue;
+        if (mem.retired) continue;
         out.push(c);
     }
     return out;
 }
 
-function recycleListed(name) {
-    const w = typeof Memory !== 'undefined' && Memory.ags131War;
-    return !!(w && Array.isArray(w.recycle) && w.recycle.indexOf(name) >= 0);
-}
 
 function logEvent(e, data) {
     const w = state();
@@ -155,7 +151,7 @@ const BODY_COST = { move: 50, work: 100, attack: 80, carry: 50, heal: 250, range
 
 function gatherPos(role) {
     const g = cfg().gather || {};
-    const d = { attacker: { x: 19, y: 1 }, healer: { x: 20, y: 1 }, claimer: { x: 21, y: 1 } };
+    const d = { attacker: { x: 19, y: 1 }, healer: { x: 20, y: 1 }, claimer: { x: 22, y: 4 } };
     return g[role] || d[role] || d.claimer;
 }
 
@@ -270,17 +266,112 @@ function schedule(w) {
     if (w.phase === 'assault' || w.phase === 'won') {
         next = relief == null ? Game.time : relief;
     } else {
+        const st = staging();
         const a = liveWar('attacker')[0];
-        const hs = liveWar('healer');
-        const pre = Game.time + Math.max(etaToGather(a, 'attacker'), hs.length ? Math.min.apply(null, hs.map((c) => etaToGather(c, 'healer'))) : etaToGather(null, 'healer'));
-        const good = hs.filter((c) => healerOk(c, pre));
-        const h = good.length ? good.sort((x, y) => etaToGather(x, 'healer') - etaToGather(y, 'healer'))[0] : null;
-        entry = Game.time + Math.max(etaToGather(a, 'attacker'), etaToGather(h, 'healer'));
-        const ok = cs.some((c) => deathTick(c) - Math.max(entry, Game.time + etaToGather(c, 'claimer')) >= T.entryTtl);
-        next = ok && relief != null ? relief : Math.max(Game.time, entry - arrive);
+        const stagedH = liveWar('healer').filter((c) => ready(c) && roomOf(c) === st && fullyBoosted(c) && Number(c.ticksToLive) >= T.healerEntryTtl);
+        const squadStaged = ready(a) && roomOf(a) === st && fullyBoosted(a) && stagedH.length > 0;
+        w.squadStaged = squadStaged;
+        const ok = cs.some((c) => deathTick(c) - Math.max(Game.time, Game.time + etaToGather(c, 'claimer')) >= T.entryTtl);
+        if (!squadStaged) {
+            next = null;
+            entry = null;
+        } else if (ok) {
+            const best = cs.filter((c) => deathTick(c) - Game.time - etaToGather(c, 'claimer') >= T.entryTtl)
+                .sort((x, y) => etaToGather(x, 'claimer') - etaToGather(y, 'claimer'))[0];
+            entry = Game.time + etaToGather(best, 'claimer');
+            next = relief;
+        } else {
+            entry = Game.time + arrive;
+            next = Game.time;
+        }
     }
     w.plan = { entry, nextClaimerSpawn: next, reliefSpawn: relief, at: Game.time };
     return next;
+}
+
+function boostParts(warRole) {
+    const bd = bodies()[warRole] || [];
+    const out = {};
+    for (const compound of boostsFor(warRole)) {
+        const type = BOOST_PART[compound];
+        if (!type) continue;
+        out[compound] = bd.filter((p) => p === type).length;
+    }
+    return out;
+}
+
+function labsReady(room, warRole) {
+    if (!room || typeof room.find !== 'function') return true;
+    const kind = typeof FIND_MY_STRUCTURES !== 'undefined' ? FIND_MY_STRUCTURES : 'myStructures';
+    const labs = (room.find(kind) || []).filter((s) => s.structureType === (typeof STRUCTURE_LAB !== 'undefined' ? STRUCTURE_LAB : 'lab'));
+    const need = boostParts(warRole);
+    for (const compound of Object.keys(need)) {
+        const parts = need[compound];
+        const ok = labs.some((lab) => lab.store && Number(lab.store[compound] || 0) >= parts * 30 && Number(lab.store.energy || 0) >= parts * 20);
+        if (!ok) return false;
+    }
+    return true;
+}
+
+const BODY_COST_ALL = { move: 50, work: 100, attack: 80, carry: 50, heal: 250, ranged_attack: 150, tough: 10, claim: 600 };
+
+function trackSpend(w) {
+    const sp = w.spend || (w.spend = { energy: 0, boostEnergy: 0, boosts: {}, since: Game.time });
+    for (const c of liveWarAll()) {
+        const mem = c.memory;
+        if (!mem.spendE) {
+            mem.spendE = 1;
+            sp.energy += (c.body || []).reduce((t, p) => t + (BODY_COST_ALL[p.type] || 0), 0);
+        }
+        const counted = mem.spendB || {};
+        const now = {};
+        for (const p of c.body || []) if (p.boost) now[p.boost] = (now[p.boost] || 0) + 1;
+        for (const k of Object.keys(now)) {
+            const d = now[k] - (counted[k] || 0);
+            if (d > 0) {
+                sp.boosts[k] = (sp.boosts[k] || 0) + d * 30;
+                sp.boostEnergy += d * 20;
+            }
+        }
+        if (Object.keys(now).length) mem.spendB = now;
+    }
+}
+
+function liveWarAll() {
+    const out = [];
+    if (typeof Game === 'undefined' || !Game.creeps) return out;
+    const tgt = target();
+    for (const name in Game.creeps) {
+        const c = Game.creeps[name];
+        const mem = c.memory || {};
+        if (mem.role === 'warrior' && mem.targetRoom === tgt && !c.spawning) out.push(c);
+    }
+    return out;
+}
+
+function processRecycle(w) {
+    if (!Array.isArray(w.recycle) || !w.recycle.length) { if (w.recycle && !w.recycle.length) delete w.recycle; return; }
+    const keep = [];
+    for (const entry of w.recycle) {
+        const id = entry && typeof entry === 'object' ? entry.id : null;
+        const name = typeof entry === 'string' ? entry : entry && entry.name;
+        let c = null;
+        if (id && typeof Game.getObjectById === 'function') c = Game.getObjectById(id);
+        if (!c && !id && name) c = Game.creeps[name];
+        if (!c || !c.memory || c.memory.role !== 'warrior') continue;
+        if (c.spawning) { keep.push(entry); continue; }
+        c.memory.retired = true;
+        logEvent('recycle', { name: c.name, id: c.id, ttl: c.ticksToLive });
+    }
+    if (keep.length) w.recycle = keep; else delete w.recycle;
+}
+
+function costCap(w) {
+    if (w.costCapTick == null && cfg().costCapTick != null) w.costCapTick = Number(cfg().costCapTick);
+    if (w.costCapped || w.firstHit || !w.costCapTick) return;
+    if (Game.time < Number(w.costCapTick)) return;
+    w.costCapped = { at: Game.time, spend: JSON.parse(JSON.stringify(w.spend || {})) };
+    logEvent('costCap', { tick: Game.time, spend: w.costCapped.spend });
 }
 
 function getDemands(room) {
@@ -290,12 +381,23 @@ function getDemands(room) {
     if (phase === 'done' || phase === 'off') return [];
     if (Number(Game.cpu.bucket) < (Number(cfg().bucketMin) || 5000)) { w.bucketWait = Game.time; return []; }
     const out = [];
-    if (!slotHeld('attacker', 0, 0)) out.push(demandRequest('attacker', 0, 0));
-    if (healerNeeded(w)) out.push(demandRequest('healer', 'n', 0));
+    if (w.costCapped) return [];
+    const gate = w.labGate = {};
+    if (!slotHeld('attacker', 0, 0)) {
+        gate.attacker = labsReady(room, 'attacker');
+        if (gate.attacker) out.push(demandRequest('attacker', 0, 0));
+    }
+    if (healerNeeded(w)) {
+        gate.healer = labsReady(room, 'healer');
+        if (gate.healer) out.push(demandRequest('healer', 'n', 0));
+    }
     const next = schedule(w);
     const cs = liveWar('claimer');
     const homeBusy = cs.some((c) => c.spawning || roomOf(c) === home());
-    if (!homeBusy && cs.length < timing().claimerMax && Game.time >= next) out.push(demandRequest('claimer', 'n', 0));
+    if (next != null && !homeBusy && cs.length < timing().claimerMax && Game.time >= next) {
+        gate.claimer = labsReady(room, 'claimer');
+        if (gate.claimer) out.push(demandRequest('claimer', 'n', 0));
+    }
     if (w.claimSeq != null) delete w.claimSeq;
     return out;
 }
@@ -391,7 +493,9 @@ function cohesion(w) {
     if (dist(a, h) > 3) return { why: 'apart' };
     const cl = liveWar('claimer').filter((c) => ready(c) && roomOf(c) === tgt);
     if (!locked(room)) {
-        if (!cl.some((c) => dist(c, h) <= 3)) return { why: 'claimerApart' };
+        const follow = Number(cfg().claimerFollowTicks) || 8;
+        const following = !cl.length && w.crossAt && Game.time - w.crossAt <= follow;
+        if (!following && !cl.some((c) => dist(c, h) <= 3)) return { why: 'claimerApart' };
     } else if (!cl.length && hostilesLeft(room)) {
         return { why: 'noClaimer' };
     }
@@ -504,8 +608,17 @@ function tick() {
         w.phase = 'staging';
         logEvent('resume', { left: smLeft });
     }
-    schedule(w);
-    squadTick(w);
+    processRecycle(w);
+    trackSpend(w);
+    costCap(w);
+    if (w.costCapped) {
+        w.phase = w.phase === 'assault' || w.phase === 'won' ? 'staging' : w.phase;
+        w.squad = null;
+        w.crossAt = null;
+    } else {
+        schedule(w);
+        squadTick(w);
+    }
     const names = {};
     for (const r of ['attacker', 'healer', 'claimer']) {
         names[r] = liveWar(r).map((c) => c.name);
@@ -518,5 +631,5 @@ module.exports = {
     active, labActive, labCompounds, lootHaulerCap, getDemands, tick, logEvent,
     home, target, boostsFor, cpuPressure, cfg, state, liveWar, fullyBoosted,
     paused, gatherPos, staging, dist, roomOf, locked, schedule, entryCheck, cohesion, timing, deathTick,
-    primaryHealer, healerNeeded, warLive, recycleListed,
+    primaryHealer, healerNeeded, warLive, labsReady, processRecycle, costCap, trackSpend,
 };

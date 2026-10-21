@@ -43,8 +43,18 @@ function gatherTile(creep) {
     return new RoomPosition(g.x, g.y, war.staging());
 }
 
-function toGather(creep) {
+function claimerWaitTile(creep) {
     const t = gatherTile(creep);
+    const room = Game.rooms[t.roomName];
+    if (!room || typeof room.lookForAt !== 'function') return t;
+    const kind = typeof LOOK_CREEPS !== 'undefined' ? LOOK_CREEPS : 'creep';
+    const here = room.lookForAt(kind, t.x, t.y) || [];
+    if (!here.length || here.some((c) => c.name === creep.name)) return t;
+    return new RoomPosition(t.x + 1, t.y + 1, t.roomName);
+}
+
+function toGather(creep) {
+    const t = creep.memory.warRole === 'claimer' ? claimerWaitTile(creep) : gatherTile(creep);
     if (creep.room.name === t.roomName && creep.pos.x === t.x && creep.pos.y === t.y) return true;
     goWar(creep, t, 0);
     return false;
@@ -208,10 +218,6 @@ function boostRetry(creep) {
 }
 
 function run(creep) {
-    if (!creep.memory.retired && war.recycleListed(creep.name)) {
-        creep.memory.retired = true;
-        war.logEvent('recycle', { name: creep.name, ttl: creep.ticksToLive });
-    }
     if (creep.memory.retired) { retireMod.retireAtSpawn(creep); return; }
     const w = war.state();
     if (!w) {
@@ -220,7 +226,7 @@ function run(creep) {
         return;
     }
     if (creep.memory.warRole === 'healer' && w.phase === 'staging' && creep.ticksToLive != null && creep.ticksToLive < war.timing().healerEntryTtl) {
-        const other = war.liveWar('healer').find((c) => c.name !== creep.name);
+        const other = war.liveWar('healer').find((c) => c.name !== creep.name && !c.spawning && war.fullyBoosted(c));
         if (other) {
             creep.memory.retired = true;
             war.logEvent('healerRetire', { name: creep.name, ttl: creep.ticksToLive, by: other.name });
@@ -228,6 +234,7 @@ function run(creep) {
             return;
         }
     }
+    if (w.costCapped) { retreatHome(creep); if (creep.memory.warRole === 'healer') healAround(creep); return; }
     if (boostRetry(creep)) return;
     if (boost.run(creep)) return;
     const room = Game.rooms[war.target()];
