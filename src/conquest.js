@@ -967,6 +967,11 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
             }
             const hbody = repeatBody(['carry', 'move'], Math.min(home.energyCapacityAvailable, Number(d.lootBudget) || cfg.lootBudget));
             const hmem = attachAvoidance({ home: home.name, targetRoom: d.target, lootTiles, staging, salvageLoot: salvage, lootOrder: d.lootOrder }, d);
+            const hb = (settings().haulerBoost || {})[d.target];
+            if (hb && Array.isArray(hb.homes) && hb.homes.indexOf(home.name) >= 0 && Array.isArray(hb.compounds) && hb.compounds.length) {
+                hmem.boosts = hb.compounds.slice();
+                hmem.boostMinParts = Number(hb.minParts) || 1;
+            }
             for (let i = 0; i < per; i++) demands.push(demand('lootHauler', 'loot:' + d.target + ':' + home.name + ':' + i, hbody, hmem, 90, i, d));
         }
     }

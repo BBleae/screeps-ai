@@ -373,8 +373,9 @@ function labEnergyWant(room, lab, storageRich, roomMemory) {
         return Math.max(0, Math.min(target - energyOf(lab.store), energyOf(storage.store) - min));
     }
     const labsState = roomMemory && roomMemory.industryState && roomMemory.industryState.labs;
-    if (!labsState || labsState.boostLab !== lab.id) return 0;
-    const siege = Array.isArray(cfg.boostOnlyRooms) && cfg.boostOnlyRooms.indexOf(room.name) >= 0 && conquest.siegeCompounds().length > 0;
+    const outBoost = !!labsState && labsState.boostOut === lab.id;
+    if (!labsState || (labsState.boostLab !== lab.id && !outBoost)) return 0;
+    const siege = outBoost || (Array.isArray(cfg.boostOnlyRooms) && cfg.boostOnlyRooms.indexOf(room.name) >= 0 && conquest.siegeCompounds().length > 0);
     if (!storageRich && !siege) return 0;
     const floor = siege ? Math.max(0, Number(cfg.siegeLabEnergyFloor != null ? cfg.siegeLabEnergyFloor : 10000)) : upgraderBoostRoom(room) ? Math.max(0, Number(cfg.boostLabEnergyFloor) || 0) : Math.max(0, Number(cfg.terminalFillStorageAbove) || 0);
     const surplus = energyOf(storage.store) - floor;

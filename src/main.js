@@ -220,6 +220,7 @@ module.exports.loop = function () {
             if (Game.creeps[name]) continue;
             try { defense.noteLoss(name, Memory.creeps[name]); } catch (e) { logErr('defense.noteLoss', e); }
             try { remote.noteReaperLoss(name, Memory.creeps[name]); } catch (e) { logErr('remote.noteReaperLoss', e); }
+            try { ROLES.lootHauler.noteDeath(name, Memory.creeps[name]); } catch (e) { logErr('lootHauler.noteDeath', e); }
             delete Memory.creeps[name];
         }
 

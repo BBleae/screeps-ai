@@ -81,7 +81,7 @@ function run(creep) {
         if (lab) {
             delete creep.memory.labIdleSince;
             delete creep.memory.labId;
-            const ret = creep.withdraw(lab, drain.mineral);
+            const ret = drain.partial ? creep.withdraw(lab, drain.mineral, Math.max(1, Math.min(drain.amount, creep.store.getFreeCapacity()))) : creep.withdraw(lab, drain.mineral);
             if (ret === ERR_NOT_IN_RANGE) movement.go(creep, lab, { range: 1, reusePath: 20 });
             else if (ret === OK) note(creep, 'drained', Math.min(drain.amount, creep.store.getFreeCapacity()));
             return;

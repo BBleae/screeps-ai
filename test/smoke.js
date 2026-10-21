@@ -15213,7 +15213,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     const liveMarket = liveMarketCfg;
     const liveHauling = liveHaulingCfg;
     assert(liveMarket.keepBy.H === 0 && liveMarket.keepByRoom.W32S4.H === 5000 && liveMarket.keepByRoom.W33S3.H === 5000 && liveMarket.keepBy.K === Infinity && liveMarket.keepBy.O === Infinity, 'keepBy：H 其他房全卖、W32S4/W33S3 各留 5000，K/O 永不卖');
-    assert(liveMarket.dailySellUnits.H === 20000 && liveMarket.maxDeal === 5000 && liveMarket.minEffective.H === 450, 'H 日上限 2 万、单笔 5000、到手下限 450');
+    assert(liveMarket.dailySellUnits.H === 10000 && liveMarket.maxDeal === 5000 && liveMarket.minEffective.H === 450, 'H 日上限 1 万（10-21 12:56 KH 做够前）、单笔 5000、到手下限 450');
     assert(liveMarket.energyPrice === 44 && liveMarket.energyPriceAuto, '能量价兜底 44，开自动计算');
     assert(liveHauling.unstash.W32S4.resource === 'H' && liveHauling.unstash.W32S4.target > liveMarket.keepBy.H, 'W32S4 storage 的 H 分批搬进 terminal（目标高于保留量）');
     const savedMarketApi = Game.market, savedMem = Memory.market;
@@ -15250,11 +15250,11 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
         '到手为负（12.86 − 0.8×44）一律不接，即使没有价格下限');
     assert(mk.sellable(kRoom, cfg, null).length === 0 && mk.sellable({ name: 'W35S7', terminal: { store: { O: 21520 } } }, cfg, null).length === 0, 'K、O 停卖');
     cfg.sellStopAccountBelow = {};
-    Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: { H: 18000 }, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 } };
+    Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: { H: 8000 }, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 } };
     const hs = mk.sellable({ name: 'W32S4', terminal: { store: { H: 30000 } } }, cfg, null);
-    assert(hs.length === 1 && hs[0].amount === 2000, '按 UTC 日计数：今天已卖 1.8 万，只剩 2000 额度');
+    assert(hs.length === 1 && hs[0].amount === 2000, '按 UTC 日计数：今天已卖 8000，只剩 2000 额度');
     Memory.market.ledger.day -= 1;
-    assert(mk.sellable({ name: 'W32S4', terminal: { store: { H: 30000 } } }, cfg, null)[0].amount === 20000, 'UTC 换日：额度重置为 2 万');
+    assert(mk.sellable({ name: 'W32S4', terminal: { store: { H: 30000 } } }, cfg, null)[0].amount === 10000, 'UTC 换日：额度重置为 1 万');
     Game.market = savedMarketApi; Memory.market = savedMem;
 }
 
@@ -15299,7 +15299,7 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     cfg.sellStopAccountBelow = {};
     Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 } };
     const r32 = { name: 'W32S4', terminal: { store: { energy: 30000, H: 20000 } }, storage: { store: { H: 8294 } } };
-    assert(mk.sellable(r32, cfg, null)[0].amount === 20000, 'W32S4：terminal 2 万 + storage 8294，留 5000 后可卖量被日上限 2 万封顶');
+    assert(mk.sellable(r32, cfg, null)[0].amount === 10000, 'W32S4：terminal 2 万 + storage 8294，留 5000 后可卖量被日上限 1 万封顶');
     const r32b = { name: 'W32S4', terminal: { store: { energy: 30000, H: 6000 } }, storage: { store: { H: 1000 } } };
     assert(mk.sellable(r32b, cfg, null)[0].amount === 2000, 'W32S4：terminal 6000 + storage 1000，只卖到房里剩 5000（得 ' + JSON.stringify(mk.sellable(r32b, cfg, null)) + '）');
     assert(mk.sellable({ name: 'W33S3', terminal: { store: { H: 1865 } } }, cfg, null).length === 0, 'W33S3：不到 5000 不卖');
@@ -15818,13 +15818,13 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     Game.rooms = { W34S7: { name: 'W34S7', terminal: { my: true, store: { ZH2O: 60000, energy: 10000 } } } };
     Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
     assert(!(base.ownOrders.sell || []).some((x) => x.resource === 'ZH2O'), '10-18 11:40：ZH2O 不再自挂卖单（改直接 deal）；下面只回归改价机制');
-    const capCfg = Object.assign({}, base, { dealOnly: [], ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, sell: [{ resource: 'ZH2O', room: 'W34S7' }] }) });
+    const capCfg = Object.assign({}, base, { dealOnly: [], noSellOrders: false, ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, sell: [{ resource: 'ZH2O', room: 'W34S7' }] }) });
     mk.runOwnOrders(capCfg, m);
     const feeCap = Math.floor(base.ownOrders.dailySellFeeCredits / (2015 * 0.05));
     assert(created[0] && created[0].totalAmount === Math.min(5000, feeCap), '挂单费日上限照旧封顶数量（得 ' + (created[0] && created[0].totalAmount) + '）');
     created.length = 0; delete m.orders.z1;
     Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
-    const cfg = Object.assign({}, base, { dealOnly: [], ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, dailySellFeeCredits: 600000, sell: [{ resource: 'ZH2O', room: 'W34S7' }] }) });
+    const cfg = Object.assign({}, base, { dealOnly: [], noSellOrders: false, ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, dailySellFeeCredits: 600000, sell: [{ resource: 'ZH2O', room: 'W34S7' }] }) });
     mk.runOwnOrders(cfg, m);
     assert(created[0] && created[0].price === 2015 && created[0].totalAmount === 5000, 'ZH2O 按最高买价 2015 挂（不再守 2704），一天 5000 个（得 ' + JSON.stringify(created[0]) + '）');
     world.time += 600; top = 2300;
@@ -16873,7 +16873,7 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     Game.rooms = { W34S7: { name: 'W34S7', terminal: { my: true, store: { ZH2O: 60000, energy: 10000 } } } };
     const day = Math.floor(Date.now() / 86400000);
     Memory.market = { ledger: { day, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, energyBuyCredits: 0, energyBuyByRoom: {}, deals: 0 }, orders: {} };
-    const cfg = Object.assign({}, base, { ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, sell: [{ resource: 'ZH2O', room: 'W34S7' }] }) });
+    const cfg = Object.assign({}, base, { noSellOrders: false, ownOrders: Object.assign({}, base.ownOrders, { buyMinerals: false, energy: null, sell: [{ resource: 'ZH2O', room: 'W34S7' }] }) });
     mk.runOwnOrders(cfg, m);
     assert(created.length === 0 && Memory.market.ledger.sellBlocked && Memory.market.ledger.sellBlocked.resource === 'ZH2O' && !(Memory.market.ledger.sellFees > 0), 'sell 列表里误加 ZH2O 也不挂单、不扣挂单费（得 ' + JSON.stringify(created) + '）');
     assert(mk.sellListAllowed(Object.assign({}, base, { dealOnly: [] , ownOrders: { sell: [{ resource: 'H', room: 'W32S4' }] } }), 'H', 'W32S4') === true && mk.sellListAllowed(base, 'H', 'W32S4') === false, '不在 sell 列表的资源/房间一律不挂卖单');
@@ -17486,7 +17486,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
         U: { L: 'UL' }, L: { U: 'UL' }, Z: { K: 'ZK' }, K: { Z: 'ZK' }, UL: { ZK: 'G' }, ZK: { UL: 'G' } };
     const savedOpp = config.industry.labOpportunistic;
     config.industry.labOpportunistic = false;
-    assert(JSON.stringify(config.industry.labFullOutputs) === JSON.stringify(['W32S4', 'W33S3']) && JSON.stringify(config.industry.chainTargetsByRoom) === JSON.stringify({ W33S3: ['XGH2O', 'GH2O'], W32S4: ['G'] }) &&
+    assert(JSON.stringify(config.industry.labFullOutputs) === JSON.stringify(['W32S4', 'W33S3']) && JSON.stringify(config.industry.chainTargetsByRoom) === JSON.stringify({ W33S3: ['XGH2O', 'GH2O'], W32S4: ['G'], W37S5: ['KH'] }) &&
         JSON.stringify(config.industry.boostTargets) === JSON.stringify(['XGH2O']), '配置：两个 lab 房全输出；10-21 起 W33S3 主线目标 XGH2O（不够 X 时退回 GH2O），W32S4 只做到 G');
     assert(config.industry.productHold.OH.on === 5000 && config.market.dailyBuyCredits === 500000, 'OH hold 5000、原料日额度 50 万不动');
     const r3 = makeRoom('W33S3', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
@@ -18033,15 +18033,15 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
         '配置：H 上限扣 lab 用量、帐号 2 万停卖、两 lab 房各留 5000');
     const day = Math.floor(Date.now() / 86400000);
     Memory.labUse = { day, used: { H: 3000 }, made: {}, first: {} };
-    assert(mk.sellCapFor('H', cfg) === 17000 && mk.sellCapFor('ZH2O', cfg) === 1500, 'lab 今天用了 3000 H：H 上限 17000；ZH2O 不受影响（1500）');
+    assert(mk.sellCapFor('H', cfg) === 7000 && mk.sellCapFor('ZH2O', cfg) === 1500, 'lab 今天用了 3000 H：H 上限 1 万 − 3000 = 7000；ZH2O 不受影响（1500）');
     Memory.labUse.day = day - 1;
-    assert(mk.sellCapFor('H', cfg) === 20000, '换日：lab 用量归零，上限回 2 万');
+    assert(mk.sellCapFor('H', cfg) === 10000, '换日：lab 用量归零，上限回 1 万');
     Memory.labUse = { day, used: { H: 3000 }, made: {}, first: {} };
-    Memory.market = { ledger: { day, sold: { H: 10000 }, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 } };
+    Memory.market = { ledger: { day, sold: { H: 0 }, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 } };
     const mkR = (name, h) => ({ name, controller: { my: true, level: 8 }, storage: { my: true, store: { H: 0 } }, terminal: { my: true, store: { energy: 30000, H: h } } });
     Game.rooms = { W29S3: mkR('W29S3', 30000) };
     const hs = mk.sellable(Game.rooms.W29S3, cfg, null);
-    assert(hs.length === 1 && hs[0].amount === 7000, '帐号 H 3 万：已卖 1 万、lab 用 3000：还能卖 7000（得 ' + JSON.stringify(hs) + '）');
+    assert(hs.length === 1 && hs[0].amount === 7000, '帐号 H 3 万：今天未卖、lab 用 3000：还能卖 7000（得 ' + JSON.stringify(hs) + '）');
     delete Memory.strategistAlerts;
     world.time++;
     Game.rooms = { W29S3: mkR('W29S3', 15000) };
@@ -18365,6 +18365,93 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(day.H.units === 2000 && day.H.avg === 530 && day.H.avgNet === 500 && Memory.market.soldDaily['2026-10-21'], '跨日存进 Memory.market.soldDaily');
     world.time = savedTime;
     Memory.market = savedMarket;
+}
+
+{
+    console.log('== 10-21 13:00 搬运工：快老死先卸货、卸到离装货房最近的自己房（storage<90%）、绕 10 步内捡墓碑/非能量掉落、死亡记录；不挂卖单+撤卖单；W37S5 战利品不卖；W37S5 做 KH 留 1500 给搬运工 boost ==');
+    const lh = require('roles_lootHauler');
+    const savedMap = Game.map, savedRooms = Game.rooms, savedTime = world.time, savedDrop = Memory.lootDrop, savedDeaths = Memory.haulerDeaths, savedCreeps = Game.creeps;
+    const dist = { W37S2: { W37S5: 3, W37S7: 5, W38S7: 5 }, W35S1: { W37S5: 6, W37S7: 8, W38S7: 8 }, W38S5: { W37S5: 1, W38S7: 2, W37S7: 3, W35S1: 5 }, W37S5: { W35S1: 6, W37S2: 3 }, W38S6: { W38S7: 1, W37S5: 2, W37S7: 2 } };
+    const hops = (a, b) => (dist[a] && dist[a][b] != null ? dist[a][b] : dist[b] && dist[b][a] != null ? dist[b][a] : 9);
+    Game.map = Object.assign({}, savedMap, { findRoute: (a, b) => Array.from({ length: hops(a, b) }, (_, i) => ({ exit: 1, room: 'R' + i })), getRoomLinearDistance: (a, b) => hops(a, b) });
+    const stRoom = (name, used) => ({ name, controller: { my: true }, storage: { store: { getCapacity: () => 1000000, getUsedCapacity: () => used } } });
+    Game.rooms = { W37S5: stRoom('W37S5', 229527), W37S7: stRoom('W37S7', 300000), W38S7: stRoom('W38S7', 300000) };
+    Memory.lootDrop = {};
+    world.time = 1000;
+    const list = lh.dropList('W37S2');
+    assert(list[0][0] === 'W37S5' && Memory.lootDrop.W37S2 && Memory.lootDrop.W37S2.at === 1000, 'W37S2 卸货房按离装货房路程排：W37S5 第一，缓存在 Memory.lootDrop');
+    assert(lh.dropList('W35S1')[0][0] === 'W37S5', 'W35S1 也卸 W37S5');
+    Game.rooms.W37S5 = stRoom('W37S5', 950000);
+    const mk = (o) => Object.assign({ name: 'c', spawning: false, body: [], memory: { role: 'lootHauler', home: 'W38S7', targetRoom: 'W37S2', salvageLoot: true }, room: { name: 'W38S5' }, pos: { x: 25, y: 25, roomName: 'W38S5' } }, o);
+    assert(lh.dropRoom(mk({})) === 'W37S7', 'W37S5 storage 超过 90%：送下一个最近的');
+    Game.rooms.W37S5 = stRoom('W37S5', 229527);
+    assert(lh.dropRoom(mk({})) === 'W37S5', 'W37S5 有空位：送 W37S5，不管 home 是 W38S7');
+    world.time = 1000 + 1600;
+    const c1 = mk({ ticksToLive: 60 });
+    const need = lh.needTicks(c1, 'W38S5', 'W37S5');
+    assert(need === (75 * 1.2 + 50), '回程估算 = (房数×50+25)×1.2+50（得 ' + need + '）');
+    assert(lh.ttlCheck(c1, true) === 'deliver' && c1.memory.dying && c1.memory.dying.to === 'W37S5' && c1.memory.state === 'deliver', '妖精案例：W38S5 带货 TTL 61 < 回程所需：立刻按当前位置就近卸（W37S5）');
+    const c2 = mk({ ticksToLive: 1000 });
+    assert(lh.ttlCheck(c2, true) === null && !c2.memory.dying, 'TTL 充足：照常');
+    const c3 = mk({ ticksToLive: 300, room: { name: 'W37S5' }, pos: { x: 25, y: 25, roomName: 'W37S5' } });
+    assert(lh.ttlCheck(c3, false) === 'retire', '空车在 W37S5、TTL 300 不够来回 W37S2（(175+175)×1.2+50=470）：不再去装货，退役');
+    const c4 = mk({ ticksToLive: 600, room: { name: 'W37S5' }, pos: { x: 25, y: 25, roomName: 'W37S5' } });
+    assert(lh.ttlCheck(c4, false) === null, 'TTL 600 够来回：去装货');
+    const mkObj = (id, x, y, extra) => Object.assign({ id, pos: { x, y, roomName: 'W38S6' } }, extra);
+    const tomb = mkObj('t1', 15, 1, { creep: { my: true }, store: { XKHO2: 1250, getUsedCapacity: () => 1250 } });
+    const farDrop = mkObj('d1', 40, 40, { resourceType: 'XUH2O', amount: 1250 });
+    const eDrop = mkObj('d2', 16, 2, { resourceType: 'energy', amount: 500 });
+    const nearDrop = mkObj('d3', 18, 5, { resourceType: 'XUH2O', amount: 30 });
+    const roomW38S6 = { name: 'W38S6', controller: null, find: (k) => (k === FIND_TOMBSTONES ? [tomb] : k === FIND_DROPPED_RESOURCES ? [farDrop, eDrop, nearDrop] : []) };
+    const calls = [];
+    const pickCreep = (x, y, state) => ({ name: 'p', memory: { role: 'lootHauler', targetRoom: 'W37S2', salvageLoot: true, state }, room: roomW38S6,
+        pos: { x, y, roomName: 'W38S6', getRangeTo: (o) => Math.max(Math.abs(o.pos.x - x), Math.abs(o.pos.y - y)), findClosestByRange: (arr) => arr.slice().sort((a, b) => Math.max(Math.abs(a.pos.x - x), Math.abs(a.pos.y - y)) - Math.max(Math.abs(b.pos.x - x), Math.abs(b.pos.y - y)))[0] },
+        store: { getFreeCapacity: () => 1250 }, withdraw: (o, r) => (calls.push(['w', o.id, r]), OK), pickup: (o) => (calls.push(['p', o.id]), OK) });
+    world.time = 2605;
+    const pc = pickCreep(14, 3);
+    assert(lh.routePickup(pc) && calls[0][0] === 'w' && calls[0][1] === 't1' && calls[0][2] === 'XKHO2', '去程空车：10 步内的自己墓碑里的 XKHO2 照捡（妖精 74461560 案例）');
+    calls.length = 0;
+    tomb.store = { energy: 100, getUsedCapacity: () => 100 };
+    const pc2 = pickCreep(20, 8);
+    assert(lh.routePickup(pc2) && calls[0][0] === 'p' && calls[0][1] === 'd3', '去程：墓碑只有能量不绕，地上 10 步内非能量（哪怕 30）去捡，40 步外的 XUH2O 不绕、能量掉落不捡');
+    calls.length = 0;
+    const pc3 = pickCreep(45, 45);
+    assert(lh.routePickup(pc3) && calls[0][1] === 'd1', '离 (40,40) 的 XUH2O 不到 10 步：捡');
+    calls.length = 0;
+    const pc4 = pickCreep(30, 25);
+    assert(lh.routePickup(pc4) === false && calls.length === 0, '10 步内什么都没有：不绕路');
+    const pc5 = pickCreep(20, 8);
+    pc5.memory.dying = { to: 'W37S5' };
+    assert(lh.routePickup(pc5) === false, '快老死的车不绕路捡货');
+    Memory.haulerDeaths = [];
+    lh.noteDeath('妖精', { role: 'lootHauler', dk: ['W38S6', 15, 1, 1, 74461559], ds: { XKHO2: 1250 }, home: 'W38S7', targetRoom: 'W37S2' });
+    lh.noteDeath('x', { role: 'hauler', dk: ['W1N1', 1, 1, 1, 1] });
+    assert(Memory.haulerDeaths.length === 1 && Memory.haulerDeaths[0].room === 'W38S6' && Memory.haulerDeaths[0].store.XKHO2 === 1250 && Memory.haulerDeaths[0].ttl === 1, '死亡记录：房、坐标、货、TTL（只记 lootHauler）');
+    for (let i = 0; i < 60; i++) lh.noteDeath('n' + i, { role: 'lootHauler', dk: ['W1N1', 1, 1, 1, 1] });
+    assert(Memory.haulerDeaths.length === 50, '只留最近 50 条');
+    Game.map = savedMap; Game.rooms = savedRooms; world.time = savedTime; Memory.lootDrop = savedDrop; Memory.haulerDeaths = savedDeaths; Game.creeps = savedCreeps;
+
+    const mkt = require('market');
+    const savedMarket = Memory.market, savedConquest = Memory.conquest;
+    const cfgM = Object.assign({}, mkt.settings());
+    assert(cfgM.noSellOrders === true && JSON.stringify(cfgM.lootHoldRooms) === JSON.stringify(['W37S5']), '配置：不挂卖单；W37S5 搬运期间战利品不卖');
+    Memory.market = { ledger: { day: Math.floor(Date.now() / 86400000), sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 }, orders: {} };
+    const cancelled = [];
+    const mm = { credits: 1e7, orders: { s1: { id: 's1', type: 'sell', resourceType: 'ZH2O', roomName: 'W34S7', remainingAmount: 900, price: 2000 }, b1: { id: 'b1', type: 'buy', resourceType: 'energy', roomName: 'W31S8', remainingAmount: 4500, price: 40 } },
+        cancelOrder: (id) => (cancelled.push(id), OK), createOrder: () => OK, getAllOrders: () => [], getHistory: () => [] };
+    mkt.runOwnOrders(Object.assign({}, cfgM, { ownOrders: Object.assign({}, cfgM.ownOrders, { buyMinerals: false, energy: null }) }), mm);
+    assert(cancelled.includes('s1') && !cancelled.includes('b1') && Memory.market.sellCancelled && Memory.market.sellCancelled[0].res === 'ZH2O', '已挂的卖单（ZH2O）撤掉并记在 Memory.market.sellCancelled；买能量单不动');
+    Memory.conquest = [{ type: 'salvageLoot', target: 'W35S1', phase: 'loot' }];
+    const w5 = { name: 'W37S5', terminal: { store: { XKHO2: 20000, battery: 30000, L: 20000 } } };
+    const cfgS = Object.assign({}, cfgM, { keepBy: {}, keepAccount: {}, dailySellUnits: {}, sellStopAccountBelow: {}, keepByRoom: {} });
+    const s5 = mkt.sellable(w5, cfgS, null).map((e) => e.resource);
+    assert(!s5.includes('XKHO2') && !s5.includes('battery') && s5.includes('L'), '搬运期间 W37S5 的 T3、battery 不卖，其他照旧');
+    Memory.conquest = [];
+    assert(mkt.sellable(w5, cfgS, null).map((e) => e.resource).includes('battery'), '搬完（无搜刮指令）：放开');
+    Memory.market = savedMarket; Memory.conquest = savedConquest;
+
+    const ind = require('industry');
+    assert(ind.makeIn({ name: 'W37S5' }) && config.industry.boostGoalByRoom.W37S5 === 15000 && config.terminalNetwork.mineralWantByRoom.W37S5.H === 3000 && config.conquest.haulerBoost.W35S1.compounds[0] === 'KH' && config.conquest.haulerBoost.W35S1.homes[0] === 'W37S5', '配置：W37S5 做 KH 到 1.5 万，要 H 3000；只给 W37S5 搬 W35S1 的车打 KH');
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);

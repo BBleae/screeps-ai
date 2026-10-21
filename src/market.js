@@ -503,6 +503,7 @@ function sellable(room, cfg, hold) {
     for (const key of Object.keys(store)) {
         if (key === ENERGY || key === POWER) continue;
         if (hold && hold.has(key)) continue;
+        if (lootHeld(room, key, cfg)) continue;
         const amount = store[key];
         const keep = keepFor(key, cfg);
         if (typeof amount !== 'number' || !(amount > keep)) continue;
@@ -944,6 +945,27 @@ function roomEnergyOpen(market, roomName) {
         x.roomName === roomName && Number(x.remainingAmount) > 0);
 }
 
+function cancelSellOrders(market, live) {
+    const mem = Memory.market || (Memory.market = {});
+    for (const x of Object.values(live)) {
+        if (!x || x.type !== (typeof ORDER_SELL !== 'undefined' ? ORDER_SELL : 'sell') || !(Number(x.remainingAmount) > 0)) continue;
+        const ret = market.cancelOrder(x.id);
+        const log = Array.isArray(mem.sellCancelled) ? mem.sellCancelled : (mem.sellCancelled = []);
+        log.push({ at: Game.time, id: x.id, res: x.resourceType, room: x.roomName, left: Number(x.remainingAmount), price: x.price, ret });
+        while (log.length > 30) log.shift();
+    }
+}
+
+function lootHoldActive() {
+    return (Array.isArray(Memory.conquest) ? Memory.conquest : []).some((d) => d && (d.type === 'salvageLoot' || d.type === 'pullLoot') && !d.completed && d.phase !== 'done');
+}
+
+function lootHeld(room, key, cfg) {
+    if (!Array.isArray(cfg.lootHoldRooms) || cfg.lootHoldRooms.indexOf(room.name) < 0) return false;
+    if (!(key === 'battery' || /^X[A-Z0-9]+$/.test(key))) return false;
+    return lootHoldActive();
+}
+
 function syncOrders(cfg, market) {
     const book = orderBook();
     const led = ledger();
@@ -960,6 +982,7 @@ function syncOrders(cfg, market) {
         }
         if (swept) led.swept = (led.swept || 0) + swept;
     }
+    if (cfg.noSellOrders && typeof market.cancelOrder === 'function') cancelSellOrders(market, live);
     for (const key of Object.keys(book)) {
         const o = book[key];
         if (!o.id) {
@@ -1041,6 +1064,7 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
     const key = type + ':' + room + ':' + resource;
     const book = orderBook();
     if (book[key] || !(amount > 0) || !(price > 0)) return null;
+    if (type === 'sell' && cfg.noSellOrders) return null;
     if (type === 'sell' && Array.isArray(cfg.neverSell) && cfg.neverSell.indexOf(resource) >= 0) return null;
     const led = ledger();
     if (type === 'buy' && resource === ENERGY && roomEnergyOpen(market, room).length) {

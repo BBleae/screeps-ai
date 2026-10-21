@@ -187,7 +187,8 @@ function labSettings(room) {
         boostTargets: Array.isArray(cfg.boostTargets) ? cfg.boostTargets : [],
         boostLabTargets: room && cfg.boostCompoundsByRoom && Array.isArray(cfg.boostCompoundsByRoom[room.name]) ? cfg.boostCompoundsByRoom[room.name] : boostTargets,
         boostMinLoad: Math.max(1, num(room && cfg.boostMinLoadByRoom && cfg.boostMinLoadByRoom[room.name], num(cfg.labBoostStock, 1000))),
-        boostGoal: Math.max(1, num(cfg.boostGoal, 3000)),
+        boostGoal: Math.max(1, num(room && cfg.boostGoalByRoom && cfg.boostGoalByRoom[room.name], num(cfg.boostGoal, 3000))),
+        outputKeep: Math.max(0, num(room && makeIn(room) && makeIn(room).keepOutput, 0)),
         boostStock: Math.max(1, num(room && cfg.labBoostStockByRoom && cfg.labBoostStockByRoom[room.name], num(cfg.labBoostStock, 1000))),
         opportunistic: cfg.labOpportunistic !== false,
         noMake: room && cfg.labNoMakeByRoom && Array.isArray(cfg.labNoMakeByRoom[room.name]) ? cfg.labNoMakeByRoom[room.name] : [],
@@ -310,6 +311,11 @@ function rolesValid(roles, labsById) {
     if (inputs.some((lab) => !lab) || inputs[0] === inputs[1]) return false;
     return roles.outputs.every((id) => labsById[id] && roles.inputs.indexOf(id) < 0 &&
         inputs.every((input) => chebyshev(input.pos, labsById[id].pos) <= 2));
+}
+
+function makeIn(room) {
+    const by = industryConfig().boostRoomMake;
+    return room && by && by[room.name] ? by[room.name] : null;
 }
 
 function boostOnlyRoom(room) {
@@ -546,7 +552,7 @@ function computeLabPlan(room) {
         }
     }
     const cfg = labSettings(room);
-    const reaction = boostOnlyRoom(room) ? null : chooseReaction(room, mem, roles, labsById, cfg);
+    const reaction = boostOnlyRoom(room) && !makeIn(room) ? null : chooseReaction(room, mem, roles, labsById, cfg);
     const wants = [];
     const drains = [];
     const need = {};
@@ -569,6 +575,8 @@ function computeLabPlan(room) {
         const held = labMineral(lab);
         if (!held) continue;
         const amount = storeOf(lab, held);
+        const keep = cfg.outputKeep > 0 && (!reaction || held === reaction.product) && inChain(held, cfg.chainTargets) ? cfg.outputKeep : 0;
+        if (keep > 0) { if (amount >= keep + cfg.minBatch) drains.push({ labId: id, mineral: held, amount: amount - keep, partial: true }); continue; }
         if (amount >= cfg.minBatch || !reaction || held !== reaction.product) drains.push({ labId: id, mineral: held, amount });
     }
     const boostWant = boostLabJob(room, roles, labsById, cfg, reaction, wants, drains);
@@ -690,6 +698,7 @@ function runLabs(room, mem, state, spendAllowed) {
         wants: plan ? plan.wants.length : 0,
         drains: plan ? plan.drains.length : 0,
         boostLab: plan ? plan.boost : null,
+        boostOut: plan && makeIn(room) ? plan.output : null,
         active: false,
     };
     if (!ready) return;
@@ -1001,4 +1010,4 @@ function run(room) {
     }
 }
 
-module.exports = { factoryPlan, factoryGate, techPlan, accountHave, boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS };
+module.exports = { makeIn, factoryPlan, factoryGate, techPlan, accountHave, boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS };

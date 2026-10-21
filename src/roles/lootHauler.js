@@ -2,6 +2,7 @@
 const movement = require('movement');
 const conquest = require('conquest');
 const retireMod = require('retire');
+const boost = require('boost');
 
 const ENERGY = typeof RESOURCE_ENERGY === 'undefined' ? 'energy' : RESOURCE_ENERGY;
 
@@ -14,53 +15,94 @@ function nonEnergyKey(store) {
     return null;
 }
 
+const stepCache = { at: -1, by: {} };
 function routeSteps(creep, from, to) {
     if (from === to) return 25;
+    if (Game.time - stepCache.at > 1500) { stepCache.at = Game.time; stepCache.by = {}; }
+    const key = from + ':' + to;
+    if (stepCache.by[key] != null) return stepCache.by[key];
     const avoid = movement.lootAvoidFor ? movement.lootAvoidFor(creep, new RoomPosition(25, 25, to)) : null;
     const r = Game.map.findRoute(from, to, { routeCallback: (n) => (n !== to && avoid && avoid.has(n) ? Infinity : 1) });
-    return Array.isArray(r) ? r.length * 50 : Infinity;
+    const steps = Array.isArray(r) ? r.length * 50 + 25 : Infinity;
+    stepCache.by[key] = steps;
+    return steps;
 }
 
-function checkDeliverReach(creep, home) {
+const DROP_REFRESH = 20000;
+function dropList(target) {
+    const all = Memory.lootDrop || (Memory.lootDrop = {});
+    const rec = all[target];
+    if (rec && Game.time - rec.at < DROP_REFRESH && Array.isArray(rec.list) && rec.list.length) return rec.list;
+    const lr = require('config').lootRoutes || {};
+    const hard = new Set(lr.hardAvoid || []);
+    const out = [];
+    for (const name in Game.rooms) {
+        const r = Game.rooms[name];
+        if (!r.controller || !r.controller.my || !r.storage) continue;
+        if (Game.map.getRoomLinearDistance(target, name) > 12) continue;
+        const route = name === target ? [] : Game.map.findRoute(target, name, { routeCallback: (n) => (n !== name && hard.has(n) ? Infinity : 1) });
+        if (!Array.isArray(route)) continue;
+        out.push([name, route.length]);
+    }
+    out.sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1));
+    all[target] = { at: Game.time, list: out };
+    return out;
+}
+
+function storageOk(room) {
+    const st = room && room.storage;
+    if (!st || !st.store) return false;
+    const cap = typeof st.store.getCapacity === 'function' ? Number(st.store.getCapacity()) : 1000000;
+    const used = typeof st.store.getUsedCapacity === 'function' ? Number(st.store.getUsedCapacity()) : 0;
+    return used < cap * (Number((require('config').conquest || {}).lootDropFullShare) || 0.9);
+}
+
+function dropRoom(creep) {
     const m = creep.memory;
-    if (creep.room.name === home || creep.ticksToLive == null) return home;
-    if (m.dChk && Game.time - m.dChk < 10) return home;
-    m.dChk = Game.time;
-    const budget = creep.ticksToLive - 30;
-    if (routeSteps(creep, creep.room.name, home) <= budget) return home;
+    const target = m.targetRoom;
+    if (!target) return m.home;
+    const list = dropList(target);
+    for (const [name] of list) if (storageOk(Game.rooms[name])) return name;
+    return list.length ? list[0][0] : m.home;
+}
+
+function needTicks(creep, from, to) {
+    return routeSteps(creep, from, to) * 1.2 + 50;
+}
+
+function nearestStorage(creep) {
+    const here = creep.room.name;
+    if (creep.room.controller && creep.room.controller.my && creep.room.storage) return here;
     let best = null;
     let bestSteps = Infinity;
     for (const name in Game.rooms) {
         const r = Game.rooms[name];
         if (!r.controller || !r.controller.my || !r.storage) continue;
-        if (Game.map.getRoomLinearDistance(creep.room.name, name) * 50 > budget) continue;
-        const steps = routeSteps(creep, creep.room.name, name);
-        if (steps <= budget && steps < bestSteps) { best = name; bestSteps = steps; }
+        if (Game.map.getRoomLinearDistance(here, name) * 50 > bestSteps) continue;
+        const steps = routeSteps(creep, here, name);
+        if (steps < bestSteps || (steps === bestSteps && storageOk(r))) { best = name; bestSteps = steps; }
     }
-    if (best && best !== home) { m.deliverTo = best; m.deliverSwitch = { at: Game.time, from: home, to: best }; return best; }
-    return home;
+    return best;
 }
 
-function lastTripDue(creep, home) {
+function ttlCheck(creep, carrying) {
     const ttl = creep.ticksToLive;
-    if (ttl == null || ttl > 250) return false;
     const m = creep.memory;
-    if (m.lastTrip) return true;
-    if (!m.ltChk || m.ltChk[0] !== creep.room.name || Game.time - m.ltChk[2] >= 10) {
-        let best = creep.room.controller && creep.room.controller.my && creep.room.storage ? Math.max(Math.abs(creep.pos.x - creep.room.storage.pos.x), Math.abs(creep.pos.y - creep.room.storage.pos.y)) : routeSteps(creep, creep.room.name, m.deliverTo || home);
-        if (best > ttl) {
-            for (const name in Game.rooms) {
-                const r = Game.rooms[name];
-                if (name === creep.room.name || !r.controller || !r.controller.my || !r.storage) continue;
-                if (Game.map.getRoomLinearDistance(creep.room.name, name) * 50 >= best) continue;
-                best = Math.min(best, routeSteps(creep, creep.room.name, name));
-            }
-        }
-        m.ltChk = [creep.room.name, best, Game.time];
+    if (ttl == null) return null;
+    if (m.dying) return carrying ? 'deliver' : 'retire';
+    const here = creep.room.name;
+    const drop = dropRoom(creep);
+    if (carrying && ttl < needTicks(creep, here, drop)) {
+        m.dying = { to: nearestStorage(creep) || drop, at: Game.time, ttl };
+        m.state = 'deliver';
+        return 'deliver';
     }
-    if (ttl >= m.ltChk[1] + 20) return false;
-    m.lastTrip = Game.time;
-    return true;
+    if (!carrying && m.state !== 'deliver') {
+        const target = m.targetRoom;
+        const out = here === target ? 0 : routeSteps(creep, here, target);
+        if (ttl < (out + routeSteps(creep, target, drop)) * 1.2 + 50) return 'retire';
+    }
+    return null;
 }
 
 function freeStand(creep, obj) {
@@ -111,21 +153,23 @@ function topUpDrop(creep, near) {
     return true;
 }
 
+const PICK_DETOUR = 10;
 function routePickup(creep) {
     const m = creep.memory;
-    if (!creep.store || creep.store.getFreeCapacity() <= 0) { delete m.pick; return false; }
+    if (m.dying || !creep.store || creep.store.getFreeCapacity() <= 0) { delete m.pick; return false; }
     const lr = require('config').lootRoutes || {};
     const list = lr[m.targetRoom];
     if (!Array.isArray(list) || list.indexOf(creep.room.name) < 0) { delete m.pick; return false; }
     let obj = m.pick ? Game.getObjectById(m.pick) : null;
-    if (obj && obj.pos.roomName !== creep.room.name) obj = null;
+    if (obj && (obj.pos.roomName !== creep.room.name || creep.pos.getRangeTo(obj) > PICK_DETOUR)) obj = null;
     if (!obj) {
         delete m.pick;
         if (Game.time % 5 !== 0) return false;
-        const outbound = m.salvageLoot && m.state !== 'deliver';
-        const tombs = creep.room.find(FIND_TOMBSTONES).filter((t) => t.creep && t.creep.my && t.store.getUsedCapacity() > 0 && !(outbound && conquest.salvagePickResource(t.store, m.lootOrder) === ENERGY));
+        const outbound = m.state !== 'deliver';
+        const near = (o) => creep.pos.getRangeTo(o) <= PICK_DETOUR;
+        const tombs = creep.room.find(FIND_TOMBSTONES).filter((t) => t.creep && t.creep.my && t.store.getUsedCapacity() > 0 && near(t) && !(outbound && conquest.salvagePickResource(t.store, m.lootOrder) === ENERGY));
         const own = creep.room.controller && creep.room.controller.my;
-        const drops = own ? [] : creep.room.find(FIND_DROPPED_RESOURCES).filter((r) => r.amount >= 50 && !(outbound && r.resourceType === ENERGY));
+        const drops = own ? [] : creep.room.find(FIND_DROPPED_RESOURCES).filter((r) => near(r) && (r.resourceType !== ENERGY ? r.amount > 0 : !outbound && r.amount >= 50));
         const all = tombs.concat(drops);
         if (!all.length) return false;
         obj = creep.pos.findClosestByRange(all);
@@ -134,9 +178,9 @@ function routePickup(creep) {
     }
     if (obj.store) {
         const res = conquest.salvagePickResource(obj.store, m.lootOrder);
-        if (!res || (m.salvageLoot && m.state !== 'deliver' && res === ENERGY)) { delete m.pick; return false; }
-        if (creep.withdraw(obj, res) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 20 });
-    } else if (creep.pickup(obj) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 20 });
+        if (!res || (m.state !== 'deliver' && res === ENERGY)) { delete m.pick; return false; }
+        if (creep.withdraw(obj, res) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 5 });
+    } else if (creep.pickup(obj) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 5 });
     return true;
 }
 
@@ -149,56 +193,58 @@ function handOff(creep) {
     return creep.transfer(mate, res) === OK;
 }
 
-function salvageDirective(target) {
-    for (const d of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (d && d.target === target && !d.completed) return d;
-    return null;
+function boostedCarry(creep) {
+    return (creep.body || []).some((p) => p.type === CARRY && p.boost);
 }
 
-function energyOnly(creep) {
-    const used = creep.store.getUsedCapacity();
-    return used > 0 && Number(creep.store[ENERGY] || 0) >= used;
-}
-
-function energyDest(creep) {
+function noteUnload(creep, res, amount) {
     const m = creep.memory;
-    if (!m.salvageLoot || !energyOnly(creep)) { delete m.eDeliver; return null; }
-    if (m.eDeliver && Game.time - (m.eDeliver.at || 0) < 50) return m.eDeliver.to;
-    const d = salvageDirective(m.targetRoom);
-    const list = d && Array.isArray(d.energyTo) ? d.energyTo : null;
-    if (!list || !list.length) return null;
-    const budget = (creep.ticksToLive == null ? 1500 : creep.ticksToLive) - 30;
-    let best = null;
-    let bestSteps = Infinity;
-    for (const name of list) {
-        const r = Game.rooms[name];
-        if (!r || !r.storage || !r.controller || !r.controller.my) continue;
-        const steps = routeSteps(creep, creep.room.name, name);
-        if (steps <= budget && steps < bestSteps) { best = name; bestSteps = steps; }
-    }
-    m.eDeliver = { to: best, at: Game.time };
-    return best;
+    const st = Memory.lootStats || (Memory.lootStats = { since: Game.time, by: {} });
+    const key = m.targetRoom || '?';
+    const rec = st.by[key] || (st.by[key] = { amt: 0, bAmt: 0, nonE: 0, trips: 0, tripT: 0, bTrips: 0, bTripT: 0, to: {} });
+    rec.amt += amount;
+    if (res !== ENERGY) rec.nonE += amount;
+    if (boostedCarry(creep)) rec.bAmt += amount;
+    rec.to[creep.room.name] = (rec.to[creep.room.name] || 0) + amount;
 }
 
-function deliver(creep, home) {
+function noteTrip(creep) {
+    const m = creep.memory;
+    if (m.tripAt && !m.dying) {
+        const st = Memory.lootStats || (Memory.lootStats = { since: Game.time, by: {} });
+        const rec = st.by[m.targetRoom];
+        if (rec) {
+            const t = Game.time - m.tripAt;
+            rec.trips++;
+            rec.tripT += t;
+            if (boostedCarry(creep)) { rec.bTrips++; rec.bTripT += t; }
+        }
+    }
+    m.tripAt = Game.time;
+}
+
+function deliver(creep) {
     if (handOff(creep)) return true;
-    if (creep.memory.deliverTo) home = creep.memory.deliverTo;
-    const eTo = energyDest(creep);
-    if (eTo) home = eTo;
-    home = checkDeliverReach(creep, home);
+    const m = creep.memory;
+    const home = m.dying && m.dying.to ? m.dying.to : dropRoom(creep);
+    m.drop = home;
     const room = Game.rooms[home];
     if (!room || creep.room.name !== home || !room.storage) {
-        if (creep.ticksToLive > 60 && routePickup(creep)) return true;
+        if (routePickup(creep)) return true;
         goRoom(creep, home);
         return true;
     }
     const carrying = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
-    if (!carrying) { delete creep.memory.eDeliver; return false; }
-    const order = creep.memory.lootOrder;
-    const res = (creep.memory.salvageLoot ? conquest.salvagePickResource(creep.store, order) : null) || nonEnergyKey(creep.store) || ENERGY;
+    if (!carrying) { noteTrip(creep); return false; }
+    const order = m.lootOrder;
+    const res = conquest.salvagePickResource(creep.store, order) || nonEnergyKey(creep.store) || ENERGY;
     const term = room.terminal;
     const used = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() : 0;
-    const dest = creep.memory.pullLoot && term && term.my !== false && term.store && typeof term.store.getFreeCapacity === 'function' && term.store.getFreeCapacity() >= used + 20000 ? term : room.storage;
-    if (creep.transfer(dest, res) === ERR_NOT_IN_RANGE) movement.go(creep, dest, { range: 1, reusePath: 15 });
+    const dest = !storageOk(room) && term && term.my !== false && term.store && typeof term.store.getFreeCapacity === 'function' && term.store.getFreeCapacity() >= used + 20000 ? term : room.storage;
+    const amount = Number(creep.store[res] || 0);
+    const ret = creep.transfer(dest, res);
+    if (ret === ERR_NOT_IN_RANGE) movement.go(creep, dest, { range: 1, reusePath: 15 });
+    else if (ret === OK) noteUnload(creep, res, Math.min(amount, typeof dest.store.getFreeCapacity === 'function' ? Number(dest.store.getFreeCapacity(res)) || amount : amount));
     return true;
 }
 
@@ -233,11 +279,10 @@ function toPull(creep) {
     const m = creep.memory;
     m.salvageFrom = m.targetRoom;
     m.salvageOrder = m.lootOrder;
-    if (m.deliverTo) m.salvageDeliver = m.deliverTo;
     m.targetRoom = pd.target;
     m.pullLoot = true;
     m.pull = pd.pull;
-    m.deliverTo = (pd.deliverTo && pd.deliverTo[m.home]) || Object.values(pd.deliverTo || {})[0] || m.home;
+    delete m.deliverTo;
     m.lootOrder = pd.lootOrder;
     delete m.salvageLoot;
     delete m.ruin;
@@ -252,8 +297,7 @@ function backToSalvage(creep) {
     m.targetRoom = m.salvageFrom;
     m.salvageLoot = true;
     m.lootOrder = m.salvageOrder;
-    if (m.salvageDeliver) m.deliverTo = m.salvageDeliver; else delete m.deliverTo;
-    for (const k of ['pullLoot', 'pull', 'src', 'salvageFrom', 'salvageOrder', 'salvageDeliver']) delete m[k];
+    for (const k of ['pullLoot', 'pull', 'src', 'salvageFrom', 'salvageOrder', 'salvageDeliver', 'deliverTo']) delete m[k];
 }
 
 function lootHoldRun(creep) {
@@ -320,7 +364,7 @@ function gateHold(creep) {
     const m = creep.memory;
     if (creep.spawning) return false;
     const back = m.retired || m.state === 'deliver';
-    const dest = back ? (m.state === 'deliver' && m.eDeliver && m.eDeliver.to) || m.deliverTo || m.home : m.targetRoom;
+    const dest = back ? (m.retired ? m.home : (m.dying && m.dying.to) || m.drop || m.home) : m.targetRoom;
     if (!dest || dest === here) { delete m.gateWait; return false; }
     const route = Array.isArray(lr[m.targetRoom]) ? lr[m.targetRoom] : [];
     const onRoute = route.indexOf(here) >= 0 || gateRooms.indexOf(here) >= 0 || Object.keys(gates).some((g) => Array.isArray(gates[g]) && gates[g].indexOf(here) >= 0);
@@ -336,7 +380,27 @@ function gateHold(creep) {
     return true;
 }
 
+function track(creep) {
+    const m = creep.memory;
+    m.dk = [creep.room.name, creep.pos.x, creep.pos.y, creep.ticksToLive, Game.time];
+    const used = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() : 0;
+    if (!used) { delete m.ds; return; }
+    const ds = {};
+    for (const k in creep.store) if (Number(creep.store[k]) > 0) ds[k] = creep.store[k];
+    m.ds = ds;
+}
+
+function noteDeath(name, mem) {
+    if (!mem || mem.role !== 'lootHauler' || !Array.isArray(mem.dk)) return;
+    const log = Array.isArray(Memory.haulerDeaths) ? Memory.haulerDeaths : (Memory.haulerDeaths = []);
+    log.push({ name, at: Game.time, room: mem.dk[0], x: mem.dk[1], y: mem.dk[2], ttl: mem.dk[3], seen: mem.dk[4], store: mem.ds || {}, home: mem.home, target: mem.targetRoom, dying: mem.dying || null });
+    while (log.length > 50) log.shift();
+}
+
 function run(creep) {
+    if (creep.spawning) return;
+    track(creep);
+    if (creep.memory.boosts && creep.room.name === creep.memory.home && boost.run(creep)) return;
     if (lootHoldRun(creep)) return;
     if (gateHold(creep)) return;
     if (creep.memory.pullLoot && creep.memory.salvageFrom && Game.time % 10 === 0) backToSalvage(creep);
@@ -351,19 +415,17 @@ function run(creep) {
         if (!carrying && creep.room.name !== home) { goRoom(creep, home); return; }
         if (!carrying) return;
     }
-    if (full || retreat || creep.memory.state === 'deliver') {
+    const due = ttlCheck(creep, carrying);
+    if (due === 'retire') { retireMod.retireAtSpawn(creep); return; }
+    if (full || retreat || due === 'deliver' || creep.memory.state === 'deliver') {
         creep.memory.state = 'deliver';
-        if (!deliver(creep, home)) {
-            if (retreat) { retireMod.retireAtSpawn(creep); return; }
+        if (!deliver(creep)) {
+            if (retreat || creep.memory.dying) { retireMod.retireAtSpawn(creep); return; }
             delete creep.memory.state;
         }
         return;
     }
     if (retreat) { creep.memory.state = 'deliver'; return; }
-    if (lastTripDue(creep, home)) {
-        if (carrying) { creep.memory.state = 'deliver'; deliver(creep, home); } else retireMod.retireAtSpawn(creep);
-        return;
-    }
     if (creep.room.name !== target) { if (!routePickup(creep)) goRoom(creep, target); return; }
     if (creep.memory.pullLoot) {
         let src = creep.memory.src && Game.getObjectById(creep.memory.src);
@@ -395,7 +457,7 @@ function run(creep) {
         const threat = conquest.salvageArmedThreat(creep.room);
         if (threat) {
             creep.memory.state = 'deliver';
-            deliver(creep, home);
+            deliver(creep);
             return;
         }
         const ruins = conquest.salvageUncovered(creep.room);
@@ -435,4 +497,4 @@ function run(creep) {
     if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) movement.go(creep, c, { range: 1, reusePath: 5 });
 }
 
-module.exports = { run, freeStand, topLoot, topUpDrop, gateArmed, gateHold };
+module.exports = { run, freeStand, topLoot, topUpDrop, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };

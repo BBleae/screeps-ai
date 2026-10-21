@@ -438,7 +438,8 @@ function mineralShort(rooms, cfg) {
         const labs = labsOf(room);
         if (labs.length < minLabs) continue;
         const labRooms = config.industry && config.industry.labRooms;
-        if (Array.isArray(labRooms) && labRooms.indexOf(room.name) < 0) continue;
+        const makeRoom = !!(config.industry && config.industry.boostRoomMake && config.industry.boostRoomMake[room.name]);
+        if (Array.isArray(labRooms) && labRooms.indexOf(room.name) < 0 && !makeRoom) continue;
         for (const mineral of cfg.minerals || []) {
             const want = mineralWantFor(cfg, mineral, room.name);
             const have = mineralHave(room, labs, mineral);
