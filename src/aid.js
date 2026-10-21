@@ -142,6 +142,8 @@ function oneShotRemaining() {
 function oneShotByTerminal(home, o, remaining) {
     const t = home.terminal, dest = Game.rooms[o.to], dt = dest && dest.terminal;
     if (!t || t.my === false || !dt || t.cooldown > 0) return;
+    if (!dt.my && utils.blockedTradeRoom(o.to)) return;
+    if (dt.owner && ((config.pvp || {}).highThreat || []).indexOf(dt.owner.username) >= 0) return;
     if (require('terminal').receiveOnly(home)) return;
     const have = Number(t.store[RESOURCE_ENERGY] || 0);
     let amount = Math.min(remaining, 5000);

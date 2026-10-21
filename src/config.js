@@ -447,6 +447,10 @@ module.exports = {
         productHold: { OH: { on: 5000, off: 2000 } },
         labIdleFallback: 500,
     },
+    rcl8Auto: {
+        W38S7: { labRoom: true, chain: ['G'], want: { U: 3000, L: 3000, Z: 3000, K: 3000, UL: 3000, H: 0, O: 0, X: 0, G: 0 }, buy: ['Z'] },
+        W32S4: { chain: ['XGH2O', 'GH2O'], noMake: ['ZK', 'UL', 'G'], want: { G: 3000, X: 1000, U: 0, L: 0, Z: 0, K: 0, UL: 0 }, buyDrop: ['U', 'Z'] },
+    },
     deposit: {
         enabled: true,
         types: ['silicon', 'mist'],
@@ -508,6 +512,9 @@ module.exports = {
             { from: 'W37S7', to: 'W33S8', resource: 'K', batch: 3000, minBatch: 1000, toBelow: 7000, countStorage: true, keep: 5000, energyFloor: 1000 },
             { from: 'W38S7', to: 'W33S8', resource: 'K', batch: 3000, minBatch: 1000, toBelow: 5000, countStorage: true, keep: 0, energyFloor: 1000, fromFreeBelow: 50000 },
             { from: 'W31S6', to: 'W33S8', resource: 'K', batch: 3000, minBatch: 1000, toBelow: 7000, countStorage: true, keep: 5000, energyFloor: 1000 },
+            { from: 'W31S4', to: 'W38S7', resource: 'L', batch: 3000, minBatch: 1000, toBelow: 5000, countStorage: true, keep: 5000, energyFloor: 1000, whenRcl8: ['W38S7'] },
+            { from: 'W38S7', to: 'W33S3', resource: 'G', batch: 2000, minBatch: 500, toBelow: 3000, countStorage: true, energyFloor: 1000, whenRcl8: ['W38S7'] },
+            { from: 'W38S7', to: 'W32S4', resource: 'G', batch: 2000, minBatch: 500, toBelow: 3000, countStorage: true, energyFloor: 1000, whenRcl8: ['W38S7', 'W32S4'] },
             { from: 'W34S7', to: 'W37S5', resource: 'ZH2O', batch: 3600, minBatch: 360, toBelow: 8000, countStorage: true, keep: 100000, energyFloor: 1000 },
             { from: 'W34S7', to: 'W37S7', resource: 'ZH2O', batch: 3600, minBatch: 360, toBelow: 5000, countStorage: true, keep: 100000, energyFloor: 1000 }],
         terminalFeeReserve: { W31S8: 7000, W34S7: 3000, W32S4: 3000, W33S3: 3000, W33S7: 3000, W31S6: 1000, W33S8: 1000, W37S7: 1000, W37S5: 1000, W29S3: 5000, W35S7: 1000 },
@@ -562,6 +569,7 @@ module.exports = {
         dealOnly: ['ZH2O'],
         neverSell: ['XGH2O', 'GH2O', 'XUH2O', 'XKHO2', 'XLHO2', 'XGHO2', 'XZHO2', 'ZHO2', 'GHO2', 'KHO2', 'UH2O', 'UH', 'ZH', 'XZH2O', 'GO', 'KO', 'ZO', 'UL', 'ZK', 'G', 'GH'],
         salesTrack: { resource: 'H', since: 74402100 },
+        blockTradeRooms: ['E16N31', 'E17N28', 'E18N28', 'E19N28', 'E21N26', 'E22N29', 'E22N32', 'E22N36', 'E24N27', 'E24N31', 'E24N39', 'E25N31', 'E27N25', 'E28N29', 'E28N38', 'E29N39', 'E31N26', 'E35N29', 'E39N24', 'E41N21', 'E42N19', 'E43N31', 'E44N27', 'E47N21', 'E48N18', 'E48N32', 'E49N25', 'E51N12', 'E51N27', 'E51N31', 'E51N9', 'E52N23', 'E53N19', 'E53N28', 'E55N17', 'E55N33', 'E55N39', 'E56N27', 'E57N14', 'E57N21', 'E57N29', 'E57N8', 'E58N43', 'E59N12', 'E59N18', 'E59N27', 'E59N33', 'E59N36', 'E59N41', 'E59N5', 'E59N6', 'W23S28', 'W28S29', 'W31S14', 'W31S15', 'W31S16', 'W31S18', 'W31S26', 'W32S12', 'W32S15', 'W33S15', 'W33S21', 'W33S28', 'W35S23', 'W38S16', 'W38S27', 'W39S12', 'W39S17', 'W47S29'],
         creditFloor: 2000000,
         militaryBoost: {
             enabled: false,
@@ -573,7 +581,7 @@ module.exports = {
         maxOrderCredits: 50000,
         dailyBuyCredits: 500000,
         buyShare: { cap: { Z: 0.4 }, reserve: { O: 0.2, X: 0.2 } },
-        buy: { resources: ['Z', 'O', 'X', 'U'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'], onlyRooms: { X: ['W32S4', 'W33S3'], U: ['W32S4'], Z: ['W32S4'] }, stopAbove: { U: 5000 }, maxPrice: { Z: 60, U: 60 } },
+        buy: { resources: ['Z', 'O', 'X', 'U'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'], onlyRooms: { X: ['W32S4', 'W33S3'], U: ['W32S4'], Z: ['W32S4'], O: ['W32S4', 'W33S3'] }, stopAbove: { U: 5000 }, maxPrice: { Z: 60, U: 60 } },
         buyEnergy: {
             enabled: false,
             maxEffective: 15,
@@ -595,8 +603,9 @@ module.exports = {
             sellFollow: { ZH2O: { floorShare: 0.6, step: 0.02, everyTicks: 500 } },
             buyMinerals: true,
             energy: {
-                rooms: ['W34S7', 'W35S7', 'W37S5', 'W31S5', 'W37S7', 'W31S6', 'W33S7'],
+                rooms: ['W34S7', 'W35S7', 'W37S5', 'W31S5', 'W37S7', 'W31S6', 'W33S7', 'W31S8'],
                 below: 10000,
+                belowByRoom: { W31S8: 30000 },
                 followHighestBuy: true,
                 dailyOrder: true,
                 repriceStep: 0.01,

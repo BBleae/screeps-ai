@@ -18087,7 +18087,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(!pl || pl.to.name !== 'W37S5', 'W37S5 到 RCL8：不再收');
     assert(tm.burnRoom(tcfg, W('W37S5', 1, 1, 8)) === 0 && tm.burnRoom(tcfg, W('W37S5', 1, 1, 7)) === 1, 'burnRoom 在 RCL8 自动为 0');
     const own = config.market.ownOrders.energy.rooms;
-    assert(config.market.buyEnergy.enabled === false && own.indexOf('W37S5') >= 0 && own.length === 7, '买能量规则不变（buyEnergy 关，挂单名单原样）');
+    assert(config.market.buyEnergy.enabled === false && own.indexOf('W37S5') >= 0 && own.length === 8 && own.indexOf('W31S8') >= 0, '买能量规则：buyEnergy 关；10-21 10:39 起挂单名单加 W31S8');
 }
 
 {
@@ -18299,6 +18299,72 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const list = term.priorityList({ priorityReceivers: ['W38S7', 'W33S3'] });
     assert(JSON.stringify(list) === JSON.stringify(['W33S3']), 'RCL8 的房自动不算 priorityReceivers（得 ' + JSON.stringify(list) + '）');
     Game.rooms = savedR;
+}
+
+{
+    console.log('== 10-21 10:39 战略猫：RCL8 自动接 lab 链、W31S8 3 万挂单、高威胁玩家不交易、H 每日均价 ==');
+    resetWorld(124000);
+    const utils = require('utils');
+    const mk = require('market');
+    const tm = require('terminal');
+    const snap = { ind: structuredClone(config.industry), tn: structuredClone(config.terminalNetwork), buy: structuredClone(config.market.buy) };
+    const savedRooms = Game.rooms, savedAuto = Memory.rcl8Auto;
+    delete Memory.rcl8Auto;
+    const R = (name, level) => ({ name, controller: { my: true, level } });
+    Game.rooms = { W38S7: R('W38S7', 7), W32S4: R('W32S4', 7) };
+    assert(utils.applyRcl8Auto() === 0 && config.industry.labRooms.indexOf('W38S7') < 0 && JSON.stringify(config.industry.chainTargetsByRoom.W32S4) === JSON.stringify(['G']), 'RCL7：什么都不改');
+    Game.rooms.W38S7.controller.level = 8;
+    utils.applyRcl8Auto();
+    const ind = config.industry, tn = config.terminalNetwork, b = config.market.buy;
+    assert(ind.labRooms.indexOf('W38S7') >= 0 && ind.labFullOutputs.indexOf('W38S7') >= 0 && JSON.stringify(ind.chainTargetsByRoom.W38S7) === JSON.stringify(['G']) && Memory.rcl8Auto.W38S7 === Game.time,
+        'W38S7 到 RCL8：进 labRooms、全输出、主线 G');
+    assert(tn.mineralWantByRoom.W38S7.L === 3000 && tn.mineralWantByRoom.W38S7.X === 0 && b.onlyRooms.Z.indexOf('W38S7') >= 0 && b.rooms.indexOf('W38S7') >= 0 && !mk.buyRoomOk(b, 'W38S7', 'U') && !mk.buyRoomOk(b, 'W38S7', 'O') && !mk.buyRoomOk(b, 'W38S7', 'X'),
+        'W38S7：要 L、不要 X；Z 走市场买，U（自产）、O、X 不买');
+    assert(JSON.stringify(ind.chainTargetsByRoom.W32S4) === JSON.stringify(['G']) && b.onlyRooms.U.indexOf('W32S4') >= 0, 'W32S4 还没到 RCL8：照做 G');
+    const rule = (from, to, res) => tn.forward.find((r) => r.from === from && r.to === to && r.resource === res);
+    assert(rule('W31S4', 'W38S7', 'L') && utils.rcl8Ready(rule('W38S7', 'W33S3', 'G').whenRcl8) && !utils.rcl8Ready(rule('W38S7', 'W32S4', 'G').whenRcl8), 'forward：L W31S4→W38S7、G →W33S3 开；G →W32S4 等 W32S4 RCL8');
+    Game.rooms.W32S4.controller.level = 8;
+    utils.applyRcl8Auto();
+    utils.applyRcl8Auto();
+    assert(JSON.stringify(ind.chainTargetsByRoom.W32S4) === JSON.stringify(['XGH2O', 'GH2O']) && ind.labNoMakeByRoom.W32S4.indexOf('UL') >= 0 && ind.labNoMakeByRoom.W32S4.indexOf('G') >= 0,
+        'W32S4 到 RCL8：改做 XGH2O，不再自己做 UL/G');
+    assert(tn.mineralWantByRoom.W32S4.G === 3000 && tn.mineralWantByRoom.W32S4.UL === 0 && b.onlyRooms.U.indexOf('W32S4') < 0 && b.onlyRooms.Z.indexOf('W32S4') < 0 && mk.buyRoomOk(b, 'W32S4', 'X') && utils.rcl8Ready(rule('W38S7', 'W32S4', 'G').whenRcl8),
+        'W32S4：要 G 3000，不再买 U/Z，X 照买；G 从 W38S7 送');
+    assert(ind.labRooms.filter((n) => n === 'W38S7').length === 1 && b.rooms.filter((n) => n === 'W38S7').length === 1, '重复执行不重复加');
+    config.industry = snap.ind; config.terminalNetwork = snap.tn; config.market.buy = snap.buy; Game.rooms = savedRooms; Memory.rcl8Auto = savedAuto;
+
+    const e = config.market.ownOrders.energy;
+    assert(mk.belowFor(e, 'W31S8', e.below) === 30000 && mk.belowFor(e, 'W34S7', e.below) === 10000 && e.maxPrice === 45, 'W31S8 低于 3 万就挂单，其余房 1 万，价线不变');
+
+    const savedMarket = Memory.market;
+    Memory.market = {};
+    assert(utils.blockedTradeRoom('E59N27') && !utils.blockedTradeRoom('W11N52'), 'Jumpp 的 E59N27 在禁止交易名单');
+    const orders = [
+        { id: 'j', type: 'buy', resourceType: 'H', price: 600, amount: 5000, roomName: 'E59N27' },
+        { id: 'o', type: 'buy', resourceType: 'H', price: 520, amount: 5000, roomName: 'W11N52' }];
+    const api = { getAllOrders: () => orders.slice(), calcTransactionCost: () => 100 };
+    const got = mk.tradeOrders(api, { type: 'buy', resourceType: 'H' });
+    assert(got.length === 1 && got[0].id === 'o' && Memory.market.tradeBlocked.n === 1, '拉单时直接滤掉 Jumpp 的单');
+    const room = { name: 'W32S4', terminal: { store: { energy: 50000 } } };
+    const cfg = Object.assign({}, mk.settings(), { energyPrice: 10 });
+    const pick = mk.pickBuyOrder(orders, room, { resource: 'H', amount: 1000 }, cfg, 450);
+    assert(pick && pick.order.id === 'o', 'Jumpp 出价更高也不卖给他，卖给别人（得 ' + (pick && pick.order.id) + '）');
+    assert(!mk.pickBuyOrder([orders[0]], room, { resource: 'H', amount: 1000 }, cfg, 450), '只剩 Jumpp 的单：不卖，留着');
+    mk.learnBlocked({ outgoingTransactions: [{ to: 'E1N1', recipient: { username: 'Jumpp' } }, { to: 'E2N2', recipient: { username: 'someone' } }], incomingTransactions: [] });
+    assert(utils.blockedTradeRoom('E1N1') && !utils.blockedTradeRoom('E2N2'), '交易记录里收货人是 Jumpp 的房：自动加进禁止名单');
+
+    Memory.market = { ledger: { day: 20747, sold: {}, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 } };
+    const led = Memory.market.ledger;
+    const savedTime = world.time;
+    Memory.market.pendingDeals = [{ at: world.time, kind: 'sell', id: 'o1', room: 'W32S4', res: 'H', amount: 1000, price: 500, eff: 470 }, { at: world.time, kind: 'sell', id: 'o2', room: 'W32S4', res: 'H', amount: 1000, price: 560, eff: 530 }];
+    mk.confirmDeals({ outgoingTransactions: [
+        { transactionId: 'a', time: world.time, order: { id: 'o1' }, resourceType: 'H', amount: 1000, from: 'W32S4', to: 'W11N52' },
+        { transactionId: 'b', time: world.time, order: { id: 'o2' }, resourceType: 'H', amount: 1000, from: 'W32S4', to: 'W11N52' }], incomingTransactions: [] });
+    assert(led.sold.H === 2000 && led.soldCreditsBy.H === 1060000 && led.soldAvg.H === 530 && led.soldAvgNet.H === 500, 'H 当日卖量、均价、到手均价记进 ledger');
+    const day = mk.closeSoldDay(Memory.market, led);
+    assert(day.H.units === 2000 && day.H.avg === 530 && day.H.avgNet === 500 && Memory.market.soldDaily['2026-10-21'], '跨日存进 Memory.market.soldDaily');
+    world.time = savedTime;
+    Memory.market = savedMarket;
 }
 
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);

@@ -483,6 +483,7 @@ function planForward(rule) {
     const to = Game.rooms[rule.to];
     if (!from || !to || !from.terminal || !to.terminal || from.terminal.my === false || to.terminal.my === false) return null;
     if (from.terminal.cooldown > 0 || usedThisTick(from.name)) return null;
+    if (!utils.rcl8Ready(rule.whenRcl8)) return null;
     const res = rule.resource;
     if (res === RESOURCE && (receiveOnly(from) || noEnergyIn(to))) return null;
     const toHave = Number(to.terminal.store[res] || 0) + (rule.countStorage && to.storage && to.storage.store ? Number(to.storage.store[res] || 0) : 0);

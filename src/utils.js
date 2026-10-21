@@ -612,6 +612,62 @@ function rcl8Room(roomName) {
     return !!(room && room.controller && room.controller.my && room.controller.level >= 8);
 }
 
+function addOnce(list, value) {
+    if (list.indexOf(value) < 0) list.push(value);
+}
+
+function applyRcl8Auto() {
+    const auto = config.rcl8Auto;
+    if (!auto || typeof Game === 'undefined' || !Game.rooms) return 0;
+    let applied = 0;
+    for (const roomName of Object.keys(auto)) {
+        if (!rcl8Room(roomName)) continue;
+        const spec = auto[roomName] || {};
+        const ind = config.industry || (config.industry = {});
+        if (spec.labRoom) {
+            addOnce(ind.labRooms || (ind.labRooms = []), roomName);
+            addOnce(ind.labFullOutputs || (ind.labFullOutputs = []), roomName);
+        }
+        if (Array.isArray(spec.chain)) (ind.chainTargetsByRoom || (ind.chainTargetsByRoom = {}))[roomName] = spec.chain.slice();
+        if (Array.isArray(spec.noMake)) (ind.labNoMakeByRoom || (ind.labNoMakeByRoom = {}))[roomName] = spec.noMake.slice();
+        if (spec.want) {
+            const tn = config.terminalNetwork || (config.terminalNetwork = {});
+            const want = tn.mineralWantByRoom || (tn.mineralWantByRoom = {});
+            want[roomName] = Object.assign({}, want[roomName] || {}, spec.want);
+        }
+        const b = config.market && config.market.buy;
+        if (b && (Array.isArray(spec.buy) || Array.isArray(spec.buyDrop))) {
+            const only = b.onlyRooms || (b.onlyRooms = {});
+            for (const res of spec.buy || []) {
+                addOnce(only[res] || (only[res] = []), roomName);
+                addOnce(b.rooms || (b.rooms = []), roomName);
+            }
+            for (const res of spec.buyDrop || []) {
+                if (Array.isArray(only[res])) only[res] = only[res].filter((n) => n !== roomName);
+            }
+        }
+        const mem = Memory.rcl8Auto || (Memory.rcl8Auto = {});
+        if (!mem[roomName]) mem[roomName] = Game.time;
+        applied++;
+    }
+    return applied;
+}
+
+function rcl8Ready(rooms) {
+    return !Array.isArray(rooms) || rooms.every(rcl8Room);
+}
+
+function blockedTradeRoom(roomName) {
+    if (!roomName) return false;
+    const mc = config.market || {};
+    if (Array.isArray(mc.blockTradeRooms) && mc.blockTradeRooms.indexOf(roomName) >= 0) return true;
+    const learned = typeof Memory !== 'undefined' && Memory.market && Memory.market.blockedRooms;
+    if (learned && learned[roomName]) return true;
+    const threat = (config.pvp || {}).highThreat || [];
+    const oc = typeof Memory !== 'undefined' && Memory.ownerCache && Memory.ownerCache.rooms && Memory.ownerCache.rooms[roomName];
+    return !!(oc && threat.indexOf(oc.o) >= 0);
+}
+
 function siteAllowed(roomName, type, wave) {
     const cfg = siteSettings();
     const tally = tallySites();
@@ -1333,6 +1389,9 @@ module.exports = {
     upgradeHold,
     lootExcessWork,
     rcl8Room,
+    rcl8Ready,
+    applyRcl8Auto,
+    blockedTradeRoom,
     lootActive,
     lootHeldRoom,
     towerFirstHold,

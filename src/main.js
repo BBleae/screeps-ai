@@ -232,6 +232,7 @@ module.exports.loop = function () {
         try { require('utils').noteAggressorsAll(); } catch (e) { logErr('pvp.aggressors', e); }
         try { require('utils').noteAllyDamageAll(); } catch (e) { logErr('ally.damage', e); }
         try { require('utils').ownerCacheObserve(); } catch (e) { logErr('pvp.ownerCache', e); }
+        try { require('utils').applyRcl8Auto(); } catch (e) { logErr('rcl8Auto', e); }
         for (const room of Object.values(Game.rooms)) {
             if (!room.controller || !room.controller.my) continue;
             const roomStart = Game.cpu.getUsed();
