@@ -88,9 +88,9 @@ function needsHarvesterRemap(room, nextIds) {
     for (const creep of creepsHome(room.name)) {
         if (harvesterIdentityNeedsRemap(creep.memory, nextIds)) return true;
     }
-    const seen = new Set(Object.keys(Game.creeps || {}));
+    const live = Game.creeps || {};
     for (const spawn of room.find(FIND_MY_SPAWNS)) {
-        if (!spawn.spawning || seen.has(spawn.spawning.name) || !Memory.creeps) continue;
+        if (!spawn.spawning || Object.prototype.hasOwnProperty.call(live, spawn.spawning.name) || !Memory.creeps) continue;
         const memory = Memory.creeps[spawn.spawning.name];
         if (memory && memory.home === room.name && harvesterIdentityNeedsRemap(memory, nextIds)) return true;
     }

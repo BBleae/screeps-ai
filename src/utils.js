@@ -13,10 +13,13 @@ function cacheKeyFor(opts) {
 }
 
 const EMPTY_CREEPS = [];
+let creepIndexRecount = false;
+function setCreepIndexRecount(on) { creepIndexRecount = !!on; }
 function creepIndex() {
     const c = tickCache();
-    const size = Game.creeps ? Object.keys(Game.creeps).length : 0;
     let idx = c.__creepIndex;
+    if (idx && !creepIndexRecount) return idx;
+    const size = Game.creeps ? Object.keys(Game.creeps).length : 0;
     if (!idx || idx.size !== size) {
         idx = { size, byHome: {}, byHomeRole: {} };
         for (const name in Game.creeps) {
@@ -1361,7 +1364,7 @@ function pvpDangerRoom(name) {
     return false;
 }
 
-module.exports = {
+module.exports = { setCreepIndexRecount,
     allySettings,
     isAllyName,
     isAlly,

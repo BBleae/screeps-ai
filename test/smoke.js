@@ -725,6 +725,7 @@ config.industry.boostUpgraders = false;
 const liveMarket = Object.assign({}, config.market);
 for (const k of ['priceBand', 'anyRoom', 'keepBy', 'dailySellUnits', 'creditFloor', 'maxOrderCredits', 'dailyBuyCredits', 'buy', 'buyEnergy']) delete config.market[k];
 const utils = require('../src/utils');
+utils.setCreepIndexRecount(true);
 const movement = require('../src/movement');
 const layout = require('../src/layout');
 const wheelLayout = require('../src/wheel_layout');

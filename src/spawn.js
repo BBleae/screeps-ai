@@ -1102,14 +1102,16 @@ function upgraderTarget(room, mem) {
     const supplyWork = utils.upgraderSupplyWork(room, mem);
     const workCap = Math.min(utils.upgraderWorkCap(room, mem), supplyWork == null ? Infinity : supplyWork);
     let capCount = Infinity;
+    let perBodyMemo = null;
+    const perBodyWork = () => perBodyMemo != null ? perBodyMemo : (perBodyMemo = Math.max(1, bodyPartCount(upgraderBody(room, mem, room.energyCapacityAvailable), 'work')));
     if (Number.isFinite(workCap)) {
-        const perBody = Math.max(1, bodyPartCount(upgraderBody(room, mem, room.energyCapacityAvailable), 'work'));
+        const perBody = perBodyWork();
         capCount = Math.max(base, Math.ceil(workCap / perBody));
     }
     supply.capCount = Number.isFinite(capCount) ? capCount : null;
     const surplusWork = utils.upgradeSurplusWork(room, mem);
     if (surplusWork > 0 && Number.isFinite(workCap)) {
-        const perBody = Math.max(1, bodyPartCount(upgraderBody(room, mem, room.energyCapacityAvailable), 'work'));
+        const perBody = perBodyWork();
         let have = 0;
         let n = 0;
         for (const creep of creepsHomeRole(room.name, 'upgrader')) {
@@ -1456,18 +1458,22 @@ function modernHarvesterWork(room, sources, sourceIdx, desired) {
 function bodyUpgradeCandidates(room, state, mem, sources) {
     if (state.recovering || state.readyWorkers <= 0) return [];
     const candidates = [];
+    const enabled = {};
+    const plans = {};
     for (const creep of creepsHome(room.name)) {
         const role = creep.memory.role;
         if (!BODY_UPGRADE_ROLES.includes(role) || creep.spawning) continue;
         if (creep.memory.dropMiner || hasPendingBodyUpgrade(room, creep)) continue;
-        if (!upgradeRoleEnabled(room, state, role, mem, sources)) continue;
+        if (!(role in enabled)) enabled[role] = upgradeRoleEnabled(room, state, role, mem, sources);
+        if (!enabled[role]) continue;
         let sourceIdx = Number.isInteger(creep.memory.sourceIdx) ? creep.memory.sourceIdx : 0;
         if (role === 'harvester' && creep.memory.sourceId) {
             const mapped = sources.findIndex((source) => source && source.id === creep.memory.sourceId);
             if (mapped >= 0) sourceIdx = mapped;
         }
-        const desired = role === 'harvester' ? harvesterBody(room, mem, sources, sourceIdx, room.energyCapacityAvailable) :
-            bodyPlan(room, role, mem);
+        const planKey = role === 'harvester' ? role + ':' + sourceIdx : role;
+        if (!(planKey in plans)) plans[planKey] = role === 'harvester' ? harvesterBody(room, mem, sources, sourceIdx, room.energyCapacityAvailable) : bodyPlan(room, role, mem);
+        const desired = plans[planKey];
         const desiredCost = bodyCost(desired);
         const currentCost = bodyCost(creep.body || []);
         if (!desired.length || !bodyImproves(creep, desired, role)) continue;
@@ -2490,11 +2496,10 @@ function runQueue(room) {
         for (const spawn of idle) {
             if (usedSpawns.has(spawn)) continue;
             const upgrade = tryBodyUpgrade(room, spawn, state, mem, sources, energyBudget);
-            if (upgrade) {
-                energyBudget -= upgrade.cost;
-                usedSpawns.add(spawn);
-                bodyUpgraded = true;
-            }
+            if (!upgrade) break;
+            energyBudget -= upgrade.cost;
+            usedSpawns.add(spawn);
+            bodyUpgraded = true;
         }
         lap('x.body');
         writeDemand(room, mem, state, plannedCounts, remoteDemands, builderBacklog, targets);
