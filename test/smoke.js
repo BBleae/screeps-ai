@@ -14537,8 +14537,9 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
         cpuShed.digest();
         const healthy = tick(10000, 1000);
         const healthyShed = cpuShed.digest();
-        assert(healthy.includes('sh.scout') && healthy.includes('sh.operator') && healthy.includes('sh.reserver') && healthy.includes('sh.rhEmpty'),
-            'bucket 健康时行为不变：scout/operator/reserver/空车外矿运输工照跑（得 ' + healthy.join(',') + '）');
+        assert(healthy.includes('sh.operator') && healthy.includes('sh.rhEmpty') && healthy.includes('sh.upgrader') && healthy.includes('sh.defender'),
+            'bucket 健康时 operator/空车外矿运输工/每房 1 只 upgrader/defender 照跑（得 ' + healthy.join(',') + '）');
+        assert(!healthy.includes('sh.scout') && !healthy.includes('sh.reserver'), '超预算时 scout/reserver 可跳（得 ' + healthy.join(',') + '）');
         assert(healthyShed.skip === 0 && healthyShed.low === 0 && healthyShed.crit === 0, 'bucket 健康时不进降载、不记降载跳过（得 ' + JSON.stringify(healthyShed) + '）');
 
         const cheap = tick(300, 5);
@@ -18683,6 +18684,8 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const tb = require('task_broker');
     assert(tb.shouldRun({ name: 'x', memory: { role: 'lootHauler' } }) === true, 'lootHauler 每 tick 都跑');
     assert(tb.shouldRun({ name: 'y', memory: { role: 'scout' } }) === false, '其他低分角色照旧可跳');
+    assert(tb.shouldRun({ name: 'lt', memory: { role: 'labTech' } }) === true && tb.shouldRun({ name: 'df', memory: { role: 'defender' } }) === true && tb.shouldRun({ name: 'sg', memory: { role: 'siegeGuard' } }) === true, 'labTech/defender/siegeGuard 免跳过');
+    assert(tb.shouldRun({ name: 'u1', memory: { role: 'upgrader', home: 'R1' } }) === true && tb.shouldRun({ name: 'u2', memory: { role: 'upgrader', home: 'R1' } }) === false && tb.shouldRun({ name: 'u3', memory: { role: 'upgrader', home: 'R2' } }) === true, '每房保底 1 只 upgrader 免跳过，多出来的可跳');
 }
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);

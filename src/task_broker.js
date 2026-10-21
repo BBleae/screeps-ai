@@ -35,7 +35,7 @@ const ROLE_WEIGHT = {
     depositScout: 20,
 };
 const DEFAULT_WEIGHT = 20;
-const NO_SKIP = ['harvester', 'hauler', 'upgrader', 'lootHauler', 'defender', 'siegeGuard', 'labTech'];
+const NO_SKIP = ['harvester', 'hauler', 'lootHauler', 'defender', 'siegeGuard', 'labTech'];
 const TASK_WEIGHT = {
     deliver: 8,
     harvest: 7,
@@ -1074,10 +1074,25 @@ function markSkipped(creep, reason) {
     else metric.idle++;
 }
 
+const ALWAYS_SKIPPABLE = ['reserver', 'scout', 'depositScout'];
+let keepTick = -1;
+let keepRooms = {};
+
+function keepOneUpgrader(creep) {
+    if (keepTick !== Game.time) { keepTick = Game.time; keepRooms = {}; }
+    const room = (creep.memory && creep.memory.home) || (creep.room && creep.room.name) || '?';
+    const kept = keepRooms[room];
+    if (kept && kept !== creep.name) return false;
+    keepRooms[room] = creep.name;
+    return true;
+}
+
 function shouldRun(creep) {
     const score = runtime.scores[creep.name] || 0;
     const role = creep.memory && creep.memory.role;
     if (NO_SKIP.includes(role)) return true;
+    if (role === 'upgrader') return keepOneUpgrader(creep);
+    if (ALWAYS_SKIPPABLE.includes(role)) return false;
     return score >= 20;
 }
 
