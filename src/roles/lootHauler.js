@@ -302,7 +302,7 @@ function deliver(creep) {
         return true;
     }
     const carrying = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
-    if (!carrying) { noteTrip(creep); return false; }
+    if (!carrying) { noteTrip(creep); delete m.src; delete m.lootTier; return false; }
     const res = biggest(creep.store) || ENERGY;
     const term = room.terminal;
     const used = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() : 0;
@@ -546,6 +546,41 @@ function biggest(store) {
     return best;
 }
 
+function isT3(res) {
+    return /^X[A-Z0-9]+$/.test(res);
+}
+
+function resRank(res) {
+    if (isT3(res)) return 0;
+    if (res === 'battery') return 1;
+    if (res === ENERGY) return 3;
+    return 2;
+}
+
+function loadPick(store) {
+    let best = null;
+    let bestR = Infinity;
+    for (const k in store) {
+        const n = Number(store[k]);
+        if (!(n > 0)) continue;
+        const r = resRank(k);
+        if (r < bestR || (r === bestR && n > Number(store[best]))) { best = k; bestR = r; }
+    }
+    return best;
+}
+
+function tierOf(obj) {
+    if (!obj) return 3;
+    if (!obj.store) return obj.resourceType && isT3(obj.resourceType) ? 1 : obj.resourceType === 'battery' ? 2 : 3;
+    let t = 3;
+    for (const k in obj.store) {
+        if (!(Number(obj.store[k]) > 0)) continue;
+        if (isT3(k)) return 1;
+        if (k === 'battery') t = 2;
+    }
+    return t;
+}
+
 function pickTarget(creep) {
     const m = creep.memory;
     const book = badBook(creep.room.name);
@@ -554,13 +589,22 @@ function pickTarget(creep) {
         const rest = list.filter((o) => o.id !== m.skip[0]);
         if (rest.length) list = rest;
     } else if (m.skip) delete m.skip;
-    const got = closestByPath(creep, list);
-    if (got.incomplete) for (const o of list) { book[o.id] = Game.time; lootBlocked.note(creep.room.name, o); }
+    const tiers = [[], [], []];
+    for (const o of list) tiers[tierOf(o) - 1].push(o);
+    let obj = null;
+    let tier = 0;
+    for (let i = 0; i < tiers.length && !obj; i++) {
+        if (!tiers[i].length) continue;
+        const got = closestByPath(creep, tiers[i]);
+        if (got.incomplete) for (const o of tiers[i]) { book[o.id] = Game.time; lootBlocked.note(creep.room.name, o); }
+        if (got.obj) { obj = got.obj; tier = i + 1; }
+    }
     try { lootBlocked.analyze(creep.room, creep.pos); } catch (e) { }
     delete m.stk;
-    if (!got.obj) { delete m.src; return null; }
-    m.src = got.obj.id;
-    return got.obj;
+    if (!obj) { delete m.src; delete m.lootTier; return null; }
+    m.src = obj.id;
+    m.lootTier = tier;
+    return obj;
 }
 
 function stillLoadable(obj, roomName) {
@@ -572,6 +616,7 @@ function loadStep(creep, carrying) {
     const m = creep.memory;
     let obj = m.src ? Game.getObjectById(m.src) : null;
     if (conquest.salvageArmedThreat(creep.room)) { if (carrying) m.state = 'deliver'; else parkInside(creep); return; }
+    if (stillLoadable(obj, creep.room.name) && creep.pos.getRangeTo(obj) > 1 && tierOf(obj) > (m.lootTier || 3)) obj = null;
     if (!stillLoadable(obj, creep.room.name)) obj = pickTarget(creep);
     if (!obj && !carrying && Memory.lootBad && Memory.lootBad[creep.room.name] && Object.keys(Memory.lootBad[creep.room.name]).length && !(Game.time - (m.badClr || 0) < 50)) {
         m.badClr = Game.time;
@@ -597,7 +642,7 @@ function loadStep(creep, carrying) {
         return;
     }
     delete m.stk;
-    const ret = obj.store ? creep.withdraw(obj, biggest(obj.store)) : creep.pickup(obj);
+    const ret = obj.store ? creep.withdraw(obj, loadPick(obj.store)) : creep.pickup(obj);
     if (ret !== OK && ret !== ERR_NOT_IN_RANGE) { badBook(creep.room.name)[obj.id] = Game.time; delete m.src; delete m.stk; }
 }
 
@@ -640,4 +685,4 @@ function run(creep) {
     loadStep(creep, carrying);
 }
 
-module.exports = { reachable, queued, pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };
+module.exports = { reachable, queued, pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, loadPick, tierOf, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };
