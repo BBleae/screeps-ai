@@ -18588,6 +18588,23 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(p2 && p2.amount === 0 && p2.blocked === 'energy', '能量发完不够 15 万就不发');
     Game.rooms = savedRooms;
 }
+{
+    console.log('== 10-21 13:34 卡住判定：没疲劳、位置没变、没到目标旁才计数，10 次算走不到；一动或换目标清零 ==');
+    const lh = require('roles_lootHauler');
+    const c = { memory: {}, fatigue: 0, pos: { x: 10, y: 10 } };
+    assert(lh.stuckTick(c) === 0, '第一次记位置');
+    for (let i = 0; i < 4; i++) lh.stuckTick(c);
+    c.fatigue = 4;
+    for (let i = 0; i < 5; i++) lh.stuckTick(c);
+    assert(c.memory.stk[2] === 4, '有疲劳（沼泽）的 tick 不计数');
+    c.fatigue = 0;
+    for (let i = 0; i < 5; i++) lh.stuckTick(c);
+    assert(c.memory.stk[2] === 9, '没疲劳原地 9 次');
+    c.pos = { x: 11, y: 10 };
+    assert(lh.stuckTick(c) === 0, '一移动就清零');
+    for (let i = 0; i < 10; i++) lh.stuckTick(c);
+    assert(c.memory.stk[2] >= 10, '累计 10 次 → 认定走不到');
+}
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);
 

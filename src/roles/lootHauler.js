@@ -445,7 +445,17 @@ function boostDetour(creep) {
 }
 
 const BAD_RETRY = 1500;
-const STUCK_TICKS = 25;
+const STUCK_TICKS = 10;
+
+function stuckTick(creep) {
+    const m = creep.memory;
+    const x = creep.pos.x;
+    const y = creep.pos.y;
+    const t = Array.isArray(m.stk) ? m.stk : null;
+    if (!t || t[0] !== x || t[1] !== y) { m.stk = [x, y, 0]; return 0; }
+    if (creep.fatigue === 0) t[2]++;
+    return t[2];
+}
 const OBSTACLES = new Set(typeof OBSTACLE_OBJECT_TYPES !== 'undefined' ? OBSTACLE_OBJECT_TYPES : ['spawn', 'extension', 'constructedWall', 'link', 'storage', 'tower', 'observer', 'powerSpawn', 'extractor', 'lab', 'terminal', 'nuker', 'factory', 'invaderCore']);
 
 function badBook(roomName) {
@@ -501,9 +511,9 @@ function pickTarget(creep) {
     const list = conquest.loadTargets(creep.room).filter((o) => !book[o.id]);
     const got = closestByPath(creep, list);
     if (got.incomplete) for (const o of list) book[o.id] = Game.time;
-    if (!got.obj) { delete m.src; delete m.srcT; return null; }
+    delete m.stk;
+    if (!got.obj) { delete m.src; return null; }
     m.src = got.obj.id;
-    m.srcT = [Game.time, creep.pos.getRangeTo(got.obj)];
     return got.obj;
 }
 
@@ -525,18 +535,17 @@ function loadStep(creep, carrying) {
     }
     const range = creep.pos.getRangeTo(obj);
     if (range > 1) {
-        const t = Array.isArray(m.srcT) ? m.srcT : (m.srcT = [Game.time, range]);
-        if (range < t[1]) { t[0] = Game.time; t[1] = range; }
-        else if (Game.time - t[0] > STUCK_TICKS) {
+        const k = stuckTick(creep);
+        if (k >= STUCK_TICKS) {
             badBook(creep.room.name)[obj.id] = Game.time;
-            delete m.src; delete m.srcT;
+            delete m.src; delete m.stk;
             return;
         }
         movement.go(creep, obj, { range: 1, reusePath: 5 });
         return;
     }
     const ret = obj.store ? creep.withdraw(obj, biggest(obj.store)) : creep.pickup(obj);
-    if (ret !== OK && ret !== ERR_NOT_IN_RANGE) { badBook(creep.room.name)[obj.id] = Game.time; delete m.src; delete m.srcT; }
+    if (ret !== OK && ret !== ERR_NOT_IN_RANGE) { badBook(creep.room.name)[obj.id] = Game.time; delete m.src; delete m.stk; }
 }
 
 function run(creep) {
@@ -575,4 +584,4 @@ function run(creep) {
     loadStep(creep, carrying);
 }
 
-module.exports = { pathSteps, pathCalc, boostDetour, run, freeStand, closestByPath, loadStep, pickTarget, biggest, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };
+module.exports = { pathSteps, pathCalc, boostDetour, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };
