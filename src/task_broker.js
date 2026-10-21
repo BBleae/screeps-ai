@@ -1063,7 +1063,7 @@ function markSkipped(creep, reason) {
 function shouldRun(creep) {
     const score = runtime.scores[creep.name] || 0;
     const role = creep.memory && creep.memory.role;
-    if (['harvester', 'hauler', 'upgrader'].includes(role)) return true;
+    if (['harvester', 'hauler', 'upgrader', 'lootHauler'].includes(role)) return true;
     return score >= 20;
 }
 

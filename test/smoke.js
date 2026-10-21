@@ -18678,6 +18678,12 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(ov.interval() >= 100 && ov.interval() <= 500, '间隔夹在 100–500');
     world.time = savedT; Memory.errors = savedErr; delete Memory.cfgApplied; ov.state.at = null;
 }
+{
+    console.log('== 10-21 14:06 搬运工不再因 CPU 超预算被隔 tick 跳过（之前 score 0 → shouldRun false，超 cap 时整批停一 tick）==');
+    const tb = require('task_broker');
+    assert(tb.shouldRun({ name: 'x', memory: { role: 'lootHauler' } }) === true, 'lootHauler 每 tick 都跑');
+    assert(tb.shouldRun({ name: 'y', memory: { role: 'scout' } }) === false, '其他低分角色照旧可跳');
+}
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);
 
