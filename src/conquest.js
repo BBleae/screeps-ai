@@ -548,6 +548,32 @@ function salvageRuins(room) {
     });
 }
 
+function hostileRampart(st) {
+    return st.structureType === STRUCTURE_RAMPART && !st.my && !st.isPublic;
+}
+
+function usedOf(store) {
+    if (!store) return 0;
+    if (typeof store.getUsedCapacity === 'function') return Number(store.getUsedCapacity()) || 0;
+    let n = 0;
+    for (const k in store) if (typeof store[k] === 'number') n += store[k];
+    return n;
+}
+
+function loadTargets(room) {
+    const covered = new Set();
+    const structs = room.find(FIND_STRUCTURES);
+    for (const st of structs) if (hostileRampart(st)) covered.add(st.pos.x + ',' + st.pos.y);
+    const out = [];
+    for (const st of structs) {
+        if (st.my || !st.store || covered.has(st.pos.x + ',' + st.pos.y) || !(usedOf(st.store) > 0)) continue;
+        out.push(st);
+    }
+    for (const r of (room.find(FIND_RUINS) || []).concat(room.find(FIND_TOMBSTONES) || [])) if (usedOf(r.store) > 0) out.push(r);
+    for (const d of room.find(FIND_DROPPED_RESOURCES) || []) if (d.amount > 0) out.push(d);
+    return out;
+}
+
 const coverCache = { tick: -1, by: {} };
 function coverInfo(room) {
     if (!room || typeof room.find !== 'function') return null;
@@ -675,7 +701,9 @@ function runStrongholdLoot(d) {
             if (typeof store.getUsedCapacity === 'function') return sum + store.getUsedCapacity();
             return sum + Object.keys(store).reduce((n, k) => n + Number(store[k] || 0), 0);
         }, 0);
-        if (!ramparts.length && !structs.length && !ruins.length) {
+        const takeable = loadTargets(room);
+        d.takeLeft = takeable.length;
+        if (!ramparts.length && !takeable.length) {
             d.phase = 'done';
             if (!d.completed) { d.completed = true; d.completedAt = Game.time; }
             return;
@@ -719,6 +747,8 @@ function runPullLoot(d) {
         left += typeof o.store.getUsedCapacity === 'function' ? o.store.getUsedCapacity() : 0;
     }
     d.lootLeft = left;
+    d.takeLeft = loadTargets(room).length;
+    if (d.takeLeft > 0 && left <= 0) left = d.takeLeft;
     d.phase = left > 0 ? 'loot' : 'done';
     if (left <= 0 && !d.completed) { d.completed = true; d.completedAt = Game.time; }
 }
@@ -981,4 +1011,4 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
     return demands;
 }
 
-module.exports = { siegeCompounds, isBoosted, boostPlanBreached, boostLabReady, boostPlanDemands, salvageUncovered, storesLocked, pullDirective, coverInfo, pullArmedThreat, allyTarget, run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick, salvageArmedThreat, salvageKeyTiles, salvageRamparts, salvageStructures, salvageRuins, salvagePickResource, salvagePriorityScore, lootTier, salvageStoreTypes, salvageCorePriority, homeCanBoost };
+module.exports = { hostileRampart, usedOf, loadTargets, siegeCompounds, isBoosted, boostPlanBreached, boostLabReady, boostPlanDemands, salvageUncovered, storesLocked, pullDirective, coverInfo, pullArmedThreat, allyTarget, run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick, salvageArmedThreat, salvageKeyTiles, salvageRamparts, salvageStructures, salvageRuins, salvagePickResource, salvagePriorityScore, lootTier, salvageStoreTypes, salvageCorePriority, homeCanBoost };

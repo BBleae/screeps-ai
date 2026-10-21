@@ -200,31 +200,6 @@ function freeStand(creep, obj) {
     return best;
 }
 
-function moveNear(creep, obj) {
-    const spot = creep.pos.roomName === obj.pos.roomName ? freeStand(creep, obj) : null;
-    if (spot) movement.go(creep, spot, { range: 0, reusePath: 5 });
-    else movement.go(creep, obj, { range: 1, reusePath: 20 });
-}
-
-const DROP_REACH = 3;
-function topLoot(res, order) {
-    const list = Array.isArray(order) && order.length ? order : [];
-    if (list.indexOf('byValue') >= 0) return conquest.lootTier(res) <= 1;
-    const cut = list.indexOf('battery');
-    if (cut < 0) return false;
-    const i = list.indexOf(res);
-    return i >= 0 && i <= cut;
-}
-
-function topUpDrop(creep, near) {
-    if (!creep.store || creep.store.getFreeCapacity() <= 0) return false;
-    const drops = ((conquest.coverInfo(creep.room) || {}).dropped || []).filter((r) => r.resourceType === ENERGY && (creep.pos.getRangeTo(r) <= DROP_REACH || (near && near.pos && near.pos.getRangeTo(r) <= DROP_REACH)));
-    if (!drops.length) return false;
-    const dr = creep.pos.findClosestByRange(drops) || drops[0];
-    if (creep.pickup(dr) === ERR_NOT_IN_RANGE) movement.go(creep, dr, { range: 1, reusePath: 5 });
-    return true;
-}
-
 const PICK_DETOUR = 10;
 function routePickup(creep) {
     const m = creep.memory;
@@ -278,6 +253,14 @@ function noteUnload(creep, res, amount) {
     if (res !== ENERGY) rec.nonE += amount;
     if (boostedCarry(creep)) rec.bAmt += amount;
     rec.to[creep.room.name] = (rec.to[creep.room.name] || 0) + amount;
+    const byRes = rec.res || (rec.res = {});
+    byRes[res] = (byRes[res] || 0) + amount;
+    const hourKey = new Date().toISOString().slice(0, 13);
+    const hours = Array.isArray(st.hours) ? st.hours : (st.hours = []);
+    let h = hours[hours.length - 1];
+    if (!h || h.h !== hourKey) { h = { h: hourKey, at: Game.time, by: {} }; hours.push(h); while (hours.length > 24) hours.shift(); }
+    const hb = h.by[key] || (h.by[key] = {});
+    hb[res] = (hb[res] || 0) + amount;
 }
 
 function noteTrip(creep) {
@@ -308,8 +291,7 @@ function deliver(creep) {
     }
     const carrying = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
     if (!carrying) { noteTrip(creep); return false; }
-    const order = m.lootOrder;
-    const res = conquest.salvagePickResource(creep.store, order) || nonEnergyKey(creep.store) || ENERGY;
+    const res = biggest(creep.store) || ENERGY;
     const term = room.terminal;
     const used = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() : 0;
     const dest = !storageOk(room) && term && term.my !== false && term.store && typeof term.store.getFreeCapacity === 'function' && term.store.getFreeCapacity() >= used + 20000 ? term : room.storage;
@@ -326,23 +308,6 @@ function parkInside(creep) {
     if (p.x > 2 && p.x < 47 && p.y > 2 && p.y < 47) return;
     const anchor = creep.room.find(FIND_MY_CREEPS).find((c) => c.memory && c.memory.role === 'siegeDismantler');
     movement.go(creep, anchor ? anchor.pos : new RoomPosition(25, 25, creep.room.name), { range: anchor ? 3 : 5, reusePath: 20 });
-}
-
-const mateCache = { tick: -1, by: {} };
-function salvageMates(target) {
-    if (mateCache.tick !== Game.time) { mateCache.tick = Game.time; mateCache.by = {}; }
-    if (!mateCache.by[target]) {
-        mateCache.by[target] = Object.keys(Game.creeps).filter((n) => {
-            const m = Game.creeps[n].memory;
-            return m && m.role === 'lootHauler' && m.salvageLoot && !m.retired && m.targetRoom === target;
-        }).sort();
-    }
-    return mateCache.by[target];
-}
-
-function keepCount(target) {
-    for (const d of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (d && d.target === target && d.keepHaulers != null) return Number(d.keepHaulers) || 0;
-    return 2;
 }
 
 function toPull(creep) {
@@ -365,7 +330,7 @@ function toPull(creep) {
 function backToSalvage(creep) {
     const m = creep.memory;
     const room = Game.rooms[m.salvageFrom];
-    if (!room || conquest.storesLocked(room)) return;
+    if (!room || !conquest.loadTargets(room).length) return;
     m.targetRoom = m.salvageFrom;
     m.salvageLoot = true;
     m.lootOrder = m.salvageOrder;
@@ -479,6 +444,101 @@ function boostDetour(creep) {
     return true;
 }
 
+const BAD_RETRY = 1500;
+const STUCK_TICKS = 25;
+const OBSTACLES = new Set(typeof OBSTACLE_OBJECT_TYPES !== 'undefined' ? OBSTACLE_OBJECT_TYPES : ['spawn', 'extension', 'constructedWall', 'link', 'storage', 'tower', 'observer', 'powerSpawn', 'extractor', 'lab', 'terminal', 'nuker', 'factory', 'invaderCore']);
+
+function badBook(roomName) {
+    const all = Memory.lootBad || (Memory.lootBad = {});
+    const book = all[roomName] || (all[roomName] = {});
+    for (const id in book) if (Game.time - book[id] >= BAD_RETRY) delete book[id];
+    return book;
+}
+
+const matrixCache = { tick: -1, by: {} };
+function loadMatrix(room) {
+    if (matrixCache.tick !== Game.time) { matrixCache.tick = Game.time; matrixCache.by = {}; }
+    if (matrixCache.by[room.name]) return matrixCache.by[room.name];
+    const cm = new PathFinder.CostMatrix();
+    for (const st of room.find(FIND_STRUCTURES)) {
+        if (st.structureType === STRUCTURE_ROAD) { if (!cm.get(st.pos.x, st.pos.y)) cm.set(st.pos.x, st.pos.y, 1); }
+        else if (conquest.hostileRampart(st) || OBSTACLES.has(st.structureType)) cm.set(st.pos.x, st.pos.y, 255);
+    }
+    matrixCache.by[room.name] = cm;
+    return cm;
+}
+
+function closestByPath(creep, list) {
+    if (!list.length) return { obj: null, incomplete: false };
+    const goals = list.map((o) => ({ pos: o.pos, range: 1 }));
+    const res = PathFinder.search(creep.pos, goals, {
+        plainCost: 1, swampCost: 5, maxRooms: 1, maxOps: 4000,
+        roomCallback: (name) => (name === creep.room.name ? loadMatrix(creep.room) : false),
+    });
+    if (!res || res.incomplete) return { obj: null, incomplete: true };
+    const end = res.path.length ? res.path[res.path.length - 1] : creep.pos;
+    let best = null;
+    let bestR = Infinity;
+    for (const o of list) {
+        const r = Math.max(Math.abs(o.pos.x - end.x), Math.abs(o.pos.y - end.y));
+        if (r <= 1 && r < bestR) { best = o; bestR = r; }
+    }
+    return { obj: best, incomplete: false };
+}
+
+function biggest(store) {
+    let best = null;
+    for (const k in store) {
+        const n = Number(store[k]);
+        if (n > 0 && (!best || n > Number(store[best]))) best = k;
+    }
+    return best;
+}
+
+function pickTarget(creep) {
+    const m = creep.memory;
+    const book = badBook(creep.room.name);
+    const list = conquest.loadTargets(creep.room).filter((o) => !book[o.id]);
+    const got = closestByPath(creep, list);
+    if (got.incomplete) for (const o of list) book[o.id] = Game.time;
+    if (!got.obj) { delete m.src; delete m.srcT; return null; }
+    m.src = got.obj.id;
+    m.srcT = [Game.time, creep.pos.getRangeTo(got.obj)];
+    return got.obj;
+}
+
+function stillLoadable(obj, roomName) {
+    if (!obj || !obj.pos || obj.pos.roomName !== roomName) return false;
+    return obj.store ? conquest.usedOf(obj.store) > 0 : Number(obj.amount) > 0;
+}
+
+function loadStep(creep, carrying) {
+    const m = creep.memory;
+    let obj = m.src ? Game.getObjectById(m.src) : null;
+    if (conquest.salvageArmedThreat(creep.room)) { if (carrying) m.state = 'deliver'; else parkInside(creep); return; }
+    if (!stillLoadable(obj, creep.room.name)) obj = pickTarget(creep);
+    if (!obj) {
+        if (carrying) { m.state = 'deliver'; return; }
+        if (toPull(creep)) return;
+        parkInside(creep);
+        return;
+    }
+    const range = creep.pos.getRangeTo(obj);
+    if (range > 1) {
+        const t = Array.isArray(m.srcT) ? m.srcT : (m.srcT = [Game.time, range]);
+        if (range < t[1]) { t[0] = Game.time; t[1] = range; }
+        else if (Game.time - t[0] > STUCK_TICKS) {
+            badBook(creep.room.name)[obj.id] = Game.time;
+            delete m.src; delete m.srcT;
+            return;
+        }
+        movement.go(creep, obj, { range: 1, reusePath: 5 });
+        return;
+    }
+    const ret = obj.store ? creep.withdraw(obj, biggest(obj.store)) : creep.pickup(obj);
+    if (ret !== OK && ret !== ERR_NOT_IN_RANGE) { badBook(creep.room.name)[obj.id] = Game.time; delete m.src; delete m.srcT; }
+}
+
 function run(creep) {
     if (creep.spawning) return;
     track(creep);
@@ -493,7 +553,6 @@ function run(creep) {
     const target = creep.memory.targetRoom;
     const home = creep.memory.home;
     if (!target || !home) return;
-    const salvage = !!creep.memory.salvageLoot;
     const full = creep.store.getFreeCapacity ? creep.store.getFreeCapacity() <= 0 : false;
     const carrying = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
     const retreat = conquest.retreatFor(target);
@@ -513,74 +572,7 @@ function run(creep) {
     }
     if (retreat) { creep.memory.state = 'deliver'; return; }
     if (creep.room.name !== target) { if (!routePickup(creep)) goRoom(creep, target); return; }
-    if (creep.memory.pullLoot) {
-        let src = creep.memory.src && Game.getObjectById(creep.memory.src);
-        if (!src || !(src.store && src.store.getUsedCapacity() > 0)) {
-            src = null;
-            for (const id of creep.memory.pull || []) {
-                const o = Game.getObjectById(id);
-                if (o && o.store && o.store.getUsedCapacity() > 0) { src = o; break; }
-            }
-            creep.memory.src = src ? src.id : null;
-        }
-        if (!src) { if (carrying) creep.memory.state = 'deliver'; else retireMod.retireAtSpawn(creep); return; }
-        const res = conquest.salvagePickResource(src.store, creep.memory.lootOrder);
-        if (!res) { creep.memory.state = 'deliver'; return; }
-        if (creep.withdraw(src, res) === ERR_NOT_IN_RANGE) movement.go(creep, src, { range: 1, reusePath: 50 });
-        return;
-    }
-    if (salvage) {
-        const cachedRuin = creep.memory.ruin && Game.getObjectById(creep.memory.ruin);
-        if (cachedRuin && Game.time % 5 !== 0) {
-            const r0 = conquest.salvagePickResource(cachedRuin.store, creep.memory.lootOrder);
-            if (r0 && !topLoot(r0, creep.memory.lootOrder) && topUpDrop(creep, cachedRuin)) return;
-            if (r0) {
-                if (creep.withdraw(cachedRuin, r0) === ERR_NOT_IN_RANGE) moveNear(creep, cachedRuin);
-                return;
-            }
-        }
-        delete creep.memory.ruin;
-        const threat = conquest.salvageArmedThreat(creep.room);
-        if (threat) {
-            creep.memory.state = 'deliver';
-            deliver(creep);
-            return;
-        }
-        const ruins = conquest.salvageUncovered(creep.room);
-        if (conquest.storesLocked(creep.room)) {
-            const idx = salvageMates(target).indexOf(creep.name);
-            const drops = (conquest.coverInfo(creep.room) || {}).dropped || [];
-            if ((idx >= keepCount(target) || (!ruins.length && !drops.length)) && !carrying && toPull(creep)) return;
-        }
-        if (!ruins.length) {
-            const drops = (conquest.coverInfo(creep.room) || {}).dropped || [];
-            if (drops.length && !full) {
-                const dr = creep.pos.findClosestByRange(drops) || drops[0];
-                if (creep.pickup(dr) === ERR_NOT_IN_RANGE) movement.go(creep, dr, { range: 1, reusePath: 20 });
-                return;
-            }
-            if (carrying) { creep.memory.state = 'deliver'; return; }
-            parkInside(creep);
-            return;
-        }
-        const order = creep.memory.lootOrder;
-        ruins.sort((a, b) => conquest.salvagePriorityScore(b.store, order) - conquest.salvagePriorityScore(a.store, order));
-        const best = conquest.salvagePriorityScore(ruins[0].store, order);
-        const tied = ruins.filter((o) => conquest.salvagePriorityScore(o.store, order) === best).slice(0, 5);
-        const c = creep.pos.findClosestByRange ? creep.pos.findClosestByRange(tied) || ruins[0] : ruins[0];
-        const res = conquest.salvagePickResource(c.store, order);
-        if (!res) { creep.memory.state = 'deliver'; return; }
-        if (!topLoot(res, order) && topUpDrop(creep, c)) return;
-        creep.memory.ruin = c.id;
-        if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) moveNear(creep, c);
-        return;
-    }
-    const containers = conquest.lootContainersOf(creep.room, creep.memory.lootTiles);
-    if (!containers.length) { if (carrying) creep.memory.state = 'deliver'; else parkInside(creep); return; }
-    const c = creep.pos.findClosestByRange ? creep.pos.findClosestByRange(containers) : containers[0];
-    const res = nonEnergyKey(c.store);
-    if (!res) { creep.memory.state = 'deliver'; return; }
-    if (creep.withdraw(c, res) === ERR_NOT_IN_RANGE) movement.go(creep, c, { range: 1, reusePath: 5 });
+    loadStep(creep, carrying);
 }
 
-module.exports = { pathSteps, pathCalc, boostDetour, run, freeStand, topLoot, topUpDrop, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };
+module.exports = { pathSteps, pathCalc, boostDetour, run, freeStand, closestByPath, loadStep, pickTarget, biggest, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };

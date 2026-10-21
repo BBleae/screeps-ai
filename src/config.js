@@ -493,7 +493,7 @@ module.exports = {
         starvingBelow: 10000,
         burnRooms: ['W37S5'],
         lootHoldRooms: { W37S5: ['W37S2', 'W35S1', 'W37S3'] },
-        lootExport: { W37S5: { storageAbove: 0.7, energyKeep: 150000, t3To: ['W33S3', 'W32S4'], batteryTo: 'factory', batch: 5000, minBatch: 1000, receiverTerminalFree: 20000, receiverStorageFree: 50000, terminalStage: 20000, terminalFree: 30000 } },
+        lootExport: { W37S5: { storageAbove: 0.7, energyKeep: 150000, t3To: ['W33S3', 'W32S4'], batteryTo: 'factory', batch: 5000, minBatch: 1000, receiverTerminalFree: 20000, receiverStorageFree: 50000, terminalStage: 20000, terminalFree: 30000, energy: true, energyBatch: 10000, energyUntil: 150000 } },
         starvingUntil: { W37S5: 100000, W31S8: 20000, W32S4: 25000, W33S8: 25000 },
         starveMinSend: 2000,
         senderTerminalExtra: 10000,

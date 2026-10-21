@@ -15669,14 +15669,6 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
 }
 
 {
-    console.log('== 10-21 W37S2 抢运顺序：T3/battery → 地上能量（只在装完还有空位时顺手捡）→ L → storage 能量 ==');
-    const lh = require('roles_lootHauler');
-    const order = ['XUH2O', 'XKHO2', 'XLHO2', 'XGHO2', 'XZH2O', 'ZH2O', 'battery', 'L', 'energy'];
-    assert(lh.topLoot('XUH2O', order) && lh.topLoot('battery', order), 'T3 和 battery 排在地上能量前面');
-    assert(!lh.topLoot('L', order) && !lh.topLoot('energy', order) && !lh.topLoot('KHO2', order), 'L、storage 能量和其他排在地上能量后面');
-}
-
-{
     console.log('== 10-21 lootHauler 进 W38S5 前看有没有带 ATTACK/RANGED 的敌人，有就在 W37S5/W38S4 等 ==');
     const lh = require('roles_lootHauler');
     const savedRooms = Game.rooms;
@@ -18537,6 +18529,64 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     Game.rooms = { W37S5: { name: 'W37S5', controller: { my: true }, storage: { store: { getCapacity: () => 1000000, getUsedCapacity: () => 500000 } } } };
     assert(lh.dropRoom({ memory: { targetRoom: 'W37S3', home: 'W38S7' } }) === 'W37S5', 'W37S3 固定卸 W37S5');
     PathFinder.search = savedPF; Memory.lootDrop = savedDrop; Game.map = savedMap; Game.rooms = savedRooms;
+}
+{
+    console.log('== 10-21 13:28 搬运工装货简化：最近能走到的、取量最多的那种，什么都要；别人 rampart 盖住的跳过；走不到/25 tick 没靠近的记 lootBad；能量也外发 ==');
+    const cq = require('conquest');
+    const lh = require('roles_lootHauler');
+    const P = (x, y) => new RoomPosition(x, y, 'W37S2');
+    const mkS = (id, type, x, y, store) => ({ id, structureType: type, pos: P(x, y), store, my: false });
+    const st = (o) => Object.assign({ getUsedCapacity: () => Object.values(o).reduce((a, b) => a + b, 0) }, o);
+    const objs = {
+        storage: mkS('sto', STRUCTURE_STORAGE, 20, 20, st({ energy: 5000, XUH2O: 100 })),
+        covered: mkS('lab', STRUCTURE_LAB, 30, 30, st({ KH: 500 })),
+        ramp: { id: 'rp', structureType: STRUCTURE_RAMPART, pos: P(30, 30), my: false, isPublic: false },
+        empty: mkS('ext', STRUCTURE_EXTENSION, 22, 22, st({})),
+        tower: mkS('tw', STRUCTURE_TOWER, 27, 27, st({ energy: 300 })),
+    };
+    const ruin = { id: 'ru', pos: P(10, 10), store: st({ battery: 50 }) };
+    const drop = { id: 'dr', pos: P(24, 25), amount: 40, resourceType: 'energy' };
+    const room = { name: 'W37S2', find: (k) => (k === FIND_STRUCTURES ? [objs.storage, objs.covered, objs.ramp, objs.empty, objs.tower] : k === FIND_RUINS ? [ruin] : k === FIND_TOMBSTONES ? [] : k === FIND_DROPPED_RESOURCES ? [drop] : []) };
+    const ids = cq.loadTargets(room).map((o) => o.id).sort();
+    assert(JSON.stringify(ids) === JSON.stringify(['dr', 'ru', 'sto', 'tw']), '可取：storage、tower、ruin、地上能量；rampart 下的 lab、空 extension 跳过（得 ' + JSON.stringify(ids) + '）');
+    assert(lh.biggest({ energy: 5000, XUH2O: 100 }) === 'energy', '每次取量最多的那种（能量也要）');
+    const creep = { name: 'h', room, pos: P(25, 25), memory: {} };
+    creep.pos.getRangeTo = (o) => Math.max(Math.abs(o.pos.x - 25), Math.abs(o.pos.y - 25));
+    const savedGet = Game.getObjectById;
+    const byId = { sto: objs.storage, tw: objs.tower, ru: ruin, dr: drop };
+    Game.getObjectById = (id) => byId[id] || null;
+    delete Memory.lootBad;
+    const t = lh.pickTarget(creep);
+    assert(t && t.id === 'dr' && creep.memory.src === 'dr', '按路径最近：先地上的能量（得 ' + (t && t.id) + '）');
+    Memory.lootBad = { W37S2: { dr: world.time } };
+    const t2 = lh.pickTarget(creep);
+    assert(t2 && t2.id === 'tw', '记进 lootBad 的跳过，换下一个最近的');
+    const savedPF = PathFinder.search;
+    PathFinder.search = () => ({ path: [], incomplete: true });
+    delete Memory.lootBad;
+    assert(lh.pickTarget(creep) === null && Memory.lootBad.W37S2.sto === world.time, '走不到（被墙/rampart 围住）：全部记 lootBad，1500 tick 后重试');
+    PathFinder.search = savedPF;
+    world.time += 1500;
+    delete creep.memory.src;
+    assert(lh.pickTarget(creep) !== null && !Memory.lootBad.W37S2.sto, '过 1500 tick 重新试');
+    Game.getObjectById = savedGet;
+    delete Memory.lootBad;
+
+    const term = require('terminal');
+    const mk = (name, eng, tFree, sFree) => ({ name, controller: { my: true, level: 7 },
+        storage: { my: true, store: { energy: eng, getCapacity: () => 1000000, getUsedCapacity: (r) => (r === 'energy' ? eng : 750000), getFreeCapacity: () => sFree } },
+        terminal: { my: true, cooldown: 0, store: { energy: 0, getFreeCapacity: () => tFree, getUsedCapacity: (r) => 0 } }, find: () => [] });
+    const from = mk('W37S5', 300000, 100000, 250000);
+    from.terminal.store.energy = 40000;
+    from.terminal.store.getUsedCapacity = (r) => (r === 'energy' ? 40000 : 0);
+    const savedRooms = Game.rooms;
+    Game.rooms = { W37S5: from, W33S7: mk('W33S7', 1000, 100000, 900000), W31S8: mk('W31S8', 5000, 100000, 900000), W38S7: mk('W38S7', 60000, 100000, 900000) };
+    const plan = term.planLootExport(term.settings());
+    assert(plan && plan.res === 'energy' && plan.to.name === 'W31S8' && plan.amount === 10000, '没 T3/battery 时外发能量：先缺能的房（W33S7 有 noEnergyIn 跳过）（得 ' + JSON.stringify(plan && { r: plan.res, to: plan.to.name, a: plan.amount }) + '）');
+    from.storage.store.getUsedCapacity = (r) => (r === 'energy' ? 105000 : 750000);
+    const p2 = term.planLootExport(term.settings());
+    assert(p2 && p2.amount === 0 && p2.blocked === 'energy', '能量发完不够 15 万就不发');
+    Game.rooms = savedRooms;
 }
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);

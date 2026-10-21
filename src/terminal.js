@@ -591,8 +591,38 @@ function planLootExport(cfg) {
                 return { from, to, res, amount, cost, kind };
             }
         }
+        if (rule.energy === false) continue;
+        const eBatch = Number(rule.energyBatch) || 10000;
+        for (const toName of energyDests(cfg, rule, name)) {
+            const to = Game.rooms[toName];
+            const tFree = Number(to.terminal.store.getFreeCapacity()) || 0;
+            const sFree = Number(to.storage.store.getFreeCapacity()) || 0;
+            if (tFree - recvTerminalFree < minBatch || sFree < recvStorageFree) continue;
+            let amount = Math.min(eBatch, tFree - recvTerminalFree);
+            let cost = transactionCost(amount, name, toName);
+            while (amount >= minBatch && (amount + cost > tEnergy || total - amount - cost < keep)) {
+                amount = Math.floor(amount / 2);
+                cost = transactionCost(amount, name, toName);
+            }
+            if (amount < minBatch) return { from, to, res: RESOURCE, amount: 0, cost, blocked: 'energy' };
+            return { from, to, res: RESOURCE, amount, cost, kind: 'energy' };
+        }
     }
     return null;
+}
+
+function energyDests(cfg, rule, fromName) {
+    const ok = (n) => {
+        const r = Game.rooms[n];
+        return n !== fromName && r && r.controller && r.controller.my && r.terminal && r.terminal.my !== false && r.storage && r.storage.my !== false && !noEnergyIn(r);
+    };
+    const below = Number(cfg.receiveBelow) || 0;
+    const until = (n) => Math.max(below, Number(cfg.starvingUntil && cfg.starvingUntil[n]) || 0);
+    const starving = Object.keys(Game.rooms).filter((n) => ok(n) && roomEnergy(Game.rooms[n]) < until(n))
+        .sort((a, b) => roomEnergy(Game.rooms[a]) - roomEnergy(Game.rooms[b]));
+    const cap = Number(rule.energyUntil) || 150000;
+    const prio = (Array.isArray(cfg.priorityReceivers) ? cfg.priorityReceivers : []).filter((n) => ok(n) && starving.indexOf(n) < 0 && roomEnergy(Game.rooms[n]) < cap);
+    return starving.concat(prio);
 }
 
 function runLootExport(cfg) {
