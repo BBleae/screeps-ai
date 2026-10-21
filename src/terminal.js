@@ -219,13 +219,16 @@ function planStarving(rooms, cfg, rich) {
     const isPeer = (room) => order.indexOf(room.name) >= 0;
     const senders = rooms.slice().sort((a, b) => roomEnergy(b) - roomEnergy(a)).filter((room) =>
         !(room.terminal.cooldown > 0) && !usedThisTick(room.name) && energyOf(room.terminal.store) > feeReserve &&
-        !receiveOnly(room) && storageSpare(room) > 0 && (isPeer(room) ? peerMin > 0 && roomEnergy(room) >= peerMin : roomEnergy(room) >= sendAbove && rich(room)));
-    const urgentFirst = order.filter((name) => byName[name] && roomEnergy(byName[name]) < below);
+        !receiveOnly(room) && storageSpare(room) > 0 && sendHeadroom(room) >= (Number(cfg.starveMinSend) || cfg.minSend) && (isPeer(room) ? peerMin > 0 && roomEnergy(room) >= peerMin : roomEnergy(room) >= sendAbove && rich(room)));
+    const rcl8Urgent = rooms.filter((r) => r.controller && r.controller.level >= 8 && !noEnergyIn(r) && roomEnergy(r) < below && order.indexOf(r.name) < 0)
+        .sort((x, y) => roomEnergy(x) - roomEnergy(y)).map((r) => r.name);
+    const urgentFirst = rcl8Urgent.concat(order.filter((name) => byName[name] && roomEnergy(byName[name]) < below));
     const queue = urgentFirst.concat(order.filter((name) => urgentFirst.indexOf(name) < 0));
     for (const name of queue) {
         const to = byName[name];
         const until = Math.max(below, Number(cfg.starvingUntil && cfg.starvingUntil[name]) || 0);
-        if (!to || noEnergyIn(to) || (to.controller && to.controller.level >= 8) || roomEnergy(to) >= until || freeOf(to.terminal.store) <= 0) continue;
+        const rcl8 = !!(to && to.controller && to.controller.level >= 8);
+        if (!to || noEnergyIn(to) || (rcl8 && roomEnergy(to) >= below) || roomEnergy(to) >= until || freeOf(to.terminal.store) <= 0) continue;
         const burn = burnRoom(cfg, to) && roomEnergy(to) >= below;
         for (const from of senders) {
             if (from.name === to.name) continue;

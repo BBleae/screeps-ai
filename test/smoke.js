@@ -16357,7 +16357,10 @@ console.log('== 终端网络（2026-10-13，移植 overmind-absorb 2214dcc）：
     assert(plan.amount >= cfg.minSend && plan.amount <= cfg.maxSend, '发送量在 [minSend, maxSend] 内（得 ' + plan.amount + '）');
     assert(plan.amount + plan.cost <= 60000 - cfg.feeReserve, '发送量 + 传送费不超过 terminal 存量减去留给市场的 feeReserve（得 ' + plan.amount + '+' + plan.cost + '）');
     assert(200000 + 60000 - plan.amount >= cfg.keep, '发出后发送方仍高于 keep');
-    assert(term.planTransfer([mid, poor], cfg) === null, '发送方不够富（低于 sendAbove）⇒ 不发');
+    assert(term.planTransfer([mid, mkTRoom('W31S6', 11000, 1000)], cfg) === null, '发送方不够富（低于 sendAbove）⇒ 不发');
+    const r8 = term.planTransfer([mid, poor], cfg);
+    assert(r8 && r8.starving && r8.to.name === 'W31S6' && r8.from.name === 'W34S7', 'RCL8 房能量低于 starvingBelow ⇒ 按救急补（得 ' + (r8 && r8.from.name + '→' + r8.to.name) + '）');
+    assert(term.planTransfer([mid, mkTRoom('W31S6', 9000, 2000)], cfg) === null, 'RCL8 房补到 starvingBelow 就停');
     assert(term.planTransfer([rich, mid], cfg) === null, '接收方不够饿（高于 receiveBelow）⇒ 不发');
     {
         const scfg = Object.assign({}, cfg, { terminalFeeReserve: {}, forward: [], priorityReceivers: ['W31S8', 'W35S7'], starvingBelow: 10000, starveSendAbove: 40000, starveKeep: 30000, starveMaxSend: 10000 });
