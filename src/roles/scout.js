@@ -82,7 +82,6 @@ function run(creep) {
     const target = creep.memory.target || nextTarget(home);
 
     if (!target) {
-        // 周边探完，回家待命（等待 Memory.map 老化后重探）
         const room = Game.rooms[home];
         const anchor = room && (room.storage || room.find(FIND_MY_SPAWNS)[0]);
         if (room && anchor && !creep.pos.inRangeTo(anchor.pos, 4)) movement.go(creep, anchor.pos, { range: 4, reusePath: 30 });

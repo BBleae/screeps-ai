@@ -205,7 +205,6 @@ function normalize(room, raw) {
     const sources = Array.isArray(room.source) ? room.source.slice() : roomFind(room, 'FIND_SOURCES');
     const work = classifyWorkPositions(room, rawPositions(raw, 'work_pos'), sources);
     const containers = classifyWorkPositions(room, rawPositions(raw, structureTypes.container), sources);
-    // 轮子只给矿的容器，源/controller 用 link 供能；RCL5 之前没有 link，静态矿工与 upgrader 的容器就放在轮子的工位上
     for (const key of Object.keys(work)) {
         if (key !== 'mineral' && !containers[key] && work[key]) containers[key] = clonePos(work[key]);
     }
@@ -453,8 +452,6 @@ function rollbackHarvesterRemap(updates) {
     }
 }
 
-/** 把轮子原始输出采用为房间 plan。现有建筑与方案的冲突不再是拒绝理由（由拆迁调度在合适时机处理），
- *  只把冲突数记进 wheelLayout.conflicts 作诊断。 */
 function adoptRaw(room, raw) {
     const roomName = room.name;
     let nextPlan;
@@ -507,7 +504,6 @@ function wheelSettings() {
     return Object.assign({ bucket: 5000, retryTicks: 5000 }, config.wheel || {});
 }
 
-/** 在游戏内跑轮子并采用为该房唯一的规划。失败（规划器返回 false/抛错）记 planError 并在 retryTicks 后重试。 */
 function generate(room, mem) {
     const roomName = room.name;
     const settings = wheelSettings();
@@ -522,7 +518,6 @@ function generate(room, mem) {
             const result = adoptRaw(room, raw);
             if (!result.ok) throw new Error(result.errors.join('; '));
             if (mem && Memory.rooms && Memory.rooms[roomName] && mem !== Memory.rooms[roomName]) {
-                // 调用方持有旧的内存对象：把新内容同步回去，避免它写回覆盖
                 for (const key of Object.keys(mem)) delete mem[key];
                 Object.assign(mem, Memory.rooms[roomName]);
                 Memory.rooms[roomName] = mem;
@@ -539,7 +534,6 @@ function generate(room, mem) {
     return { ok: false, errors: [error] };
 }
 
-/** 该房现在是否该跑轮子：没有轮子 plan、不在重试冷却期、bucket 够。 */
 function shouldGenerate(mem) {
     if (mem && mem.plan && mem.plan.wheel) return false;
     if (mem && mem.planError && mem.planError.retryAt > Game.time) return false;

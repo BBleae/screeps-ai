@@ -1,9 +1,4 @@
 'use strict';
-/** 援建搬运（aid.js 派出）：从母房（memory.from）的 storage 取能量，送到弱房（memory.home），投递分层与 remoteHauler 回家一致：
- *  spawn/ext → 低于储备的塔 → 控制器容器 → 和平期塔 → storage（弱房经济没起来，spawn 优先；只挑没被本房 hauler 预留满的 spawn/ext）。
- *  母房 storage 低于 config.aid.exportKeep 时不取（母房自己还要用），弱房放不下时在 spawn 旁等；母房没了 storage 就去最近的 spawn 回收退役。
- *  同 tick 取送 + 起步（引擎允许 withdraw/transfer 与 move 同 tick，射程按 tick 开始时的位置算、store 下一 tick 才变）：取满的那一 tick
- *  就朝弱房走；每次投递后同 tick 挑下一站（排除刚投过的那格）起步、broker 同 tick 扣减，投空的那一 tick 就回母房 */
 const config = require('config');
 const movement = require('movement');
 const retireMod = require('retire');
@@ -28,7 +23,6 @@ function load(creep) {
     if (!storage || storage.my === false || !storage.store) { retireMod.retireAtSpawn(creep); return; }
     const keep = require('utils').aidExportLevels(config.aid, config.upgrading).keep;
     let spare = Number(storage.store[RESOURCE_ENERGY] || 0) - keep;
-    // 10-16 一次性放行（Memory.aidOneShot）：总量封顶，取满后放行标记已删——空车回 spawn 回收，不再取
     if (creep.memory.oneShot) {
         const o = Memory.aidOneShot;
         const left = o && !o.paused && o.from === creep.memory.from && o.to === creep.memory.home ? Math.max(0, Number(o.amount) - (Number(o.withdrawn) || 0)) : 0;
@@ -56,10 +50,9 @@ function load(creep) {
             Memory.aidOneShotDone = Object.assign({}, o, { doneAt: Game.time });
             delete Memory.aidOneShot;
         }
-        if (amount < free) { creep.memory.state = 'deliver'; goToRoom(creep, creep.memory.home); return; }   // 尾批不满也出发
+        if (amount < free) { creep.memory.state = 'deliver'; goToRoom(creep, creep.memory.home); return; }
     }
     if (ret === ERR_NOT_IN_RANGE) { movement.go(creep, storage, { range: 1, reusePath: 20 }); return; }
-    // 取满的那一 tick 就出发（下一 tick run() 看到满仓也会转投递）；只取到零头（storage 只剩导出线以上一点）时照旧等
     if (ret === OK && amount >= free) {
         creep.memory.state = 'deliver';
         goToRoom(creep, creep.memory.home);
@@ -87,14 +80,13 @@ function deliver(creep) {
     if (ret !== OK) return;
     if (typeof taskBroker.consume === 'function') taskBroker.consume(creep, home, target, sent, 'deliver');
     const left = energy - sent;
-    if (left <= 0) { goToRoom(creep, creep.memory.from); return; }   // 投空的那一 tick 就回母房取货
+    if (left <= 0) { goToRoom(creep, creep.memory.from); return; }
     exclude.add(target.id);
     const next = homeTarget(home, creep, { exclude });
     const nextRange = next ? rangeTo(creep, next) : null;
     if (next && nextRange != null && nextRange > 1) movement.go(creep, next, { range: 1, reusePath: 20 });
 }
 
-/** 一次性放行的投递顺序：towerFirst 门槛（默认 500）以下的塔 → spawn/extension → storage */
 function oneShotTarget(home, creep) {
     const below = Number((config.towerFirst || {})[home.name]) || 500;
     const mine = home.find(FIND_MY_STRUCTURES) || [];
@@ -109,7 +101,6 @@ function oneShotTarget(home, creep) {
 
 function run(creep) {
     if (!creep.memory.home || !creep.memory.from) return;
-    // 10-16 战略：oneShot courier 真掉血 → 暂停放行（不删标记），等 W29S3 terminal 建成改用 terminal 送
     if (creep.memory.oneShot && Memory.aidOneShot && !Memory.aidOneShot.paused && creep.hits < creep.hitsMax) {
         Memory.aidOneShot.paused = { reason: 'courierDamaged', at: Game.time, name: creep.name, room: creep.room && creep.room.name,
             hits: creep.hits, hitsMax: creep.hitsMax, resume: 'W29S3 terminal 建成后用 terminal 送剩余量' };

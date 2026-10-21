@@ -1,5 +1,4 @@
 'use strict';
-/** 占领工：走到目标房 claim controller，占下即退役（spawn 工地由新房自己的轮子方案决定，见 expansion.run） */
 const movement = require('movement');
 const expansion = require('expansion');
 const retire = require('retire');
@@ -11,8 +10,7 @@ function run(creep) {
     if (!target) return;
     if (creep.room.name !== target) {
         if (expansion.noteStuck(creep)) return;
-        movement.noteKeeperTransit(creep);   // 遥测：记录穿 SK 房时到 lair 的最近距离（私服断言用）
-        // 允许穿 SK 房（只避他人占领房）+ 保持离 keeper lair 距离，去 SK 环外的目标房（如 W37S5/W38S7）占领
+        movement.noteKeeperTransit(creep);
         movement.go(creep, new RoomPosition(25, 25, target), { range: 20, reusePath: 40,
             avoidRooms: movement.hostileTerritoryRooms(), costCallback: movement.keeperAvoidCallback() });
         return;

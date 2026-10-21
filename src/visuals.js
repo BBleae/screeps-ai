@@ -8,13 +8,10 @@ try {
 
 const runtimeGlobal = typeof global !== 'undefined' ? global : {};
 const MAX_ROADS = 250;
-// 轮子方案的 rampart 环就有 84 格，加 60 ext + lab/塔/spawn 已超过旧上限 160（storage/terminal/factory 等被挤出列表永远不画）
 const MAX_STRUCTURES = 400;
 const MAX_WORK_POSITIONS = 32;
 const MAX_VISUAL_SIZE = 450000;
-// 线上实测每个图元约 0.0012 CPU，整张未建方案约 500 图元；预算按房计，已建成的不画，越建越轻
 const CPU_BUDGET = 1.5;
-// 每个图元都查 getSize()+getUsed() 的开销比画图本身还大（实测占一半以上），改为每 N 个图元查一次
 const CHECK_EVERY = 8;
 
 function constant(name, fallback) {
@@ -74,7 +71,6 @@ function packedPositions(value, add) {
     }
 }
 
-/** 已建成的结构集合（type@x.y）：方案覆盖层只画还没建的，建成即不再画 */
 function builtSet(room) {
     const built = new Set();
     if (!room || typeof room.find !== 'function') return built;
@@ -87,8 +83,6 @@ function builtSet(room) {
     return built;
 }
 
-/** 绘制顺序即截断顺序：唯一/高价值结构在前（spawn、storage、terminal、塔、link、容器、lab、factory/powerSpawn/nuker…），
- *  extension 其次，路网和 rampart 环数量最多、最容易被 CPU 预算截掉，放最后。 */
 function collect(plan, built) {
     const roads = [];
     const structures = [];
@@ -152,7 +146,7 @@ function collect(plan, built) {
     }
     for (const value of plan.misc || []) {
         const pos = position(value);
-        if (pos && placedKeys.has(positionKey(pos))) continue;   // 已按 factory/nuker… 画过的位置不再画通用方框
+        if (pos && placedKeys.has(positionKey(pos))) continue;
         addStructure('plannedMisc', value);
     }
     addList(TYPES.extension, plan.ext);
@@ -279,7 +273,6 @@ function render(room) {
         return allowed;
     };
     const data = collect(plan, builtSet(room));
-    // 方案标签始终画（版本 + 未建数量）：全部建成的房也有 visual，私服验证以"房间 visual 存在"作为 render 跑通的不变量
     const remaining = data.structures.length + data.roads.length + data.ramparts.length;
     call(visual, 'text', ['规划 ' + (plan.version || '?') + ' · 未建 ' + remaining, 1, 1.4, { align: 'left', font: 0.5, color: '#8fbb93', opacity: 0.6 }]);
     for (const entry of data.structures) {
@@ -302,8 +295,6 @@ function render(room) {
     return true;
 }
 
-/** 本 tick 要不要画：默认关（纯诊断，见 config.visuals），showVisuals(n) 临时打开，bucket 低于阈值时一律不画。
- *  main.js 每 tick 只问一次，不进 runRoom 的每房循环。 */
 function enabled() {
     let cfg = {};
     try { cfg = require('config').visuals || {}; } catch (error) { cfg = {}; }
@@ -315,7 +306,6 @@ function enabled() {
     return typeof bucket !== 'number' || bucket >= (cfg.minBucket || 0);
 }
 
-/** 控制台开关：showVisuals(300) 打开 300 tick。私服验证也用它，好让渲染路径继续被覆盖。 */
 function show(ticks) {
     let fallback = 300;
     try { fallback = require('config').visuals.showTicks || 300; } catch (error) { fallback = 300; }

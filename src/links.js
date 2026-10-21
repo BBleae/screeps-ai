@@ -1,6 +1,4 @@
 'use strict';
-/** link 物流：RCL5 ctrl+src0，RCL6 加 src1，RCL7 加 storage。controller 供给优先，富余才回库。
- *  store link 邻接 storage 时由 roles/operator 倒进仓库，hauler 不再搬已接入这条链的源。 */
 const layout = require('layout');
 const config = require('config');
 const utils = require('utils');
@@ -22,7 +20,6 @@ function getLink(room, plan, key) {
     return link && link.my && (typeof link.isActive !== 'function' || link.isActive()) ? link : null;
 }
 
-/** 源旁的己方 link：规划位优先，否则源 1 格内任意己方 link */
 function sourceLink(room, plan, source, index) {
     const spot = layout.linkSpot(plan, index === 1 ? 'src1' : 'src0');
     if (spot) {
@@ -34,7 +31,6 @@ function sourceLink(room, plan, source, index) {
         structure.my && chebyshev(structure.pos, source.pos) <= 1) || null;
 }
 
-/** RCL7 且 storage 旁有己方 store link（切比雪夫 ≤ 1）。没有这座接收端时源 link 的溢出仍要 hauler 搬。 */
 function storeLinkReady(room, plan) {
     if (!room || !room.storage || room.storage.my === false || !room.storage.pos) return null;
     if (!room.controller || room.controller.level < 7) return null;
@@ -45,7 +41,6 @@ function storeLinkReady(room, plan) {
 
 function sourceFedToStore(room, plan, source, index) {
     if (!storeLinkReady(room, plan)) return false;
-    // Only planned senders participate in run(); a nearby unplanned link is not a route.
     const link = getLink(room, planOf(room, plan), index === 1 ? 'src1' : 'src0');
     if (!link || !link.my) return false;
     if (!operatorStation(room, plan)) return false;
@@ -63,7 +58,6 @@ function sourcesOf(room, plan) {
     return typeof room.find === 'function' ? room.find(FIND_SOURCES) || [] : [];
 }
 
-/** 每口源都经源 link 进 store link：hauler 只从 storage 取货补给基地 */
 function hubHaulMode(room, plan, sources) {
     if (!storeLinkReady(room, plan)) return false;
     const list = sources && sources.length ? sources : sourcesOf(room, plan);
@@ -78,7 +72,6 @@ function overflowFloor() {
     return Math.max(0, Number((config.hauling || {}).sourceLinkOverflow) || 1500);
 }
 
-/** 已接入 store 链的源容器：hauler 不取，除非存量 ≥ overflow（链路堵死时的保险） */
 function skipSourceContainer(room, plan, structure) {
     if (!structure || !structure.pos || !storeLinkReady(room, plan)) return false;
     const energy = structure.store ? Number(structure.store[RESOURCE_ENERGY] || 0) : 0;
@@ -100,19 +93,15 @@ function skipSourceContainer(room, plan, structure) {
 }
 
 function skipLinkedDrop(room, plan, drop) {
-    // Dropped energy cannot enter a link by itself. Salvage it before decay,
-    // including during operator replacement or a full storage interruption.
     return false;
 }
 
-/** store 与 ctrl 是同一座 link 时留下升级缓冲，否则倒空 */
 function operatorKeepEnergy(room, plan, store) {
     const ctrl = getLink(room, planOf(room, plan), 'ctrl');
     if (ctrl && store && ctrl.id === store.id) return Math.max(0, Number(config.linkKeepAt) || 0);
     return Math.max(0, Number((config.hauling || {}).operatorKeep) || 0);
 }
 
-/** 同时邻接 storage 与 store link 的可行走格；避开升级者的 storage 站位 */
 function operatorStation(room, plan) {
     const storage = room && room.storage;
     const store = storeLinkReady(room, plan);
@@ -141,7 +130,6 @@ function operatorStation(room, plan) {
     return candidates[0];
 }
 
-/** 往控制器/仓库送能的源 link：RCL5 只有 src0，RCL6 起加 src1（同一 link 只算一次）。spawn 给低档升级者定 WORK 下限也用它 */
 function senderLinks(room, plan) {
     const senders = [];
     const src0 = getLink(room, plan, 'src0');
@@ -153,7 +141,6 @@ function senderLinks(room, plan) {
     return senders;
 }
 
-/** storage 超过 reverseCtrlFeedAbove 时，允许把超额经 store link 反向送给 ctrl（战略猫 10-16） */
 function reverseCtrlFeedAbove() {
     return Math.max(0, Number(config.reverseCtrlFeedAbove) || 0);
 }
@@ -166,7 +153,6 @@ function storageEnergy(room) {
 function reverseCtrlFeedWanted(room, plan) {
     const floor = reverseCtrlFeedAbove();
     if (!(floor > 0) || !room || !room.storage || room.storage.my === false) return false;
-    // 10-16 战略：RCL8 升级上限 15/tick，超额应走 terminal 给 priorityReceivers，不再反向灌 ctrl
     if (room.controller && room.controller.my && room.controller.level >= 8) return false;
     if (storageEnergy(room) <= floor) return false;
     const resolved = planOf(room, plan);
@@ -184,8 +170,6 @@ function run(room) {
     layout.normalizeLinkPlan(room, plan);
     const ctrl = getLink(room, plan, 'ctrl');
     const store = room.controller.level >= 7 ? getLink(room, plan, 'store') : null;
-    // An actively drained store receiver exposes the gap between source sends.
-    // Keep a source batch at the controller before diverting energy to storage.
     const controllerKeep = storeLinkReady(room, plan) && operatorStation(room, plan)
         ? Math.max(config.linkKeepAt, config.linkSendAt) : config.linkKeepAt;
     const senders = senderLinks(room, plan);
@@ -203,15 +187,9 @@ function run(room) {
         let receiver = null;
         let free = 0;
         if (ctrl && !store && ctrlFree > 0 && ctrlBuffered >= controllerKeep) {
-            // 遥测：没有 store link 时源 link 按兵不动（旧代码在这里照样往 ctrl link 送）
             const mem = Memory.rooms[room.name];
             if (mem) mem.linkHold = { at: Game.time, n: (Number(mem.linkHold && mem.linkHold.n) || 0) + 1 };
         }
-        // 没有 store link（RCL5–6）时 ctrl link 也只在低于保留线时才补：以前只要它有空位就送，升级者被
-        // upgraderWorkCap 限流后吃不完的源收入照样顺着链流进 ctrl link（再被 builder 借走去建 terminal/lab），
-        // 源 link 永远堵不满、矿工永远不往源容器溢出，spawn/ext 拿不到一点本地能量（线上 2026-09-11 W33S7：
-        // 三座 link 常年压着 ~1900，源容器 0/0，hauler 空手挂机，spawn 收入 7.5 → 0）。
-        // 现在超出升级者消耗的部分停在源 link，矿工把它溢进源容器交给 hauler；需求大于供给时照常每批都送。
         if (ctrl && ctrlFree > 0 && (ctrlBuffered < controllerKeep || (store && storeFree <= 0))) {
             receiver = ctrl;
             free = ctrlFree;
@@ -225,7 +203,6 @@ function run(room) {
         if (ret === OK) incoming[receiver.id] = (incoming[receiver.id] || 0) + amount;
     }
 
-    // 反向：storage 超额时 store link → ctrl（源链仍优先补 ctrl；这里补源吞吐不够的部分）
     if (store && ctrl && reverseCtrlFeedWanted(room, plan) && !(store.cooldown > 0)) {
         const energyKey = typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy';
         const have = Number(store.store[energyKey]) || 0;

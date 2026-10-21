@@ -1,8 +1,4 @@
 'use strict';
-/** 枢纽搬运工：站在 storage 与邻接 store link 之间。
- *  默认把 store link 能量倒进 storage；storage 超过 reverseCtrlFeedAbove 且 ctrl link 缺能时反向：storage → store link，由 links.run 送给 ctrl。
- *  编制由 spawn.operatorTarget 出（RCL7、store link 贴着 storage、至少一口源已 link）。
- *  不走 task broker；store/storage 没了就退役回收。 */
 const movement = require('movement');
 const links = require('links');
 const retireMod = require('retire');
