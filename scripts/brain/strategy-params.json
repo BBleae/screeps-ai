@@ -2,21 +2,21 @@
   "phase": 2,
   "cpu": {
     "targetAvg": 135,
-    "noNewRemotesIfAvgAbove": 145,
+    "noNewRemotesIfAvgAbove": 150,
     "noNewRemotesIfBucketBelow": 3000,
     "pixelEnabled": false
   },
   "energy": {
     "starvingBelow": 10000,
     "priorityReceivers": [
-      "W33S7",
-      "W32S4",
-      "W33S8",
+      "W37S5",
+      "W38S7",
+      "W33S3",
       "W31S8",
-      "W35S7",
+      "W31S4",
       "W34S7",
-      "W31S5",
-      "W37S5"
+      "W35S7",
+      "W31S5"
     ],
     "noNewConsumersUntilBalanced": false,
     "policy": "第 2 阶段：storageRich 的房可以加 lab 和升级消耗",
@@ -59,7 +59,7 @@
   ],
   "expansion": {
     "unlockAtGcl": 15,
-    "eta": "约 2026-10-31",
+    "eta": "2026-10-28",
     "candidates": [
       "W36S1",
       "W37S3"
