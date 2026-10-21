@@ -448,18 +448,17 @@ function noteDeath(name, mem) {
 
 const STALE_KEYS = ['deliverTo', 'energyTo', 'salvageDeliver'];
 
-function boostedWith(creep, list) {
-    return (creep.body || []).some((p) => p.boost && list.indexOf(p.boost) >= 0);
+function boostHere(creep) {
+    const m = creep.memory;
+    const at = m.boostRoom || m.home;
+    if (creep.room.name !== at) return false;
+    if (m.home === at && !m.tripAt) return true;
+    const used = creep.store && creep.store.getUsedCapacity ? creep.store.getUsedCapacity() : 0;
+    return !!m.tripAt && m.drop === at && !used;
 }
 
-function boostDetour(creep) {
-    const m = creep.memory;
-    if (!m.boostRoom || m.boostDone || m.tripAt || !boost.wanted(creep).length) return false;
-    if (creep.room.name === m.boostRoom) return false;
-    if (!boost.boostRoomReady(creep)) return false;
-    const room = Game.rooms[m.boostRoom];
-    movement.go(creep, room.storage || new RoomPosition(25, 25, m.boostRoom), { range: 3, reusePath: 20 });
-    return true;
+function boostedWith(creep, list) {
+    return (creep.body || []).some((p) => p.boost && list.indexOf(p.boost) >= 0);
 }
 
 const BAD_RETRY = 1500;
@@ -582,9 +581,8 @@ function run(creep) {
         if (boostedWith(creep, m0.boosts)) m0.boostDone = true;
         else if (m0.boostDone) delete m0.boostDone;
         if (m0.boostSince !== undefined) delete m0.boostSince;
-        if (!m0.boostDone && creep.room.name === (m0.boostRoom || m0.home) && boost.nextJob(creep) && boost.apply(creep)) return;
+        if (!m0.boostDone && boostHere(creep) && boost.nextJob(creep) && boost.apply(creep)) return;
     }
-    if (boostDetour(creep)) return;
     if (lootHoldRun(creep)) return;
     if (gateHold(creep)) return;
     if (creep.memory.pullLoot && creep.memory.salvageFrom && Game.time % 10 === 0) backToSalvage(creep);
@@ -613,4 +611,4 @@ function run(creep) {
     loadStep(creep, carrying);
 }
 
-module.exports = { pathSteps, pathCalc, boostDetour, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };
+module.exports = { pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };
