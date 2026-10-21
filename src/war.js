@@ -80,16 +80,6 @@ function liveWar(warRole) {
     return out;
 }
 
-function liveCount(warRole, minTtl) {
-    let n = 0;
-    for (const c of liveWar(warRole)) {
-        if (c.spawning) { n++; continue; }
-        if (minTtl && c.ticksToLive != null && c.ticksToLive <= minTtl) continue;
-        n++;
-    }
-    return n;
-}
-
 function logEvent(e, data) {
     const w = state();
     if (!w) return;
@@ -153,6 +143,103 @@ function demandRequest(warRole, idx, lead) {
 
 const BODY_COST = { move: 50, work: 100, attack: 80, carry: 50, heal: 250, ranged_attack: 150, tough: 10, claim: 600 };
 
+function gatherPos(role) {
+    const g = cfg().gather || {};
+    const d = { attacker: { x: 19, y: 1 }, healer: { x: 20, y: 1 }, claimer: { x: 21, y: 1 } };
+    return g[role] || d[role] || d.claimer;
+}
+
+function staging() {
+    return cfg().staging || 'W38S3';
+}
+
+function paused() {
+    const m = typeof Memory !== 'undefined' ? Memory : null;
+    const w = m && m.ags131War;
+    return !!(w && !w.enabled && w.pausedAt);
+}
+
+function roomOf(c) {
+    return (c && c.pos && c.pos.roomName) || (c && c.room && c.room.name) || null;
+}
+
+function dist(a, b) {
+    if (!a || !b || !a.pos || !b.pos || roomOf(a) !== roomOf(b)) return Infinity;
+    return Math.max(Math.abs(a.pos.x - b.pos.x), Math.abs(a.pos.y - b.pos.y));
+}
+
+function timing() {
+    const c = cfg();
+    return {
+        boost: Number(c.boostTicks) || 30,
+        squadToStaging: Number(c.squadToStaging) || 140,
+        claimerSpawn: bodies().claimer.length * 3,
+        claimerToStaging: Number(c.claimerToStaging) || 150,
+        toController: Number(c.stagingToController) || 60,
+        margin: Number(c.reliefMargin) || 60,
+        entryTtl: Number(c.claimerEntryTtl) || 400,
+        claimerMax: Number(c.claimerMax) || 3,
+    };
+}
+
+function spawnLeft(c) {
+    if (!c || !c.spawning) return 0;
+    const spawns = (typeof Game !== 'undefined' && Game.spawns) || {};
+    for (const n in spawns) {
+        const sp = spawns[n];
+        if (sp && sp.spawning && sp.spawning.name === c.name) return Number(sp.spawning.remainingTime) || 0;
+    }
+    return (c.body ? c.body.length : 50) * 3;
+}
+
+function deathTick(c) {
+    const life = c.memory && c.memory.warRole === 'claimer' ? 600 : 1500;
+    if (c.spawning) return Game.time + spawnLeft(c) + life;
+    return Game.time + (Number(c.ticksToLive) || 0);
+}
+
+function etaToGather(c, role) {
+    const T = timing();
+    const st = staging();
+    const leg = role === 'claimer' ? T.claimerToStaging : T.boost + T.squadToStaging;
+    if (!c) return (role === 'claimer' ? T.claimerSpawn : 150) + leg;
+    if (c.spawning) return spawnLeft(c) + leg;
+    const rn = roomOf(c);
+    if (rn === target()) return 0;
+    if (rn === st) {
+        const g = gatherPos(role);
+        return Math.max(Math.abs(c.pos.x - g.x), Math.abs(c.pos.y - g.y));
+    }
+    if (rn === home()) return role === 'claimer' ? leg : (fullyBoosted(c) ? 0 : T.boost) + T.squadToStaging;
+    const route = cfg().route || [];
+    const i = route.indexOf(rn);
+    const si = route.indexOf(st);
+    if (i >= 0 && si > i) return (si - i) * 50;
+    return role === 'claimer' ? leg : T.squadToStaging;
+}
+
+function schedule(w) {
+    const T = timing();
+    const cs = liveWar('claimer');
+    const arrive = T.claimerSpawn + T.claimerToStaging;
+    const lead = arrive + T.toController + T.margin;
+    const maxDeath = cs.length ? Math.max.apply(null, cs.map(deathTick)) : null;
+    const relief = maxDeath == null ? null : maxDeath - lead;
+    let entry = null;
+    let next;
+    if (w.phase === 'assault' || w.phase === 'won') {
+        next = relief == null ? Game.time : relief;
+    } else {
+        const a = liveWar('attacker')[0];
+        const h = liveWar('healer')[0];
+        entry = Game.time + Math.max(etaToGather(a, 'attacker'), etaToGather(h, 'healer'));
+        const ok = cs.some((c) => deathTick(c) - Math.max(entry, Game.time + etaToGather(c, 'claimer')) >= T.entryTtl);
+        next = ok && relief != null ? relief : Math.max(Game.time, entry - arrive);
+    }
+    w.plan = { entry, nextClaimerSpawn: next, reliefSpawn: relief, at: Game.time };
+    return next;
+}
+
 function getDemands(room) {
     if (!spawnRoom(room)) return [];
     const w = state();
@@ -160,18 +247,12 @@ function getDemands(room) {
     if (phase === 'done' || phase === 'off') return [];
     if (Number(Game.cpu.bucket) < (Number(cfg().bucketMin) || 5000)) { w.bucketWait = Game.time; return []; }
     const out = [];
-    const travelLead = Number(cfg().travelLead) || 260;
     if (!slotHeld('attacker', 0, 0)) out.push(demandRequest('attacker', 0, 0));
     if (!slotHeld('healer', 0, 0)) out.push(demandRequest('healer', 0, 0));
-    const keep = Math.max(1, Number(cfg().claimerKeep) || 2);
-    const held = [];
-    for (let i = 0; i < keep; i++) held.push(slotHeld('claimer', i, travelLead));
-    let spare = liveCount('claimer', travelLead) - held.filter(Boolean).length;
-    for (let i = 0; i < keep; i++) {
-        if (held[i]) continue;
-        if (spare > 0) { spare--; continue; }
-        out.push(demandRequest('claimer', i, travelLead));
-    }
+    const next = schedule(w);
+    const cs = liveWar('claimer');
+    const homeBusy = cs.some((c) => c.spawning || roomOf(c) === home());
+    if (!homeBusy && cs.length < timing().claimerMax && Game.time >= next) out.push(demandRequest('claimer', 'n', 0));
     if (w.claimSeq != null) delete w.claimSeq;
     return out;
 }
@@ -204,22 +285,115 @@ function fullyBoosted(c) {
     return true;
 }
 
-function squadAtStaging() {
-    const staging = cfg().staging || 'W38S3';
+function ready(c) {
+    return !!c && !c.spawning;
+}
+
+function entryCheck(w) {
+    const T = timing();
+    const st = staging();
     const a = liveWar('attacker')[0];
     const h = liveWar('healer')[0];
-    const cs = liveWar('claimer');
-    if (!a || !h || !cs.length) return false;
-    const atStage = (c) => c && !c.spawning && c.room && c.room.name === staging;
-    if (!atStage(a) || !atStage(h)) return false;
-    if (!cs.some(atStage)) return false;
-    if (!fullyBoosted(a) || !fullyBoosted(h) || !cs.some((c) => atStage(c) && fullyBoosted(c))) {
-        logEvent('boostMissing', { a: fullyBoosted(a), h: fullyBoosted(h) });
-        return false;
+    if (!ready(a) || !ready(h)) return { ok: false, why: 'missing' };
+    if (roomOf(a) !== st || roomOf(h) !== st) return { ok: false, why: 'notStaged' };
+    if (!fullyBoosted(a) || !fullyBoosted(h)) return { ok: false, why: 'boost' };
+    if (h.hits < h.hitsMax || a.hits < a.hitsMax) return { ok: false, why: 'hurt' };
+    if (a.ticksToLive != null && a.ticksToLive < (Number(cfg().attackerMinTtl) || 900)) return { ok: false, why: 'attackerTtl' };
+    if (dist(a, h) > 3) return { ok: false, why: 'apart' };
+    const cands = liveWar('claimer').filter((c) => ready(c) && roomOf(c) === st && fullyBoosted(c) &&
+        Number(c.ticksToLive) >= T.entryTtl && dist(c, a) <= 3 && dist(c, h) <= 3);
+    if (!cands.length) return { ok: false, why: 'claimer' };
+    cands.sort((x, y) => Number(y.ticksToLive) - Number(x.ticksToLive));
+    const plan = w.plan || {};
+    if (!Number.isFinite(plan.reliefSpawn)) return { ok: false, why: 'noRelief' };
+    return { ok: true, a, h, c: cands[0] };
+}
+
+function hostilesLeft(room) {
+    if (!room) return true;
+    const spawns = room.find(FIND_HOSTILE_SPAWNS) || [];
+    const towers = (room.find(FIND_HOSTILE_STRUCTURES) || []).filter((s) => s.structureType === STRUCTURE_TOWER);
+    return spawns.length + towers.length > 0;
+}
+
+function locked(room) {
+    return !!(room && room.controller && Number(room.controller.upgradeBlocked) > 0);
+}
+
+function regroup(w, reason) {
+    w.phase = 'staging';
+    w.regroup = { at: Game.time, reason };
+    w.crossAt = null;
+    w.breach = null;
+    w.squad = null;
+    logEvent('retreat', { reason });
+}
+
+function cohesion(w) {
+    const tgt = target();
+    const room = Game.rooms[tgt];
+    const a = liveWar('attacker')[0];
+    const h = liveWar('healer')[0];
+    if (!a) return { now: true, why: 'attackerDead' };
+    if (!h) return { now: true, why: 'healerDead' };
+    const line = Number(cfg().retreatBelow) || 0.5;
+    if (a.hits < a.hitsMax * line || h.hits < h.hitsMax * line) return { now: true, why: 'hurt' };
+    const aIn = roomOf(a) === tgt;
+    const hIn = roomOf(h) === tgt;
+    if (!aIn && !hIn) return null;
+    if (aIn !== hIn) return { why: 'split' };
+    if (dist(a, h) > 3) return { why: 'apart' };
+    const cl = liveWar('claimer').filter((c) => ready(c) && roomOf(c) === tgt);
+    if (!locked(room)) {
+        if (!cl.some((c) => dist(c, h) <= 3)) return { why: 'claimerApart' };
+    } else if (!cl.length && hostilesLeft(room)) {
+        return { why: 'noClaimer' };
     }
-    if (h.hits < h.hitsMax) return false;
-    if (a.ticksToLive != null && a.ticksToLive < (Number(cfg().attackerMinTtl) || 900)) return false;
-    return true;
+    return null;
+}
+
+function squadTick(w) {
+    const tgt = target();
+    const st = staging();
+    w.entries = w.entries || {};
+    if (w.phase === 'assault' || w.phase === 'won') {
+        for (const c of liveWar()) {
+            if (ready(c) && roomOf(c) === tgt && w.entries[c.name] == null) {
+                w.entries[c.name] = Game.time;
+                logEvent('crossed', { name: c.name, role: c.memory.warRole, ttl: c.ticksToLive });
+            }
+        }
+    }
+    const names = Object.keys(w.entries);
+    if (names.length > 12) for (const n of names.slice(0, names.length - 12)) delete w.entries[n];
+    if (w.phase === 'staging') {
+        const chk = entryCheck(w);
+        w.entryWait = chk.ok ? null : chk.why;
+        if (chk.ok) {
+            w.phase = 'assault';
+            w.squad = { a: chk.a.name, h: chk.h.name, c: chk.c.name, at: Game.time, cTtl: chk.c.ticksToLive };
+            w.crossAt = null;
+            w.breach = null;
+            w.entries = {};
+            logEvent('entered', { a: chk.a.name, h: chk.h.name, c: chk.c.name, cTtl: chk.c.ticksToLive, relief: w.plan && w.plan.reliefSpawn });
+        }
+        return;
+    }
+    if (w.phase !== 'assault' && w.phase !== 'won') return;
+    const a = liveWar('attacker')[0];
+    const h = liveWar('healer')[0];
+    if (a && h && ready(a) && ready(h) && roomOf(a) === st && roomOf(h) === st) {
+        const ga = gatherPos('attacker');
+        const gh = gatherPos('healer');
+        const at = (c, g) => c.pos.x === g.x && c.pos.y === g.y && !c.fatigue;
+        if (at(a, ga) && at(h, gh)) w.crossAt = Game.time;
+    }
+    const b = cohesion(w);
+    if (!b) { w.breach = null; return; }
+    if (b.now) { regroup(w, b.why); return; }
+    const prev = w.breach && w.breach.why === b.why ? w.breach.n : 0;
+    w.breach = { why: b.why, n: prev + 1, at: Game.time };
+    if (w.breach.n >= (Number(cfg().breachGrace) || 3)) regroup(w, b.why);
 }
 
 function observe(w) {
@@ -253,21 +427,26 @@ function tick() {
     if (!w.home) w.home = home();
     if (!w.target) w.target = target();
     if (!w.phase) { w.phase = 'staging'; logEvent('start', {}); }
+    if (w.pausedAt) {
+        logEvent('unpaused', { pausedAt: w.pausedAt });
+        delete w.pausedAt;
+        if (w.phase === 'assault' || w.phase === 'won') regroup(w, 'unpaused');
+    }
     observe(w);
 
     const smLeft = w.safeModeEnd ? w.safeModeEnd - Game.time : 0;
     const resumeLead = Number(cfg().safeModeResumeLead) || 500;
     if (smLeft >= resumeLead && w.phase !== 'safemode') {
         w.phase = 'safemode';
+        w.crossAt = null;
+        w.squad = null;
         logEvent('retreat', { reason: 'safemode', end: w.safeModeEnd, left: smLeft });
     } else if (w.phase === 'safemode' && smLeft < resumeLead) {
         w.phase = 'staging';
         logEvent('resume', { left: smLeft });
     }
-    if (w.phase === 'staging' && squadAtStaging()) {
-        w.phase = 'assault';
-        logEvent('entered', {});
-    }
+    schedule(w);
+    squadTick(w);
     const names = {};
     for (const r of ['attacker', 'healer', 'claimer']) {
         names[r] = liveWar(r).map((c) => c.name);
@@ -279,4 +458,5 @@ function tick() {
 module.exports = {
     active, labActive, labCompounds, lootHaulerCap, getDemands, tick, logEvent,
     home, target, boostsFor, cpuPressure, cfg, state, liveWar, fullyBoosted,
+    paused, gatherPos, staging, dist, roomOf, locked, schedule, entryCheck, cohesion, timing, deathTick,
 };
