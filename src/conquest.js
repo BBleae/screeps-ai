@@ -392,16 +392,16 @@ function runOne(d) {
 
 function militaryCompounds() {
     const set = [];
-    for (const d of directives()) {
-        if (d.type !== 'strongholdLoot' && d.type !== 'salvageLoot') continue;
-        for (const c of boostsFor('siegeDismantler', d).concat(boostsFor('siegeGuard', d))) if (set.indexOf(c) < 0) set.push(c);
-    }
     try {
         const war = require('war');
         if (war.labActive && war.labActive({ name: (war.home && war.home()) || 'W37S5' })) {
             for (const c of war.labCompounds()) if (set.indexOf(c) < 0) set.push(c);
         }
     } catch (e) {}
+    for (const d of directives()) {
+        if (d.type !== 'strongholdLoot' && d.type !== 'salvageLoot') continue;
+        for (const c of boostsFor('siegeDismantler', d).concat(boostsFor('siegeGuard', d))) if (set.indexOf(c) < 0) set.push(c);
+    }
     return set;
 }
 function directiveFor(targetRoom) {

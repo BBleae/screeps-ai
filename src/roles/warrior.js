@@ -176,8 +176,27 @@ function runClaimer(creep, w, room) {
     creep.attackController(ctrl);
 }
 
+const BOOST_TTL_FLOOR = { attacker: 1100, healer: 1000, claimer: 400 };
+
+function boostRetry(creep) {
+    const mem = creep.memory;
+    if (!mem.boostDone || !creep.room || creep.room.name !== mem.home || war.fullyBoosted(creep)) return false;
+    const floor = BOOST_TTL_FLOOR[mem.warRole] || 0;
+    if (creep.ticksToLive != null && creep.ticksToLive < floor) {
+        mem.retired = true;
+        war.logEvent('boostRetire', { name: creep.name, role: mem.warRole });
+        retireMod.retireAtSpawn(creep);
+        return true;
+    }
+    delete mem.boostDone;
+    delete mem.boostSince;
+    delete mem.boostSkip;
+    return false;
+}
+
 function run(creep) {
     if (creep.memory.retired) { retireMod.retireAtSpawn(creep); return; }
+    if (boostRetry(creep)) return;
     if (boost.run(creep)) return;
     const w = war.state();
     if (!w) { retreatHome(creep); return; }
@@ -206,4 +225,4 @@ function run(creep) {
     else if (creep.memory.warRole === 'claimer') runClaimer(creep, w, room);
 }
 
-module.exports = { run };
+module.exports = { run, boostRetry };
