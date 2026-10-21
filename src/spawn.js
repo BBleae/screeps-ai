@@ -2185,12 +2185,17 @@ function runQueue(room) {
     const mem = Memory.rooms[room.name] || {};
     if (!Memory.rooms[room.name]) Memory.rooms[room.name] = mem;
     const sources = layout.resolveSources(room, mem, mem.plan);
+    lap('p.src');
     const state = roomState(room, mem, sources);
+    lap('p.state');
     const settings = queueSettings();
     updateSpawnIncome(room, mem, settings);
+    lap('p.income');
     const allSpawns = room.find(FIND_MY_SPAWNS);
     try { releaseStalledSpawns(room, mem, allSpawns); } catch (error) { logErr('spawn.releaseStalledSpawns ' + room.name, error); }
+    lap('p.stalled');
     try { spawnExit.markPocketTrapped(room, mem, allSpawns); } catch (error) { logErr('spawnExit.markPocketTrapped ' + room.name, error); }
+    lap('p.pocket');
     const hostilePause = utils.spawnPausedByHostile(room);
     if (hostilePause > 0) {
         mem.spawnQueue = { at: Game.time, paused: 'hostile', hostiles: hostilePause };
@@ -2256,17 +2261,11 @@ function runQueue(room) {
     lap('demands');
     const builderBacklog = constructionBacklog(room);
     lap('backlog');
-    const targets = {
-        harvester: targetFor(room, 'harvester', mem, sources),
-        hauler: targetFor(room, 'hauler', mem, sources),
-        upgrader: targetFor(room, 'upgrader', mem, sources),
-        builder: targetFor(room, 'builder', mem, sources, builderBacklog),
-        feeder: targetFor(room, 'feeder', mem, sources),
-        operator: targetFor(room, 'operator', mem, sources),
-        mineralMiner: targetFor(room, 'mineralMiner', mem, sources),
-        labTech: targetFor(room, 'labTech', mem, sources),
-        scout: targetFor(room, 'scout', mem, sources),
-    };
+    const targets = {};
+    for (const role of ['harvester', 'hauler', 'upgrader', 'builder', 'feeder', 'operator', 'mineralMiner', 'labTech', 'scout']) {
+        targets[role] = targetFor(room, role, mem, sources, role === 'builder' ? builderBacklog : undefined);
+        lap('t.' + role);
+    }
     lap('targets');
     const baseUpgraders = Math.max(0, Number((config.roster[room.controller.level] || {}).upgrader || 0));
     const containersMissing = coreContainerGap(room, mem, sources) > 0;
@@ -2344,6 +2343,7 @@ function runQueue(room) {
             },
         }));
     }
+    lap('r.defense');
     for (const request of coreRequests(room, mem, state, sources, targets, survivalTargets, plannedCounts, baseUpgraders, settings)) {
         request.onSpawn = () => {
             plannedCounts[request.role]++;
@@ -2353,8 +2353,11 @@ function runQueue(room) {
         };
         requests.push(request);
     }
+    lap('r.core');
     const income = incomeEstimate(room, mem, state, sources, settings);
+    lap('r.income');
     for (const request of replacementReserveRequests(room, mem, state, sources, settings, income)) requests.push(request);
+    lap('r.reserve');
     if (state.readyWorkers !== 0) {
         for (const item of expansionDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'expansion', settings, { strategic: true }));
         for (const item of aidDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'aid', settings, { strategic: item.strategic !== false }));
@@ -2363,6 +2366,7 @@ function runQueue(room) {
         for (const item of depositDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'opportunistic', settings, { jumpable: true, blocking: false, opportunistic: true }));
         for (const item of breachDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'remote', settings, { jumpable: true, blocking: false }));
     }
+    lap('r.demandReq');
     const upgrading = new Set();
     for (const request of harvesterUpgradeRequests(room, state, mem, sources, settings)) {
         upgrading.add(request.sourceIdx);
@@ -2375,6 +2379,7 @@ function runQueue(room) {
         };
         requests.push(request);
     }
+    lap('r.harvUp');
     if (state.readyWorkers !== 0 && !state.recovering) {
         for (const request of demandUpgradeRequests(room, remoteOnly.filter((item) => !unmet(item)), settings)) requests.push(request);
     }
@@ -2445,6 +2450,7 @@ function runQueue(room) {
             logErr('spawn.queue ' + room.name, new Error('spawnCreep ' + ret + ' ' + request.key));
         }
     }
+    lap('x.spawn');
     const waiting = result.waiting;
     mem.spawnWaiting = waiting ? {
         cost: waiting.cost,
@@ -2465,6 +2471,7 @@ function runQueue(room) {
         waiting: waiting ? { key: waiting.key, cost: waiting.cost, eta: waiting.eta, waited: Game.time - waiting.since } : null,
     };
     writeDemand(room, mem, state, plannedCounts, remoteDemands, builderBacklog, targets);
+    lap('x.write2');
 
     const pending = requests.some((request) => !request.opportunistic && !request.reserve && !spawnedKeys.includes(request.key));
     if (pending) return;
