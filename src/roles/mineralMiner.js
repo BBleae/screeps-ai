@@ -47,8 +47,18 @@ function frozenPlan(room) {
     const plan = room && plans && plans[room.name];
     return plan && plan.version === 1 ? plan : null;
 }
+const factPlanCache = { tick: -1, by: {} };
 function basePlan(room) {
-    return configPlan(room) || frozenPlan(room);
+    const plan = configPlan(room) || frozenPlan(room);
+    if (!plan || !room) return plan;
+    const tick = typeof Game !== 'undefined' ? Game.time : 0;
+    if (factPlanCache.tick !== tick) { factPlanCache.tick = tick; factPlanCache.by = {}; }
+    const hit = factPlanCache.by[room.name];
+    if (hit && hit.src === plan) return hit.plan;
+    let out = plan;
+    try { out = require('facts').withMineral(room.name, plan); } catch (e) { out = plan; }
+    factPlanCache.by[room.name] = { src: plan, plan: out };
+    return out;
 }
 function directive(room) {
     const plan = basePlan(room);

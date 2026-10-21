@@ -18634,6 +18634,25 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     Game.getObjectById = savedGet; Game.market = savedMarket; world.time = savedT;
     delete Memory.lootBlocked; delete Memory.lootPrice;
 }
+{
+    console.log('== 10-21 去写死(2)：矿物 id/种类/位置/extractor 改运行时从游戏读（facts，500 tick 刷新），和 config 不一致时以游戏为准并记 Memory.factsMismatch ==');
+    const facts = require('facts');
+    const savedRooms = Game.rooms;
+    const room = { name: 'W99S9', controller: { my: true, level: 6 }, find: (k) => (k === FIND_MINERALS ? [{ id: 'mNew', mineralType: 'Z', pos: { x: 3, y: 4 } }] : [{ structureType: STRUCTURE_EXTRACTOR, id: 'eNew' }]) };
+    Game.rooms = { W99S9: room };
+    facts.get(true);
+    delete Memory.factsMismatch;
+    const plan = { mineralId: 'mOld', mineralType: 'Z', pos: { x: 3, y: 4 }, extractorId: 'eNew', enabled: true };
+    const out = facts.withMineral('W99S9', plan);
+    assert(out !== plan && out.mineralId === 'mNew' && out.enabled === true && plan.mineralId === 'mOld' && Memory.factsMismatch['W99S9.mineralId'].config === 'mOld', '不一致：用游戏里的 id，config 原对象不改，记 factsMismatch');
+    const same = { mineralId: 'mNew', mineralType: 'Z', pos: { x: 3, y: 4 }, extractorId: 'eNew' };
+    assert(facts.withMineral('W99S9', same) === same, '一致：原样返回');
+    const noKey = { enabled: false };
+    assert(facts.withMineral('W99S9', noKey) === noKey, 'config 没写的字段不补（W29S3 那种不变）');
+    Game.rooms = savedRooms;
+    facts.get(true);
+    delete Memory.factsMismatch;
+}
 console.log(fails === 0 ? '\n全部通过 ✓' : `\n${fails} 项失败 ✗`);
 process.exit(fails === 0 ? 0 : 1);
 

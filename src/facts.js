@@ -10,8 +10,17 @@ function structuresOf(room, type) {
     return (room.find(kind) || []).filter((s) => s && s.structureType === type);
 }
 
+function mineralOf(room) {
+    if (typeof room.find !== 'function') return null;
+    const list = room.find(typeof FIND_MINERALS !== 'undefined' ? FIND_MINERALS : 'minerals') || [];
+    const m = list[0];
+    if (!m || !m.pos) return null;
+    const ext = structuresOf(room, typeof STRUCTURE_EXTRACTOR !== 'undefined' ? STRUCTURE_EXTRACTOR : 'extractor')[0];
+    return { mineralId: m.id, mineralType: m.mineralType, pos: { x: m.pos.x, y: m.pos.y }, extractorId: ext ? ext.id : null };
+}
+
 function build() {
-    const out = { owned: [], storage: [], terminal: [], factory: [], labs: {}, rcl: {}, rcl8: [] };
+    const out = { owned: [], storage: [], terminal: [], factory: [], labs: {}, rcl: {}, rcl8: [], minerals: {} };
     for (const name of Object.keys(Game.rooms || {}).sort()) {
         const room = Game.rooms[name];
         if (!room || !room.controller || !room.controller.my) continue;
@@ -23,6 +32,8 @@ function build() {
         if (structuresOf(room, typeof STRUCTURE_FACTORY !== 'undefined' ? STRUCTURE_FACTORY : 'factory').length) out.factory.push(name);
         const labs = structuresOf(room, typeof STRUCTURE_LAB !== 'undefined' ? STRUCTURE_LAB : 'lab').length;
         if (labs) out.labs[name] = labs;
+        const mineral = mineralOf(room);
+        if (mineral) out.minerals[name] = mineral;
     }
     return out;
 }
@@ -37,8 +48,36 @@ function get(force) {
     return cache.data;
 }
 
+function mineral(roomName) {
+    const all = get().minerals || {};
+    return all[roomName] || null;
+}
+
+const MINERAL_KEYS = ['mineralId', 'mineralType', 'pos', 'extractorId'];
+function withMineral(roomName, plan) {
+    if (!plan) return plan;
+    const live = mineral(roomName);
+    if (!live) return plan;
+    let out = plan;
+    for (const k of MINERAL_KEYS) {
+        if (plan[k] === undefined || live[k] == null) continue;
+        if (JSON.stringify(plan[k]) === JSON.stringify(live[k])) continue;
+        if (out === plan) out = Object.assign({}, plan);
+        out[k] = live[k];
+        noteMismatch(roomName, k, plan[k], live[k]);
+    }
+    return out;
+}
+
+function noteMismatch(roomName, key, was, now) {
+    if (typeof Memory === 'undefined') return;
+    const book = Memory.factsMismatch || (Memory.factsMismatch = {});
+    const id = roomName + '.' + key;
+    if (!book[id]) book[id] = { at: Game.time, config: was, live: now };
+}
+
 function factoryRooms() { return get().factory.slice(); }
 function ownedRooms() { return get().owned.slice(); }
 function rcl8Rooms() { return get().rcl8.slice(); }
 
-module.exports = { get, factoryRooms, ownedRooms, rcl8Rooms, REFRESH };
+module.exports = { get, mineral, withMineral, MINERAL_KEYS, factoryRooms, ownedRooms, rcl8Rooms, REFRESH };
