@@ -15917,6 +15917,35 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
 }
 
 {
+    console.log('== 10-21 14:47 W37S5 的 H/K：terminal+storage <6000 开始补，补到 10000；发送房留 5000 ==');
+    const term = require('terminal');
+    const savedRooms = Game.rooms, savedNet = Memory.terminalNetwork;
+    const st = (o, free) => Object.assign({ getFreeCapacity: () => free }, o);
+    const sent = [];
+    const mkT = (store, free) => ({ my: true, cooldown: 0, store: st(store, free), send: (r, a, to) => (sent.push([r, a, to]), OK) });
+    const rules = config.terminalNetwork.forward.filter((r) => r.to === 'W37S5' && (r.resource === 'H' || r.resource === 'K'));
+    assert(rules.some((r) => r.from === 'W32S4' && r.resource === 'H') && rules.some((r) => r.from === 'W33S3' && r.resource === 'H') && rules.some((r) => r.from === 'W38S7' && r.resource === 'K') && rules.every((r) => r.toBelow === 6000 && r.fillTo === 10000 && r.keep === 5000), 'config：H 从 W32S4/W33S3、K 从 W38S7 补 W37S5');
+    const rule = rules.find((r) => r.from === 'W32S4');
+    Game.rooms = { W32S4: { name: 'W32S4', terminal: mkT({ H: 20000, energy: 28000 }, 200000), storage: { store: { H: 0 } } }, W37S5: { name: 'W37S5', terminal: mkT({ H: 2490, energy: 30000 }, 200000), storage: { store: { H: 0 } } } };
+    Memory.terminalNetwork = {};
+    term.runForward({ forward: [rule] });
+    assert(sent[0] && sent[0][0] === 'H' && sent[0][1] === 5000 && sent[0][2] === 'W37S5', '2490 <6000：发 5000（得 ' + JSON.stringify(sent[0]) + '）');
+    assert(Memory.terminalNetwork.forward['W32S4>W37S5:H'].filling === true, '进入补料状态');
+    Game.rooms.W37S5.terminal = mkT({ H: 7490, energy: 30000 }, 200000);
+    world.time++;
+    const p2 = term.planForward(rule, Memory.terminalNetwork.forward['W32S4>W37S5:H']);
+    assert(p2 && p2.amount === 3000, '7490 仍在补料：补到 10000 但不少于 minBatch 3000（得 ' + (p2 && p2.amount) + '）');
+    Game.rooms.W37S5.terminal = mkT({ H: 10490, energy: 30000 }, 200000);
+    assert(term.planForward(rule, Memory.terminalNetwork.forward['W32S4>W37S5:H']) === null && !Memory.terminalNetwork.forward['W32S4>W37S5:H'].filling, '到 10000 停');
+    Game.rooms.W37S5.terminal = mkT({ H: 8000, energy: 30000 }, 200000);
+    assert(term.planForward(rule, Memory.terminalNetwork.forward['W32S4>W37S5:H']) === null, '8000 ≥6000 且不在补料：不送');
+    Game.rooms.W37S5.terminal = mkT({ H: 1000, energy: 30000 }, 200000);
+    Game.rooms.W32S4.terminal = mkT({ H: 6000, energy: 28000 }, 200000);
+    assert(term.planForward(rule, {}) === null, '发送房只剩 6000：留 5000 后不足 minBatch 不送');
+    Game.rooms = savedRooms; Memory.terminalNetwork = savedNet;
+}
+
+{
     console.log('== mineral 搬迁：W31S4 读 config.minerals.rooms 试点格式，其他 13 房读 config.minerals.plans，不再读大脑指令 ==');
     const mm = ROLES.mineralMiner;
     const c = config.minerals.rooms.W31S4;

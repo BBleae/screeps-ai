@@ -479,7 +479,7 @@ function mineralHolds(rooms, cfg) {
     return new Set(Object.keys(mineralShort(rooms || terminalRooms(), cfg || settings())));
 }
 
-function planForward(rule) {
+function planForward(rule, rec) {
     const from = Game.rooms[rule.from];
     const to = Game.rooms[rule.to];
     if (!from || !to || !from.terminal || !to.terminal || from.terminal.my === false || to.terminal.my === false) return null;
@@ -489,10 +489,17 @@ function planForward(rule) {
     if (res === RESOURCE && (receiveOnly(from) || noEnergyIn(to))) return null;
     const toHave = Number(to.terminal.store[res] || 0) + (rule.countStorage && to.storage && to.storage.store ? Number(to.storage.store[res] || 0) : 0);
     const fromFull = rule.fromFreeBelow > 0 && from.storage && from.storage.store && typeof from.storage.store.getFreeCapacity === 'function' && from.storage.store.getFreeCapacity() < rule.fromFreeBelow;
-    if (toHave >= (Number(rule.toBelow) || Infinity) && !fromFull) return null;
+    const fillTo = Number(rule.fillTo) || 0;
+    if (rec && fillTo > 0) {
+        if (toHave < (Number(rule.toBelow) || 0)) rec.filling = true;
+        else if (toHave >= fillTo) delete rec.filling;
+    }
+    const filling = !!(rec && rec.filling && fillTo > 0);
+    if (toHave >= (Number(rule.toBelow) || Infinity) && !fromFull && !filling) return null;
     const fromHave = Number(from.terminal.store[res] || 0);
     const fromAll = fromHave + (rule.keep && from.storage && from.storage.store ? Number(from.storage.store[res] || 0) : 0);
     let amount = Math.min(fromHave, fromAll - (Number(rule.keep) || 0), Number(rule.batch) || 5000, freeOf(to.terminal.store));
+    if (fillTo > 0) amount = Math.min(amount, Math.max(Number(rule.minBatch) || 1000, fillTo - toHave));
     if (amount < (Number(rule.minBatch) || 1000)) return null;
     const floor = Math.max(0, Number(rule.energyFloor) || 0);
     const energy = energyOf(from.terminal.store);
@@ -509,11 +516,11 @@ function planForward(rule) {
 function runForward(cfg) {
     const mem = Memory.terminalNetwork || (Memory.terminalNetwork = {});
     for (const rule of cfg.forward || []) {
-        const plan = planForward(rule);
-        if (!plan) continue;
         const log = mem.forward || (mem.forward = {});
         const key = rule.from + '>' + rule.to + ':' + rule.resource;
         const rec = log[key] || (log[key] = { sent: 0, cost: 0, n: 0 });
+        const plan = planForward(rule, rec);
+        if (!plan) continue;
         if (!plan.amount) { rec.blocked = { at: Game.time, why: plan.blocked }; continue; }
         const ret = plan.from.terminal.send(plan.res, plan.amount, plan.to.name, 'forward');
         markUsed(plan.from.name);
