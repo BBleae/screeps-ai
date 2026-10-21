@@ -3130,6 +3130,24 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
     assert(Memory.rooms.W33S7.labRoles && Memory.rooms.W33S7.labRoles.output === undefined && Memory.rooms.W33S7.labRoles.outputs[0] === plan0.output,
         'lab 分工存进 Memory.rooms[房].labRoles');
     assert(ind.labPlan(lr) === plan0, '同一 tick 只算一次（labTech / spawn / industry 共用）');
+    {
+        const warHome = config.war.home;
+        config.war.home = 'W33S7';
+        Memory.ags131War = { enabled: true, phase: 'off' };
+        lrTerminal.store.XGHO2 = 3000;
+        world.time++;
+        let wp = null, werr = null;
+        try { wp = ind.labPlan(lr); } catch (e) { werr = e; }
+        assert(!werr && wp && wp.product === null && wp.outputs.length === 0, '开战且本房是 war home：lab 计划不报错，停反应、不再有输出 lab（得 ' + (werr && werr.message) + '）');
+        const ml = Memory.rooms.W33S7.militaryLabs || {};
+        assert(ml.XGHO2 === plan0.output && wp.wants.some((w) => w.labId === plan0.output && w.mineral === 'XGHO2' && w.boost), '原输出 lab 改装 XGHO2 给战猫 boost（得 ' + JSON.stringify({ ml, wants: wp.wants }) + '）');
+        assert(Memory.rooms.W33S7.labRoles.outputs[0] === plan0.output, 'Memory 里的 lab 分工不被改掉（停战后照旧反应）');
+        delete Memory.ags131War;
+        delete Memory.rooms.W33S7.militaryLabs;
+        delete lrTerminal.store.XGHO2;
+        config.war.home = warHome;
+        world.time++;
+    }
 
     const tech = makeCreep(lr, 'lt0', Array(20).fill('carry').concat(Array(10).fill('move')), { home: 'W33S7', role: 'labTech' });
     world.creeps[tech.name] = tech;

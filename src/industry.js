@@ -539,7 +539,7 @@ function computeLabPlan(room) {
     const labs = myStructures(room, STRUCTURE_LAB);
     if (labs.length < 3) return null;
     const mem = roomMem(room);
-    const roles = labRoles(room, mem, labs);
+    let roles = labRoles(room, mem, labs);
     if (!roles) return null;
     const labsById = {};
     for (const lab of labs) labsById[lab.id] = lab;
