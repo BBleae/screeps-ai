@@ -184,7 +184,7 @@ assert.ok(moves.filter((m) => ['A', 'H', 'C'].indexOf(m.name) >= 0).every((m) =>
 console.log('OK');
 
 console.log('--- dead attacker -> immediate retreat ---');
-W().phase = 'assault';
+W().phase = 'assault'; W().squad = { a: 'A', h: 'H', c: 'C' };
 place(a, 'W38S2', 29, 22); place(h, 'W38S2', 28, 22);
 delete Game.creeps.A;
 step();
@@ -197,7 +197,7 @@ reset();
 const a2 = mk('A', 'attacker', 'W38S2', 19, 47, 1200);
 const h2 = mk('H', 'healer', 'W38S3', 20, 2, 1300);
 mk('C', 'claimer', 'W38S3', 21, 1, 450);
-W().phase = 'assault';
+W().phase = 'assault'; W().squad = { a: 'A', h: 'H', c: 'C' };
 step(); step(); step();
 assert.strictEqual(W().phase, 'staging');
 assert.strictEqual(ev('retreat').slice(-1)[0].d.reason, 'split');
@@ -235,7 +235,7 @@ console.log('OK plan', p2, 'arrive ttl', arriveTtl);
 
 console.log('--- relief scheduled while assault; no duplicate while one is at home ---');
 reset();
-W().phase = 'assault';
+W().phase = 'assault'; W().squad = { a: 'A', h: 'H', c: 'C' };
 mk('A', 'attacker', 'W38S2', 29, 22, 1100);
 mk('H', 'healer', 'W38S2', 28, 22, 1100);
 mk('C', 'claimer', 'W38S2', 23, 20, 450);
@@ -269,14 +269,14 @@ console.log('OK');
 
 console.log('--- unpause from assault forces regroup ---');
 reset();
-Memory.ags131War.phase = 'assault'; Memory.ags131War.pausedAt = 999;
+Memory.ags131War.phase = 'assault'; Memory.ags131War.squad = { a: 'A' }; Memory.ags131War.pausedAt = 999;
 war.tick();
 assert.strictEqual(W().phase, 'staging');
 console.log('OK');
 
 console.log('--- safe mode retreat / resume ---');
 reset();
-W().phase = 'assault';
+W().phase = 'assault'; W().squad = { a: 'A', h: 'H', c: 'C' };
 Game.rooms.W38S2.controller.safeMode = 5000;
 war.tick();
 assert.strictEqual(W().phase, 'safemode');
@@ -359,7 +359,7 @@ console.log('OK');
 
 console.log('--- controllerHit event when upgradeBlocked first > 0 ---');
 reset();
-W().phase = 'assault';
+W().phase = 'assault'; W().squad = { a: 'A', h: 'H', c: 'C' };
 mk('A', 'attacker', 'W38S2', 25, 21, 1100);
 mk('H', 'healer', 'W38S2', 24, 20, 1100);
 mk('C', 'claimer', 'W38S2', 23, 20, 400);
@@ -375,6 +375,18 @@ assert.strictEqual(ev('controllerHit').length, 1, 'logged once per lock');
 Game.rooms.W38S2.controller.upgradeBlocked = 0; step();
 Game.rooms.W38S2.controller.upgradeBlocked = 1000; step();
 assert.strictEqual(ev('controllerHit').length, 2, 're-hit after expiry logged again');
+console.log('OK');
+
+
+console.log('--- stale assault without entry signal -> back to staging, nobody crosses ---');
+reset();
+W().phase = 'assault';
+const sa = mk('A', 'attacker', 'W38S3', 19, 1, 1200);
+const sh = mk('H', 'healer', 'W38S3', 20, 1, 1300);
+step();
+assert.strictEqual(W().phase, 'staging');
+assert.strictEqual(ev('retreat').slice(-1)[0].d.reason, 'noSquad');
+assert.ok(!sa.acts.some((x) => x[0] === 'move') && !sh.acts.some((x) => x[0] === 'move'));
 console.log('OK');
 
 console.log('ALL WAR SCENARIO TESTS PASSED');

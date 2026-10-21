@@ -433,6 +433,7 @@ function squadTick(w) {
         return;
     }
     if (w.phase !== 'assault' && w.phase !== 'won') return;
+    if (!w.squad) { regroup(w, 'noSquad'); return; }
     const a = liveWar('attacker')[0];
     const h = primaryHealer();
     if (a && h && ready(a) && ready(h) && roomOf(a) === st && roomOf(h) === st) {
