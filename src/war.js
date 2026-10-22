@@ -992,6 +992,7 @@ function cohesion(w) {
     if (!h) return { now: true, why: 'healerDead' };
     const line = Number(cfg().retreatBelow) || 0.5;
     if (a.hits < a.hitsMax * line || h.hits < h.hitsMax * line) return { now: true, why: 'hurt' };
+    if (noClaimer() && Array.isArray(w.squadBoosted) && w.squadBoosted.some((n) => { const c = Game.creeps[n]; return c && roomOf(c) === tgt && c.hits < c.hitsMax * line; })) return { now: true, why: 'hurt' };
     const aIn = roomOf(a) === tgt;
     const hIn = roomOf(h) === tgt;
     if (!aIn && !hIn) return null;
@@ -1233,5 +1234,5 @@ module.exports = {
     paused, gatherPos, staging, dist, roomOf, locked, schedule, entryCheck, cohesion, timing, deathTick,
     primaryHealer, healerNeeded, warLive, labsReady, processRecycle, costCap, trackSpend,
     hardCapped, mode, clearCfg, clearScan, pickStruct, dismantlers, clearTarget, pickSite, reliefOn, recordUnboost, labHold, threatOf,
-    lootWar, FORBIDDEN_LOOT, memKey, lootSplit, observe, nearHealer, noClaimer, noRespawn, withdrawAll, deathWithdraw, openLootRoute,
+    lootWar, FORBIDDEN_LOOT, memKey, lootSplit, observe, nearHealer, liveWarAll, noClaimer, noRespawn, withdrawAll, deathWithdraw, openLootRoute,
 };

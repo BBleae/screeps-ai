@@ -387,8 +387,40 @@ function runAttackerLoot(creep, w, room) {
     goWar(creep, target.pos, 1);
 }
 
+function towerDmgAt(t, pos) {
+    if (!t || !t.pos) return 0;
+    const e = t.store ? (t.store.energy != null ? Number(t.store.energy) : 10) : 10;
+    if (e < 10) return 0;
+    const r = Math.max(Math.abs(t.pos.x - pos.x), Math.abs(t.pos.y - pos.y));
+    if (r <= 5) return 600;
+    if (r >= 20) return 150;
+    return 600 - (r - 5) * 30;
+}
+
+function squadHealTarget(creep, room) {
+    const towers = room ? enemyTowers(room).filter(notAlly) : [];
+    const mates = war.liveWarAll().filter((c) => c.room && c.room.name === creep.room.name && creep.pos.inRangeTo(c.pos, 3));
+    if (!mates.some((c) => c.name === creep.name)) mates.push(creep);
+    let best = null;
+    let bv = Infinity;
+    for (const c of mates) {
+        const inc = towers.reduce((n, t) => n + towerDmgAt(t, c.pos), 0);
+        const v = (c.hits - inc) / c.hitsMax;
+        const near = creep.pos.isNearTo(c.pos) ? 0 : 0.0001;
+        if (v + near < bv) { bv = v + near; best = c; }
+    }
+    return best;
+}
+
 function runHealerLoot(creep, w, room) {
     const leader = escortLeaderFor(creep, w, room);
+    if (war.noClaimer()) {
+        const t = squadHealTarget(creep, room);
+        if (t) { if (t.name === creep.name || creep.pos.isNearTo(t.pos)) creep.heal(t); else creep.rangedHeal(t); }
+        if (stepOffEdge(creep)) return;
+        if (leader && inTarget(leader) && war.dist(creep, leader) > 1) goWar(creep, leader.pos, 1);
+        return;
+    }
     const inTower = enemyTowers(room).length > 0;
     const plan = escort.healPlan(cpos(leader), cpos(creep), inTower);
     if (plan && plan.target) {

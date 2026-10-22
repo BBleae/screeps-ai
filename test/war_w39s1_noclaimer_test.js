@@ -277,4 +277,32 @@ const ST = (type, x, y) => ({ structureType: type, id: type + x + '_' + y, pos: 
   ok('cohesion follows the healer actually adjacent to the attacker (no split loop when the named healer lags)');
 })();
 
+(function healLowestEffective() {
+  fresh(); incidentCreeps();
+  war.tick();
+  const w = Memory.lootWarW39S1;
+  const room = tRoom({ towers: [Object.assign(ST('tower', 16, 12), { store: { energy: 500 } }), Object.assign(ST('tower', 14, 4), { store: { energy: 500 } })], spawns: [ST('spawn', 17, 16)], tiles: { '28,2': [ST('constructedWall', 28, 2)] } });
+  Game.rooms.W39S1 = room;
+  const place = (n, x, y, hits) => { const c = Game.creeps[n]; c.pos = new RoomPosition(x, y, 'W39S1'); c.room = { name: 'W39S1' }; if (hits != null) c.hits = hits; return c; };
+  const a = place('战猫甲.attacker', 27, 1, 5000);
+  const h1 = place('战猫.healer', 26, 2, 4748);
+  const h2 = place('战猫乙.healer', 26, 1, 5000);
+  delete Game.creeps['战猫丁.dismantler'];
+  acts.length = 0;
+  warrior.run(h2);
+  warrior.run(h1);
+  const hs = acts.filter((x) => x[1] === 'heal' || x[1] === 'rangedHeal');
+  assert.ok(hs.find((x) => x[0] === '战猫乙.healer' && x[1] === 'heal' && x[2] === '战猫.healer'), '乙 heals the hurt healer 战猫, not its fixed partner: ' + JSON.stringify(hs));
+  assert.ok(hs.find((x) => x[0] === '战猫.healer' && x[1] === 'heal' && x[2] === '战猫.healer'), '战猫 self-heals when it is the lowest');
+  h1.hits = 5000; a.hits = 3000;
+  acts.length = 0;
+  warrior.run(h1); warrior.run(h2);
+  const hs2 = acts.filter((x) => x[1] === 'heal' || x[1] === 'rangedHeal');
+  assert.ok(hs2.length === 2 && hs2.every((x) => x[2] === '战猫甲.attacker'), 'both healers focus the attacker when it is lowest: ' + JSON.stringify(hs2));
+  a.hits = 2400;
+  Game.time++; war.tick();
+  assert.strictEqual(w.phase, 'staging', 'a boosted creep under 50% -> pull out of W39S1');
+  ok('healers heal the lowest effective-HP squad member (incl. self, predicted tower dmg), no fixed pairing; <50% -> pull out');
+})();
+
 console.log('ALL W39S1 NO-CLAIMER TESTS PASSED (' + pass + ')');
