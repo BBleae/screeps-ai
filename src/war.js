@@ -184,6 +184,15 @@ function enemyOf(o) {
     return !!o && !o.my && !!o.owner && o.owner.username === clearCfg().enemy;
 }
 
+const FORBIDDEN_LOOT = ['storage', 'terminal', 'factory', 'lab', 'container', 'link', 'extension', 'nuker', 'powerSpawn', 'observer', 'extractor'];
+
+function lootWar() {
+    const c = cfg();
+    if (c.lootWar === true) return true;
+    const w = state();
+    return !!w && w.lootWar === true;
+}
+
 function clearScan(room) {
     if (!room || typeof room.find !== 'function') return null;
     const cc = clearCfg();
@@ -194,9 +203,10 @@ function clearScan(room) {
     const extSites = allSites.filter((s) => cc.urgentSites.indexOf(s.structureType) < 0);
     const allKind = typeof FIND_STRUCTURES !== 'undefined' ? FIND_STRUCTURES : 'structures';
     const structs = (room.find(allKind) || []).filter((s) => cc.types.indexOf(s.structureType) >= 0 && !s.my && (s.structureType === 'container' || enemyOf(s)));
-    const ext = structs.filter((s) => s.structureType === 'extension').length;
+    const kept = lootWar() ? structs.filter((s) => FORBIDDEN_LOOT.indexOf(s.structureType) < 0) : structs;
+    const ext = kept.filter((s) => s.structureType === 'extension').length;
     const liveSites = sites.filter((s) => Number(s.progress) > 0);
-    return { creeps, sites, liveSites, extSites, structs, ext };
+    return { creeps, sites, liveSites, extSites, structs: kept, ext };
 }
 
 const SITE_RANK = { spawn: 0, tower: 1 };
@@ -1103,4 +1113,5 @@ module.exports = {
     paused, gatherPos, staging, dist, roomOf, locked, schedule, entryCheck, cohesion, timing, deathTick,
     primaryHealer, healerNeeded, warLive, labsReady, processRecycle, costCap, trackSpend,
     hardCapped, mode, clearCfg, clearScan, pickStruct, dismantlers, clearTarget, pickSite, reliefOn, recordUnboost, labHold, threatOf,
+    lootWar, FORBIDDEN_LOOT,
 };
