@@ -601,4 +601,18 @@ console.log('--- site avoid costCallback marks extension sites, not spawn/tower 
 }
 console.log('OK');
 
+console.log('--- live 11:23: already in watch after clearIncomplete, structures left -> back to clear for the one dismantler ---');
+reset2();
+hc.length = 0; hs.length = 0;
+Memory.ags131War.mode = 'watch'; Memory.ags131War.labsReleased = 1;
+step();
+assert.strictEqual(W().mode, 'clear');
+assert.strictEqual(ev('clearResume').length, 1);
+assert.strictEqual(war.getDemands({ name: 'W37S5' }).filter((x) => x.memory.warRole === 'dismantler').length, 1);
+Memory.ags131War.dismantler = { spawned: 'D' };
+Memory.ags131War.mode = 'watch';
+step();
+assert.strictEqual(W().mode, 'watch', 'dismantler already used -> stays watch');
+console.log('OK');
+
 console.log('ALL PHASE 2 TESTS PASSED');

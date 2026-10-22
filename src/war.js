@@ -331,6 +331,10 @@ function clearTick(w) {
     const scan = clearScan(room);
     if (scan) w.clear = { left: leftOf(scan), at: Game.time };
     enemySafeCheck(w, room);
+    if (w.mode === 'watch' && !w.clearDoneAt && !hardCapped() && !w.enemySafe && !(w.dismantler && w.dismantler.spawned) && scan && scan.structs.length) {
+        w.mode = 'clear';
+        logEvent('clearResume', { left: w.clear.left, by: 'dismantler' });
+    }
     if (w.mode === 'clear' && hardCapped()) {
         logEvent('hardCap', { tick: Game.time, left: w.clear && w.clear.left });
         w.mode = 'watch';
