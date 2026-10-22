@@ -338,12 +338,19 @@ function clearHealer(creep, w, room) {
     if (creep.memory.goHome || ttlLow || !a || (a.memory && (a.memory.goHome || a.memory.retired)) || w.mode !== 'clear') { homeUnboost(creep, w); return; }
     if (clearHurt(w, a, creep)) { healTick(creep, a); if (war.roomOf(a) !== war.roomOf(creep) || war.dist(creep, a) > 1) goWar(creep, a.pos, 1); return; }
     const scan = inTarget(creep) ? war.clearScan(room) : null;
-    if (scan && scan.sites.length && !scan.creeps.length) {
-        healAround(creep);
-        if (stepOffEdge(creep)) return;
+    if (scan && !scan.creeps.length) {
         const at = war.clearTarget(a, scan);
-        const site = war.pickSite(creep, scan.sites, at && at.kind === 'site' ? at.obj.id : null);
-        if (site) { stomp(creep, site.pos); return; }
+        let site = scan.sites.length ? war.pickSite(creep, scan.sites, at && at.kind === 'site' ? at.obj.id : null) : null;
+        if (!site && scan.extSites.length && war.dist(creep, a) <= 2) {
+            const near = war.pickSite(creep, scan.extSites, null);
+            if (near && Math.max(Math.abs(near.pos.x - creep.pos.x), Math.abs(near.pos.y - creep.pos.y)) <= 2) site = near;
+        }
+        if (site) {
+            healAround(creep);
+            if (stepOffEdge(creep)) return;
+            stomp(creep, site.pos);
+            return;
+        }
     }
     healTick(creep, a);
     if (war.roomOf(a) !== war.roomOf(creep) || war.dist(creep, a) > 1) goWar(creep, a.pos, 1);
@@ -360,29 +367,29 @@ function clearClaimer(creep, w, room) {
 function runWatcher(creep, w, room) {
     if (!inTarget(creep)) { intoTarget(creep); return; }
     if (stepOffEdge(creep)) return;
-    const hostiles = room.find(FIND_HOSTILE_CREEPS) || [];
+    const canHit = (creep.body || []).some((p) => p.type === 'attack');
+    const hostiles = canHit ? (room.find(FIND_HOSTILE_CREEPS) || []) : [];
     if (hostiles.length) {
         const t = creep.pos.findClosestByRange(hostiles);
         if (creep.pos.isNearTo(t.pos)) creep.attack(t); else goWar(creep, t.pos, 1);
         return;
     }
-    const siteKind = typeof FIND_HOSTILE_CONSTRUCTION_SITES !== 'undefined' ? FIND_HOSTILE_CONSTRUCTION_SITES : 'hostileSites';
-    const sites = room.find(siteKind) || [];
-    if (sites.length) {
-        const t = creep.pos.findClosestByRange(sites);
-        if (!(creep.pos.x === t.pos.x && creep.pos.y === t.pos.y)) stomp(creep, t.pos);
-    }
+    const scan = war.clearScan(room);
+    const site = scan && scan.sites.length ? war.pickSite(creep, scan.sites, null) : null;
+    if (site) { stomp(creep, site.pos); return; }
+    const ctrlXy = wcfg().controllerPos || { x: 22, y: 20 };
+    if (war.dist(creep, { pos: targetRoomPos(ctrlXy) }) > 3) goWar(creep, targetRoomPos(ctrlXy), 3);
 }
 
 function runPhase2(creep, w) {
     const room = Game.rooms[war.target()];
     const role = creep.memory.warRole;
     if (role === 'attacker' || role === 'healer') {
-        if (w.phase === 'safemode' || w.costCapped) { homeUnboost(creep, w); return; }
+        if (w.phase === 'safemode' || w.costCapped || w.enemySafe) { homeUnboost(creep, w); return; }
         if (role === 'attacker') clearAttacker(creep, w, room); else clearHealer(creep, w, room);
         return;
     }
-    if (w.phase === 'safemode') { retreatHome(creep); return; }
+    if (w.phase === 'safemode' || w.enemySafe) { retreatHome(creep); return; }
     if (role === 'claimer') clearClaimer(creep, w, room);
     else if (role === 'watcher') runWatcher(creep, w, room);
 }

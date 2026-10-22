@@ -71,6 +71,9 @@ function clearCfg() {
         watchBody: ['attack', 'move'],
         observeEvery: 20,
         unboostWait: 60,
+        hardCapTick: 74487500,
+        urgentSites: ['spawn', 'tower'],
+        stomperBody: ['move'],
     }, cfg().clear || {});
 }
 
@@ -181,11 +184,13 @@ function clearScan(room) {
     const cc = clearCfg();
     const creeps = (room.find(FIND_HOSTILE_CREEPS) || []).filter(enemyOf);
     const siteKind = typeof FIND_HOSTILE_CONSTRUCTION_SITES !== 'undefined' ? FIND_HOSTILE_CONSTRUCTION_SITES : 'hostileSites';
-    const sites = (room.find(siteKind) || []).filter(enemyOf);
+    const allSites = (room.find(siteKind) || []).filter(enemyOf);
+    const sites = allSites.filter((s) => cc.urgentSites.indexOf(s.structureType) >= 0);
+    const extSites = allSites.filter((s) => cc.urgentSites.indexOf(s.structureType) < 0);
     const allKind = typeof FIND_STRUCTURES !== 'undefined' ? FIND_STRUCTURES : 'structures';
     const structs = (room.find(allKind) || []).filter((s) => cc.types.indexOf(s.structureType) >= 0 && !s.my && (s.structureType === 'container' || enemyOf(s)));
     const ext = structs.filter((s) => s.structureType === 'extension').length;
-    return { creeps, sites, structs, ext };
+    return { creeps, sites, extSites, structs, ext };
 }
 
 const SITE_RANK = { spawn: 0, tower: 1 };
@@ -238,12 +243,19 @@ function clearTarget(creep, scan) {
 }
 
 function leftOf(scan) {
-    return { creeps: scan.creeps.length, sites: scan.sites.length, structs: scan.structs.length, ext: scan.ext };
+    return { creeps: scan.creeps.length, sites: scan.sites.length, extSites: scan.extSites.length, structs: scan.structs.length, ext: scan.ext };
+}
+
+function hardCapped() {
+    const t = Number(clearCfg().hardCapTick) || 0;
+    return t > 0 && Game.time >= t;
 }
 
 function reliefOn(w) {
     if (w.reliefStopped) return false;
     if (w.claimerUntilCreepsDead === false) return false;
+    if (hardCapped()) return false;
+    if (w.enemySafe) return false;
     const l = w.clear && w.clear.left;
     if (!l) return true;
     return !(l.creeps === 0 && l.sites === 0 && l.ext === 0);
@@ -307,6 +319,11 @@ function clearTick(w) {
     lockTrack(w, room);
     const scan = clearScan(room);
     if (scan) w.clear = { left: leftOf(scan), at: Game.time };
+    enemySafeCheck(w, room);
+    if (w.mode === 'clear' && hardCapped()) {
+        logEvent('hardCap', { tick: Game.time, left: w.clear && w.clear.left });
+        w.mode = 'watch';
+    }
     if (w.mode === 'clear') {
         if (scan && !scan.creeps.length && !scan.sites.length && !scan.structs.length) {
             w.clearDoneAt = Game.time;
@@ -330,6 +347,18 @@ function clearTick(w) {
     schedule(w);
 }
 
+function enemySafeCheck(w, room) {
+    if (!room || !room.controller) return;
+    const left = Number(room.controller.safeMode) || 0;
+    if (left > 0) {
+        if (!w.enemySafe) { w.enemySafe = { at: Game.time, end: Game.time + left }; logEvent('enemySafeMode', { tick: Game.time, end: Game.time + left }); }
+        else w.enemySafe.end = Game.time + left;
+    } else if (w.enemySafe) {
+        logEvent('enemySafeModeEnd', { tick: Game.time, since: w.enemySafe.at });
+        delete w.enemySafe;
+    }
+}
+
 function myObserver() {
     const w = state();
     const tgt = target();
@@ -349,14 +378,14 @@ function myObserver() {
 const COMBAT = ['attack', 'ranged_attack', 'heal', 'work'];
 
 function threatOf(room) {
+    const out = {};
+    const cc = clearCfg();
     const siteKind = typeof FIND_HOSTILE_CONSTRUCTION_SITES !== 'undefined' ? FIND_HOSTILE_CONSTRUCTION_SITES : 'hostileSites';
-    const allSites = (room.find(siteKind) || []).filter((s) => !s.my);
-    const spawnSites = allSites.filter((s) => s.structureType === 'spawn');
-    if (spawnSites.length) return { why: 'spawnSite', x: spawnSites[0].pos.x, y: spawnSites[0].pos.y, owner: spawnSites[0].owner && spawnSites[0].owner.username, sites: allSites.length };
-    if (allSites.length) return { why: 'site', type: allSites[0].structureType, x: allSites[0].pos.x, y: allSites[0].pos.y, owner: allSites[0].owner && allSites[0].owner.username, sites: allSites.length };
-    const hostile = (room.find(FIND_HOSTILE_CREEPS) || []).find((c) => (c.body || []).some((p) => COMBAT.indexOf(p.type) >= 0 && p.hits > 0));
-    if (hostile) return { why: 'creep', name: hostile.name, owner: hostile.owner && hostile.owner.username, x: hostile.pos.x, y: hostile.pos.y, body: (hostile.body || []).map((p) => p.type) };
-    return null;
+    const sites = (room.find(siteKind) || []).filter((s) => !s.my && cc.urgentSites.indexOf(s.structureType) >= 0);
+    if (sites.length) out.site = { why: 'site', type: sites[0].structureType, x: sites[0].pos.x, y: sites[0].pos.y, owner: sites[0].owner && sites[0].owner.username, sites: sites.length };
+    const hostile = (room.find(FIND_HOSTILE_CREEPS) || [])[0];
+    if (hostile) out.creep = { why: 'creep', name: hostile.name, owner: hostile.owner && hostile.owner.username, x: hostile.pos.x, y: hostile.pos.y, body: (hostile.body || []).map((p) => p.type) };
+    return out.site || out.creep ? out : null;
 }
 
 function watchers() {
@@ -365,6 +394,7 @@ function watchers() {
 
 function watchTick(w, room) {
     const wt = w.watch || (w.watch = {});
+    if (wt.ep) { wt.site = wt.ep.why === 'creep' ? wt.site : wt.ep; if (wt.ep.why === 'creep') wt.creep = wt.ep; delete wt.ep; }
     if (!room) {
         if (watchers().some((c) => !c.spawning)) return;
         const every = Math.max(1, Number(clearCfg().observeEvery) || 20);
@@ -375,11 +405,13 @@ function watchTick(w, room) {
         return;
     }
     wt.seen = Game.time;
-    const th = threatOf(room);
-    if (!th) { if (wt.ep) { wt.last = wt.ep; delete wt.ep; } return; }
-    if (wt.ep) return;
-    wt.ep = Object.assign({ at: Game.time }, th);
-    logEvent('watchTrigger', wt.ep);
+    const th = threatOf(room) || {};
+    for (const k of ['site', 'creep']) {
+        if (!th[k]) { if (wt[k]) delete wt[k]; continue; }
+        if (wt[k]) continue;
+        wt[k] = Object.assign({ at: Game.time }, th[k]);
+        logEvent('watchTrigger', wt[k]);
+    }
 }
 
 function phase2Demands(room, w) {
@@ -399,10 +431,16 @@ function phase2Demands(room, w) {
         }
     }
     const wt = w.watch;
-    if (w.mode === 'watch' && wt && wt.ep && !wt.ep.spawned) {
-        const live = watchers();
-        if (live.length) wt.ep.spawned = live[0].name;
-        else out.push(demandRequest('watcher', 0, 0, { body: cc.watchBody.slice(), phase2: true }));
+    if (w.mode === 'watch' && wt) {
+        for (const k of ['creep', 'site']) {
+            const ep = wt[k];
+            if (!ep || ep.spawned) continue;
+            const live = watchers().filter((c) => (c.memory.watchKind || 'creep') === k);
+            if (live.length) { ep.spawned = live[0].name; continue; }
+            const req = demandRequest('watcher', k, 0, { body: (k === 'creep' ? cc.watchBody : cc.stomperBody).slice(), phase2: true });
+            req.memory.watchKind = k;
+            out.push(req);
+        }
     }
     return out;
 }
@@ -759,7 +797,7 @@ function getDemands(room) {
     if (Number(Game.cpu.bucket) < (Number(cfg().bucketMin) || 5000)) { w.bucketWait = Game.time; return []; }
     if (w.costCapped || phase === 'safemode') return [];
     if (w.claimSeq != null) delete w.claimSeq;
-    if (w.mode) return phase2Demands(room, w);
+    if (w.mode) return w.enemySafe ? [] : phase2Demands(room, w);
     schedule(w);
     if (phase === 'staging') return stagingDemands(room, w);
     const out = [];
@@ -1034,5 +1072,5 @@ module.exports = {
     home, target, boostsFor, cpuPressure, cfg, state, liveWar, fullyBoosted,
     paused, gatherPos, staging, dist, roomOf, locked, schedule, entryCheck, cohesion, timing, deathTick,
     primaryHealer, healerNeeded, warLive, labsReady, processRecycle, costCap, trackSpend,
-    mode, clearCfg, clearScan, clearTarget, pickSite, reliefOn, recordUnboost, labHold, threatOf,
+    hardCapped, mode, clearCfg, clearScan, clearTarget, pickSite, reliefOn, recordUnboost, labHold, threatOf,
 };
