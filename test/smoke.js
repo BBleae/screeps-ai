@@ -19,7 +19,7 @@ const MODULE_MAP = {
     deposit: 'deposit.js', roles_depositMiner: 'roles/depositMiner.js', roles_depositScout: 'roles/depositScout.js',
     wall_breach: 'wall_breach.js', cpu_remote: 'cpu_remote.js', cpu_gate: 'cpu_gate.js',
     loot_shed: 'loot_shed.js', last_trip: 'last_trip.js', wallfix: 'wallfix.js', roles_wallBreaker: 'roles/wallBreaker.js',
-    war: 'war.js', roles_warrior: 'roles/warrior.js',
+    war: 'war.js', roles_warrior: 'roles/warrior.js', roles_escort: 'roles/escort.js',
     conquest: 'conquest.js', roles_siegeDismantler: 'roles/siegeDismantler.js', roles_siegeGuard: 'roles/siegeGuard.js', roles_downgrader: 'roles/downgrader.js', roles_lootHauler: 'roles/lootHauler.js',
 };
 const origResolve = Module._resolveFilename;
@@ -3131,6 +3131,8 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
         'lab 分工存进 Memory.rooms[房].labRoles');
     assert(ind.labPlan(lr) === plan0, '同一 tick 只算一次（labTech / spawn / industry 共用）');
     {
+        const savedWarCfg = config.war;
+        config.war = Object.assign({}, config.warW38S2);
         const warHome = config.war.home;
         config.war.home = 'W33S7';
         Memory.ags131War = { enabled: true, phase: 'staging' };
@@ -3151,6 +3153,7 @@ console.log('== 矿物链（2026-10-13，移植 overmind-absorb 7f4ab27 / 2d97ab
         delete Memory.rooms.W33S7.militaryLabs;
         delete lrTerminal.store.XGHO2;
         config.war.home = warHome;
+        config.war = savedWarCfg;
         world.time++;
     }
 

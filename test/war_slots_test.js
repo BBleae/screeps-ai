@@ -1,6 +1,7 @@
 const path=require('path'),Module=require('module');const src=path.resolve(__dirname,'../src');const orig=Module._resolveFilename;
 Module._resolveFilename=function(r,p,i,o){if(!r.includes('/')&&!r.startsWith('.')){const l=path.join(src,r+'.js');try{require('fs').accessSync(l);return l}catch(e){}}return orig.call(this,r,p,i,o)};
 global.Game={time:1,cpu:{bucket:9000},creeps:{},rooms:{},spawns:{}};global.Memory={ags131War:{enabled:true,phase:'staging',claimSeq:32}};
+const __c=require('config');__c.war=Object.assign({},__c.warW38S2);
 const war=require('war');
 war.getDemands({name:'W37S5'});
 if('claimSeq' in Memory.ags131War) throw 'claimSeq not cleared';

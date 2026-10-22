@@ -50,6 +50,7 @@ require.cache[path.join(src, 'retire.js')] = { id: 'retire', filename: path.join
   exports: { retireAtSpawn() {} } };
 
 const war = require('../src/war');
+const __cfg = require('../src/config'); __cfg.war = Object.assign({}, __cfg.warW38S2);
 const warrior = require('../src/roles/warrior');
 
 const BODY = {

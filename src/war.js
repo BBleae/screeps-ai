@@ -8,7 +8,7 @@ function cfg() {
 function state() {
     const m = typeof Memory !== 'undefined' ? Memory : null;
     if (!m) return null;
-    const w = m.ags131War;
+    const w = m[memKey()];
     if (!w || !w.enabled) return null;
     return w;
 }
@@ -23,6 +23,10 @@ function home() {
 
 function target() {
     return cfg().target || 'W38S2';
+}
+
+function memKey() {
+    return cfg().memKey || 'ags131War';
 }
 
 function repeat(part, n) {
@@ -497,7 +501,7 @@ function staging() {
 
 function paused() {
     const m = typeof Memory !== 'undefined' ? Memory : null;
-    const w = m && m.ags131War;
+    const w = m && m[memKey()];
     return !!(w && !w.enabled && w.pausedAt);
 }
 
@@ -567,7 +571,7 @@ function etaToGather(c, role) {
 }
 
 function primaryHealer() {
-    const w = typeof Memory !== 'undefined' && Memory.ags131War;
+    const w = typeof Memory !== 'undefined' && Memory[memKey()];
     const hs = liveWar('healer');
     if (!hs.length) return undefined;
     const named = w && w.squad && hs.find((c) => c.name === w.squad.h);
@@ -984,7 +988,7 @@ function squadTick(w) {
         if (locked(troom)) {
             if (!w.lockedSince) {
                 w.lockedSince = Game.time;
-                if (!w.firstHit) w.firstHit = Game.time;
+                if (!w.firstHit) { w.firstHit = Game.time; if (!w.lockedOnce) { w.lockedOnce = Game.time; logEvent('controllerLocked', { tick: Game.time, upgradeBlocked: Number(troom.controller.upgradeBlocked) }); } }
                 logEvent('controllerHit', { tick: Game.time, upgradeBlocked: Number(troom.controller.upgradeBlocked), downgrade: troom.controller.ticksToDowngrade });
             }
         } else if (w.lockedSince) {
@@ -1012,6 +1016,7 @@ function squadTick(w) {
             w.crossAt = null;
             w.breach = null;
             w.entries = {};
+            if (!w.attackStartedAt) { w.attackStartedAt = Game.time; logEvent('attackStart', { tick: Game.time, target: target(), a: chk.a.name, h: chk.h.name, c: chk.c.name }); }
             logEvent('entered', { a: chk.a.name, h: chk.h.name, c: chk.c.name, cTtl: chk.c.ticksToLive, relief: w.plan && w.plan.reliefSpawn });
         } else {
             return;
@@ -1053,11 +1058,26 @@ function observe(w) {
     if (prev.spawn === undefined) { w.seen = { spawn: spawns.length, towers: towers.length }; return; }
     if (prev.spawn > 0 && spawns.length === 0) logEvent('spawnDestroyed', {});
     if (towers.length < prev.towers) logEvent('towerDestroyed', { left: towers.length });
+    if (prev.towers > 0 && towers.length === 0 && !w.towersDownAt) { w.towersDownAt = Game.time; logEvent('towersDown', { tick: Game.time, target: tgt }); }
     w.seen = { spawn: spawns.length, towers: towers.length };
     if (spawns.length === 0 && towers.length === 0 && w.phase === 'assault') {
         w.phase = 'won';
         logEvent('objectivesDown', {});
     }
+    lootSplit(w, room, spawns.length === 0 && towers.length === 0);
+}
+
+function lootSplit(w, room, structsCleared) {
+    const sp = cfg().lootSplit;
+    if (!sp || !lootWar() || w.lootSplitDone) return;
+    if (!structsCleared) return;
+    if (!locked(room)) return;
+    w.lootSplitDone = Game.time;
+    const m = typeof Memory !== 'undefined' ? Memory : null;
+    if (m) {
+        m.lootWarLoot = { target: sp.room || target(), haulers: Number(sp.haulers) || 8, keepOthers: Number(sp.keepOthers) || 6, unload: sp.unload || home(), since: Game.time };
+    }
+    logEvent('lootSplit', { tick: Game.time, target: sp.room || target(), haulers: Number(sp.haulers) || 8, keepOthers: Number(sp.keepOthers) || 6, unload: sp.unload || home() });
 }
 
 function tick() {
@@ -1113,5 +1133,5 @@ module.exports = {
     paused, gatherPos, staging, dist, roomOf, locked, schedule, entryCheck, cohesion, timing, deathTick,
     primaryHealer, healerNeeded, warLive, labsReady, processRecycle, costCap, trackSpend,
     hardCapped, mode, clearCfg, clearScan, pickStruct, dismantlers, clearTarget, pickSite, reliefOn, recordUnboost, labHold, threatOf,
-    lootWar, FORBIDDEN_LOOT,
+    lootWar, FORBIDDEN_LOOT, memKey, lootSplit, observe,
 };

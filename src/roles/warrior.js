@@ -4,6 +4,7 @@ const movement = require('movement');
 const boost = require('boost');
 const retireMod = require('retire');
 const war = require('war');
+const escort = require('roles_escort');
 
 const TOP_DIR = typeof TOP !== 'undefined' ? TOP : 1;
 
@@ -118,7 +119,80 @@ function crossOrHold(creep, w) {
     if (gathered && w.crossAt === Game.time) creep.move(TOP_DIR);
 }
 
+function allySet() {
+    const a = (config.allies && config.allies.names) || [];
+    return new Set(a);
+}
+
+function notAlly(o) {
+    return !(o && o.owner && allySet().has(o.owner.username));
+}
+
+function lootAttackTarget(creep, room) {
+    const order = wcfg().towerOrder || [];
+    const towers = enemyTowers(room).filter(notAlly);
+    if (towers.length) {
+        for (const o of order) {
+            const t = towers.find((tw) => tw.pos.x === o.x && tw.pos.y === o.y);
+            if (t) return t;
+        }
+        return creep.pos.findClosestByRange(towers);
+    }
+    const spawns = (room.find(FIND_HOSTILE_SPAWNS) || []).filter(notAlly);
+    if (spawns.length) return creep.pos.findClosestByRange(spawns);
+    const hostiles = (room.find(FIND_HOSTILE_CREEPS) || []).filter(notAlly);
+    if (hostiles.length) return creep.pos.findClosestByRange(hostiles);
+    return null;
+}
+
+function escortHealers(room) {
+    return war.liveWar('healer').filter((c) => inTarget(c) && c.room.name === room.name).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
+function attackerHealer(w, room) {
+    const hs = escortHealers(room);
+    if (!hs.length) return null;
+    if (w && w.squad && w.squad.h) {
+        const named = hs.find((h) => h.name === w.squad.h);
+        if (named) return named;
+    }
+    return hs[0];
+}
+
+function claimerHealer(w, room) {
+    const hs = escortHealers(room);
+    if (!hs.length) return null;
+    const ah = attackerHealer(w, room);
+    const other = hs.find((h) => !ah || h.name !== ah.name);
+    if (other) return other;
+    return war.locked(room) ? null : ah;
+}
+
+function escortLeaderFor(healer, w, room) {
+    const a = war.liveWar('attacker')[0];
+    const c = leadClaimer(w, healer);
+    const ah = attackerHealer(w, room);
+    if (ah && healer.name === ah.name) {
+        if (a) return a;
+        return c;
+    }
+    return c || a;
+}
+
+function escortHealerFor(leader, w, room) {
+    if (leader && leader.memory && leader.memory.warRole === 'attacker') return attackerHealer(w, room);
+    return claimerHealer(w, room) || attackerHealer(w, room);
+}
+
+function escortReady(leader, healer) {
+    if (!healer) return true;
+    if (war.roomOf(leader) !== war.roomOf(healer)) return false;
+    if (war.dist(leader, healer) > 1) return false;
+    return (leader.fatigue || 0) === 0 && (healer.fatigue || 0) === 0;
+}
+
 function pickAttackTarget(creep, room) {
+    if (war.lootWar()) return lootAttackTarget(creep, room);
     const spawns = room.find(FIND_HOSTILE_SPAWNS) || [];
     if (spawns.length) return creep.pos.findClosestByRange(spawns);
     const towers = enemyTowers(room);
@@ -141,6 +215,8 @@ function pickAttackTarget(creep, room) {
 function runAttacker(creep, w, room) {
     if (w.phase === 'staging') { toGather(creep); return; }
     if (!inTarget(creep)) { crossOrHold(creep, w); return; }
+    if (war.lootWar() && stepOffEdge(creep)) return;
+    if (war.lootWar()) { runAttackerLoot(creep, w, room); return; }
     const { h } = squad();
     if (stepOffEdge(creep)) return;
     if (!war.locked(room)) {
@@ -184,6 +260,7 @@ function healTick(creep, leader) {
 function runHealer(creep, w, room) {
     if (w.phase === 'staging') { toGather(creep); healAround(creep); return; }
     if (!inTarget(creep)) { crossOrHold(creep, w); healAround(creep); return; }
+    if (war.lootWar()) { runHealerLoot(creep, w, room); return; }
     const { a } = squad();
     const leader = war.locked(room) ? a : (leadClaimer(w, creep) || a);
     healTick(creep, leader);
@@ -246,8 +323,47 @@ function runClaimer(creep, w, room) {
     }
     const ctrl = room && room.controller;
     if (!ctrl) return;
+    if (war.lootWar()) { runClaimerLoot(creep, w, room, ctrl); return; }
     if (creep.pos.isNearTo(ctrl.pos)) { creep.attackController(ctrl); return; }
     if (!war.locked(room) && h && inTarget(h) && war.dist(creep, h) > 2 && creep.pos.y < 48) return;
+    goWar(creep, ctrl.pos, 1);
+}
+
+function cpos(c) {
+    return c ? { x: c.pos.x, y: c.pos.y, room: c.pos.roomName, hits: c.hits, hitsMax: c.hitsMax, fatigue: c.fatigue || 0 } : null;
+}
+
+function runAttackerLoot(creep, w, room) {
+    const h = escortHealerFor(creep, w, room);
+    if (!war.locked(room)) {
+        if (h && inTarget(h) && war.dist(creep, h) > 1 && escortReady(h, creep)) goWar(creep, h.pos, 1);
+        return;
+    }
+    const target = lootAttackTarget(creep, room);
+    if (!target) { if (h && inTarget(h) && war.dist(creep, h) > 1) goWar(creep, h.pos, 1); return; }
+    if (creep.pos.isNearTo(target.pos)) { creep.attack(target); return; }
+    if (!escortReady(creep, h)) return;
+    goWar(creep, target.pos, 1);
+}
+
+function runHealerLoot(creep, w, room) {
+    const leader = escortLeaderFor(creep, w, room);
+    const inTower = enemyTowers(room).length > 0;
+    const plan = escort.healPlan(cpos(leader), cpos(creep), inTower);
+    if (plan && plan.target) {
+        const tc = leader && inTarget(leader) && plan.target.x === leader.pos.x && plan.target.y === leader.pos.y ? leader : creep;
+        if (plan.kind === 'heal') creep.heal(tc);
+        else if (plan.kind === 'rangedHeal') creep.rangedHeal(tc);
+        else if (creep.hits < creep.hitsMax) creep.heal(creep);
+    } else if (creep.hits < creep.hitsMax) { creep.heal(creep); }
+    if (stepOffEdge(creep)) return;
+    if (leader && inTarget(leader) && war.dist(creep, leader) > 1) goWar(creep, leader.pos, 1);
+}
+
+function runClaimerLoot(creep, w, room, ctrl) {
+    const h = escortHealerFor(creep, w, room);
+    if (creep.pos.isNearTo(ctrl.pos)) { creep.attackController(ctrl); return; }
+    if (h && inTarget(h) && !escortReady(creep, h) && creep.pos.y < 48) return;
     goWar(creep, ctrl.pos, 1);
 }
 
@@ -496,4 +612,4 @@ function run(creep) {
     else if (creep.memory.warRole === 'claimer') runClaimer(creep, w, room);
 }
 
-module.exports = { run, boostRetry };
+module.exports = { run, boostRetry, lootAttackTarget, escortReady, escortLeaderFor, escortHealerFor };

@@ -2,6 +2,7 @@ const path=require('path'),Module=require('module');const src=path.resolve(__dir
 Object.assign(global, require('/workspace/ops/war/eng/cmn/package/lib/constants'));
 Module._resolveFilename=function(r,p,i,o){if(!r.includes('/')&&!r.startsWith('.')){const l=path.join(src,r+'.js');try{require('fs').accessSync(l);return l}catch(e){}if(r.startsWith('roles_')){const q=path.join(src,'roles',r.slice(6)+'.js');try{require('fs').accessSync(q);return q}catch(e){}}}return orig.call(this,r,p,i,o)};
 global.Game={time:5,cpu:{bucket:9000,getUsed:()=>0},creeps:{},rooms:{}};global.Memory={ags131War:{enabled:true,phase:'staging',events:[]}};
+const __c=require('config');__c.war=Object.assign({},__c.warW38S2);
 const w=require('roles_warrior');const retire=require('retire');let retired=0;retire.retireAtSpawn=()=>{retired++};
 const mk=(role,ttl,boosted)=>({name:'x',ticksToLive:ttl,room:{name:'W37S5'},body:[{type:'tough',boost:boosted?'XGHO2':undefined},{type:'move'}],memory:{role:'warrior',warRole:role,home:'W37S5',boosts:['XGHO2'],boostDone:true,boostSince:1,boostSkip:['XGHO2']}});
 let c=mk('attacker',1300,false);if(w.boostRetry(c)!==false||c.memory.boostDone||c.memory.boostSince!=null||c.memory.boostSkip)throw'r1';

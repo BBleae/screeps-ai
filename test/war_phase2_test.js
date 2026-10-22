@@ -51,6 +51,7 @@ require.cache[path.join(src, 'retire.js')] = { id: 'retire', filename: path.join
 
 global.FIND_HOSTILE_CONSTRUCTION_SITES = 'hostileSites'; global.FIND_STRUCTURES = 'structures'; global.FIND_MY_STRUCTURES = 'myStructures'; global.LOOK_STRUCTURES = 'structure';
 const war = require('../src/war');
+const __cfg = require('../src/config'); __cfg.war = Object.assign({}, __cfg.warW38S2);
 const warrior = require('../src/roles/warrior');
 
 const BODY = {
