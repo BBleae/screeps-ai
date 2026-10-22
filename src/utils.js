@@ -778,7 +778,9 @@ function needsRepair(room, structure) {
     if (structure.structureType === STRUCTURE_RAMPART) {
         if (!(structure.hits < repairTargetHits(room, structure))) return false;
         const floor = wallFloorHits();
-        return !(floor > 0) || structure.hits < floor || rampartRaiseAllowed(room);
+        const posTable = room && config.rampartFloorByPos ? config.rampartFloorByPos[room.name] : null;
+        const posFloor = posTable && structure.pos ? Math.min(structure.hitsMax, Number(posTable[structure.pos.x + ',' + structure.pos.y]) || 0) : 0;
+        return !(floor > 0) || structure.hits < floor || structure.hits < posFloor || rampartRaiseAllowed(room);
     }
     return structure.hits < structure.hitsMax * config.towerRepairBelow;
 }

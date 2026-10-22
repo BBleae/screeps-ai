@@ -702,6 +702,31 @@ function loadStep(creep, carrying) {
     if (ret !== OK && ret !== ERR_NOT_IN_RANGE) { badBook(creep.room.name)[obj.id] = Game.time; delete m.src; delete m.stk; }
 }
 
+function finalRun(creep) {
+    const m = creep.memory;
+    const ttl = creep.ticksToLive;
+    if (ttl == null || m.finalRun) return false;
+    const cq = require('config').conquest || {};
+    const rooms = [m.splitFrom].concat(Array.isArray((cq.lootSplitRun || {}).finalRooms) ? cq.lootSplitRun.finalRooms : ['W35S1', 'W37S2']);
+    const live = new Set(conquest.directives().filter((d) => d && d.type === 'salvageLoot' && !d.completed && d.phase !== 'done').map((d) => d.target));
+    const here = creep.room.name;
+    let best = null;
+    for (const room of rooms) {
+        if (!room || room === m.targetRoom || !live.has(room)) continue;
+        const drop = (cq.lootDropFixed || {})[room] || m.home;
+        const want = (here === room ? 0 : emptySteps(here, room)) + needTicks(creep, room, drop);
+        if (!(ttl >= want)) continue;
+        if (!best || want < best.want) best = { room, want };
+    }
+    if (!best) return false;
+    if (best.room === m.splitFrom && m.splitTiles !== undefined) m.lootTiles = m.splitTiles;
+    else m.lootTiles = null;
+    m.finalRun = { at: Game.time, from: m.targetRoom, to: best.room, ttl };
+    m.targetRoom = best.room;
+    for (const k of ['splitFrom', 'splitTiles', 'splitAt', 'src', 'pick', 'stk', 'skip', 'lootTier', 'gNext', '_move', 'drop']) delete m[k];
+    return true;
+}
+
 function run(creep) {
     if (creep.spawning) return;
     track(creep);
@@ -732,7 +757,7 @@ function run(creep) {
         if (!carrying) return;
     }
     const due = ttlCheck(creep, carrying);
-    if (due === 'retire') { retireMod.retireAtSpawn(creep); return; }
+    if (due === 'retire' && !(creep.memory.splitFrom && finalRun(creep))) { retireMod.retireAtSpawn(creep); return; }
     if (full || retreat || due === 'deliver' || creep.memory.state === 'deliver') {
         creep.memory.state = 'deliver';
         if (!deliver(creep)) {
@@ -746,4 +771,4 @@ function run(creep) {
     loadStep(creep, carrying);
 }
 
-module.exports = { dropStaleBoosts, reachable, queued, pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, loadPick, tierOf, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };
+module.exports = { dropStaleBoosts, reachable, queued, pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, loadPick, tierOf, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks, finalRun };

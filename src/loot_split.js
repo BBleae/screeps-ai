@@ -2,7 +2,18 @@
 const config = require('config');
 
 function settings() {
-    return Object.assign({ every: 5, minTtl: 1000 }, (config.conquest || {}).lootSplitRun || {});
+    return Object.assign({ every: 5, minTtl: 1000, spawnTicks: 150 }, (config.conquest || {}).lootSplitRun || {});
+}
+
+function reliefTtl(s, cfg) {
+    if (Number(s.reliefTtl) > 0) return Number(s.reliefTtl);
+    const hauler = require('roles_lootHauler');
+    const unload = s.unload || ((config.conquest || {}).lootDropFixed || {})[s.target];
+    if (!unload) return 0;
+    const back = hauler.pathSteps(s.target, unload);
+    const out = hauler.pathSteps(unload, s.target);
+    if (!Number.isFinite(back) || !Number.isFinite(out)) return 0;
+    return Math.round(back * 1.2 + 50 + out + (Number(cfg.spawnTicks) || 0));
 }
 
 function pool() {
@@ -69,17 +80,24 @@ function run(force) {
         return { done: true, back: on.length };
     }
     const want = Math.max(0, Number(s.haulers) || 8);
-    const need = want - on.length;
+    const relief = reliefTtl(s, cfg);
+    const old = relief > 0 ? on.filter((c) => c.ticksToLive != null && c.ticksToLive < relief) : [];
+    const active = on.length - old.length;
+    const need = want - active;
     s.on = on.length;
+    s.active = active;
+    s.reliefAt = relief;
+    s.relief = old.map((c) => c.name);
     if (need <= 0) return { moved: 0, on: on.length };
     const minTtl = Number(cfg.minTtl) || 1000;
     const cand = all.filter((c) => c.memory.targetRoom !== s.target && (c.ticksToLive == null || c.ticksToLive >= minTtl))
         .sort((a, b) => (used(a) > 0) - (used(b) > 0) || (Number(b.ticksToLive) || 0) - (Number(a.ticksToLive) || 0) || (a.name < b.name ? -1 : 1));
     const moved = [];
     for (const c of cand.slice(0, need)) { retarget(c, s); moved.push(c.name); }
-    if (moved.length) log(s, 'moved', { names: moved });
+    if (moved.length) log(s, old.length ? 'relief' : 'moved', old.length ? { names: moved, old: s.relief } : { names: moved });
     s.on = on.length + moved.length;
+    s.active = active + moved.length;
     return { moved: moved.length, on: s.on, names: moved };
 }
 
-module.exports = { run, pool, retarget, sendBack, roomEmpty, settings };
+module.exports = { run, pool, retarget, sendBack, roomEmpty, settings, reliefTtl };

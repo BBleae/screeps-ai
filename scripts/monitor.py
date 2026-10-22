@@ -471,7 +471,6 @@ PROBE = r"""
         })
       };
     }),
-    taskBroker: Memory.taskBroker || null,
     brain: Memory.brain ? { issuedAt: Memory.brain.issuedAt || 0, ttlMs: Memory.brain.ttlMs || 0,
       stale: !!Memory.brain.stale, ackTick: (Memory.brain.ack && Memory.brain.ack.tick) || 0,
       rooms: Object.keys(Memory.brain.rooms || {}).length } : null,
@@ -482,8 +481,7 @@ PROBE = r"""
     cpuLimit: Game.cpu.limit,
     tickLimit: Game.cpu.tickLimit,
     hardStop: Memory.cpuHardStop || null,
-    pixelGate: Memory.pixelGate || null,
-    statsTail: (Memory.stats || []).slice(-5)
+    pixelGate: Memory.pixelGate || null
   };
   Memory._mon = JSON.stringify(out);
 })()
@@ -507,36 +505,52 @@ def chunk_expression(expression, limit=700):
     return chunks
 
 
+def stats_tail(n=5):
+    raw = read_memory('stats')
+    rows = raw[-n:] if isinstance(raw, list) else []
+    keep = ('t', 'cpu', 'bucket', 'creeps')
+    return [{k: r.get(k) for k in keep if k in r} for r in rows if isinstance(r, dict)]
+
+
+def broker_rooms():
+    rooms = read_memory('taskBroker.rooms')
+    return {'rooms': rooms} if isinstance(rooms, dict) else None
+
+
 def snapshot():
     nonce = str(time.time_ns())
     expression = PROBE.replace('__MONITOR_NONCE__', nonce)
     probe_key = '_monProbe_' + nonce
     chunks = chunk_expression(expression)
-    for index, chunk in enumerate(chunks):
-        operator = '=' if index == 0 else '+='
-        response = console('Memory.' + probe_key + operator + json.dumps(chunk))
+    try:
+        for index, chunk in enumerate(chunks):
+            operator = '=' if index == 0 else '+='
+            response = console('Memory.' + probe_key + operator + json.dumps(chunk))
+            if response.get('error'):
+                raise RuntimeError('探针分片提交失败: ' + response['error'])
+        response = console('eval(Memory.' + probe_key + ');delete Memory.' + probe_key)
         if response.get('error'):
-            raise RuntimeError('探针分片提交失败: ' + response['error'])
-    response = console('eval(Memory.' + probe_key + ');delete Memory.' + probe_key)
-    if response.get('error'):
-        raise RuntimeError('探针执行提交失败: ' + response['error'])
+            raise RuntimeError('探针执行提交失败: ' + response['error'])
 
-    deadline = time.time() + 20
-    while time.time() < deadline:
-        time.sleep(2)
-        mon = read_memory('_mon')
-        if isinstance(mon, str):
-            try:
-                mon = json.loads(mon)
-            except json.JSONDecodeError:
-                mon = None
-        if isinstance(mon, dict) and mon.get('schema') == 4 and mon.get('nonce') == nonce:
-            try:
-                console('delete Memory._mon')
-            except Exception:
-                pass
-            return mon
-    raise RuntimeError('探针无新鲜响应（bot 未运行、console 队列阻塞或表达式执行失败）')
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            time.sleep(2)
+            mon = read_memory('_mon')
+            if isinstance(mon, str):
+                try:
+                    mon = json.loads(mon)
+                except json.JSONDecodeError:
+                    mon = None
+            if isinstance(mon, dict) and mon.get('schema') == 4 and mon.get('nonce') == nonce:
+                mon['taskBroker'] = broker_rooms()
+                mon['statsTail'] = stats_tail()
+                return mon
+        raise RuntimeError('探针无新鲜响应（bot 未运行、console 队列阻塞或表达式执行失败）')
+    finally:
+        try:
+            console('delete Memory._mon;delete Memory.' + probe_key)
+        except Exception:
+            pass
 
 
 def load_history(n=24):

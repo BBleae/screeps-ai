@@ -376,7 +376,7 @@ module.exports = {
     towerRefillAt: 300,
     towerFullRooms: ['W37S5', 'W37S7', 'W38S7'],
     rampartFloorByRoom: { W37S7: 300000 },
-    rampartFloorByPos: { W33S3: { '34,45': 20000, '35,45': 20000, '36,45': 20000, '47,12': 20000 } },
+    rampartFloorByPos: { W33S3: { '34,45': 20000, '35,45': 20000, '36,45': 20000, '47,12': 20000 }, W37S7: { '47,10': 20000 } },
     towerMaintenanceBudget: 400,
     towerMaintenanceWeight: 5,
     towerCriticalRange: 20,
@@ -754,7 +754,7 @@ module.exports = {
     policy: {
         stage1Fallback: { lowStorage: 2000, lowRooms: 4, storageDownDays: 2, interval: 500 },
     },
-    memoryProbeTtl: 100,
+    memoryProbeTtl: 20,
     visuals: {
         always: false,
         showTicks: 300,
