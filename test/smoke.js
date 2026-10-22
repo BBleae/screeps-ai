@@ -18121,8 +18121,8 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const utils = require('../src/utils');
     const tm = require('terminal');
     const tcfg = tm.settings();
-    assert(tcfg.priorityReceivers.indexOf('W37S5') < 0 && tcfg.priorityReceivers.indexOf('W38S7') < 0 && config.terminalNetwork.senders.W33S7.to[0] === 'W37S5' && JSON.stringify(tcfg.burnRooms) === JSON.stringify(['W37S5']),
-        '10-22 W37S5/W38S7 移出 priorityReceivers；W33S7 发送名单仍以 W37S5 开头');
+    assert(tcfg.priorityReceivers.indexOf('W37S5') < 0 && tcfg.priorityReceivers.indexOf('W38S7') < 0 && config.terminalNetwork.senders.W33S7.to.indexOf('W37S5') < 0 && JSON.stringify(tcfg.burnRooms) === JSON.stringify(['W37S5']),
+        '10-22 W37S5/W38S7 移出 priorityReceivers，W37S5 也移出 W33S7 发送名单');
     const plan = { links: { store: { x: 20, y: 31 }, ctrl: { x: 21, y: 21 } } };
     const ur = (e, lvl) => ({ name: 'W37S5', controller: { my: true, level: lvl || 7 }, storage: { my: true, store: { energy: e } } });
     const mem = { plan };
@@ -18208,7 +18208,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     world.time += 1;
     plan = ind.factoryPlan(Game.rooms.W33S8);
     assert(plan.gate.ok && !plan.wants.some((w) => w.mineral === 'K'), '房内 K 只有 5300（留 5000 后不够一批）：不往 factory 搬 K');
-    const fwd = config.terminalNetwork.forward.filter((r) => r.resource === 'K' && r.from !== 'W38S7');
+    const fwd = config.terminalNetwork.forward.filter((r) => r.resource === 'K' && r.from !== 'W38S7' && r.from !== 'W37S5');
     assert(config.terminalNetwork.forward.some((r) => r.from === 'W38S7' && r.to === 'W33S8' && r.resource === 'K' && r.toBelow === 5000 && r.fromFreeBelow > 0), '10-20 W37S3 的 K：W38S7→W33S8（W33S8 <5000 或 W38S7 storage 将满）');
     assert(fwd.length === 3 && fwd.every((r) => r.keep === 5000 && r.countStorage) && fwd.some((r) => r.from === 'W37S7' && r.to === 'W38S7') && fwd.some((r) => r.from === 'W31S6' && r.to === 'W33S8'),
         'K 补给：W37S7→W38S7/W33S8、W31S6→W33S8，来源房留 5000');
