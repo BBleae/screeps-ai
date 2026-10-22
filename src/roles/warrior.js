@@ -281,6 +281,12 @@ function homeUnboost(creep, w) {
     retireMod.retireAtSpawn(creep);
 }
 
+function stomp(creep, pos) {
+    const d = Math.max(Math.abs(creep.pos.x - pos.x), Math.abs(creep.pos.y - pos.y));
+    if (d === 1 && typeof creep.pos.getDirectionTo === 'function') { creep.move(creep.pos.getDirectionTo(pos)); return; }
+    goWar(creep, pos, 0);
+}
+
 function clearHurt(w, a, h) {
     const line = Number(wcfg().retreatBelow) || 0.5;
     const low = (c) => c && c.hits < c.hitsMax * line;
@@ -312,7 +318,7 @@ function clearAttacker(creep, w, room) {
     if (!t) return;
     if (t.kind === 'site') {
         if (creep.pos.x === t.obj.pos.x && creep.pos.y === t.obj.pos.y) return;
-        if (!hFar) goWar(creep, t.obj.pos, 0);
+        if (!hFar) stomp(creep, t.obj.pos);
         return;
     }
     let obj = t.obj;
@@ -336,7 +342,7 @@ function clearHealer(creep, w, room) {
         if (stepOffEdge(creep)) return;
         const at = war.clearTarget(a, scan);
         const site = war.pickSite(creep, scan.sites, at && at.kind === 'site' ? at.obj.id : null);
-        if (site) { goWar(creep, site.pos, 0); return; }
+        if (site) { stomp(creep, site.pos); return; }
     }
     healTick(creep, a);
     if (war.roomOf(a) !== war.roomOf(creep) || war.dist(creep, a) > 1) goWar(creep, a.pos, 1);
@@ -363,7 +369,7 @@ function runWatcher(creep, w, room) {
     const sites = room.find(siteKind) || [];
     if (sites.length) {
         const t = creep.pos.findClosestByRange(sites);
-        if (!(creep.pos.x === t.pos.x && creep.pos.y === t.pos.y)) goWar(creep, t.pos, 0);
+        if (!(creep.pos.x === t.pos.x && creep.pos.y === t.pos.y)) stomp(creep, t.pos);
     }
 }
 

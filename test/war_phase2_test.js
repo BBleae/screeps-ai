@@ -182,6 +182,17 @@ moves.length = 0; step();
 assert.ok(moves.some((m) => m.name === 'A' && m.range === 1), 'only the site under it left -> goes on to structures and comes back later');
 console.log('OK');
 
+console.log('--- adjacent site: direct move onto it (no pathing) ---');
+reset2();
+hc.length = 0;
+const Ad = mk('A', 'attacker', 'W38S2', 36, 30, 1000);
+mk('H', 'healer', 'W38S2', 35, 30, 1000);
+Ad.pos.getDirectionTo = function (p) { return p.x > this.x ? 3 : 7; };
+hs = [mine({ id: 'sp', structureType: 'spawn', pos: new RoomPosition(37, 30, 'W38S2') })];
+step();
+assert.ok(Ad.acts.some((x) => x[0] === 'move' && x[1] === 3), 'creep.move(dir) onto the adjacent spawn site');
+console.log('OK');
+
 console.log('--- sites first: spawn site, then tower site, then extension sites; attacker and healer split ---');
 reset2();
 hc.length = 0;
