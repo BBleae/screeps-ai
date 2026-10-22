@@ -263,7 +263,6 @@ function hardCapped() {
 }
 
 function reliefOn(w) {
-    if (w.reliefStopped) return false;
     if (w.claimerUntilCreepsDead === false) return false;
     if (hardCapped()) return false;
     if (w.enemySafe) return false;
@@ -355,9 +354,13 @@ function clearTick(w) {
             }
         }
     }
-    if (!w.reliefStopped && !reliefOn(w)) {
+    const on = reliefOn(w);
+    if (!w.reliefStopped && !on) {
         w.reliefStopped = Game.time;
         logEvent('reliefStop', { left: w.clear && w.clear.left, flag: w.claimerUntilCreepsDead });
+    } else if (w.reliefStopped && on) {
+        logEvent('reliefRearm', { left: w.clear && w.clear.left, stoppedAt: w.reliefStopped });
+        delete w.reliefStopped;
     }
     if (w.mode === 'watch') watchTick(w, room);
     labRelease(w);
