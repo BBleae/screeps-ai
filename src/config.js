@@ -191,6 +191,7 @@ module.exports = {
         },
     },
     remote: {
+        bucketGate: { W38S5: { below: 6000, above: 9000 } },
         newCpuMax: 150,
         newBucketMin: 9000,
         holdWhileAvoid: { W31S9: 'W30S8', W29S9: 'W30S8' },

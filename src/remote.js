@@ -1686,6 +1686,18 @@ function staffRemotes(home, mem) {
     return mem.remoteStaff;
 }
 
+function bucketGated(roomName) {
+    const g = ((config.remote || {}).bucketGate || {})[roomName];
+    if (!g) return false;
+    const all = Memory.bucketGate || (Memory.bucketGate = {});
+    const st = all[roomName] || (all[roomName] = { on: false });
+    const b = Number(Game.cpu && Game.cpu.bucket);
+    if (!Number.isFinite(b)) return !!st.on;
+    if (!st.on && b < Number(g.below)) { st.on = true; st.at = Game.time; st.bucket = b; }
+    else if (st.on && b > Number(g.above)) { st.on = false; st.offAt = Game.time; st.offBucket = b; }
+    return !!st.on;
+}
+
 function getDemands(home) {
     if (!home || !home.controller || !home.controller.my || home.controller.level < config.remote.minRcl) return [];
     const remotes = homeMemory(home.name).remotes;
@@ -1863,7 +1875,7 @@ function getDemands(home) {
             }
         }
     }
-    return demands;
+    return demands.filter((d) => !(d.memory && d.memory.remoteRoom && bucketGated(d.memory.remoteRoom)));
 }
 
 function residualHaulerDemand(home, record, source, slots, distance, capacity, priority, dropName) {
@@ -1918,6 +1930,7 @@ module.exports = { reserverOnHold, detourStuckReserver, newRemoteGate, dropHomeH
     cededRoom,
     observe,
     getDemands,
+    bucketGated,
     reserverHandoffs,
     getRemote,
     getSource,
