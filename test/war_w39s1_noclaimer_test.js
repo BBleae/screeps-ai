@@ -452,4 +452,27 @@ const ST = (type, x, y) => ({ structureType: type, id: type + x + '_' + y, pos: 
   ok('hunter: Builder/Maintenance > Upgrader > Miner/Harvester, ally untouched, recycles when cleared or on safe mode');
 })();
 
+(function hunterHealerFollows() {
+  fresh(); incidentCreeps();
+  const w = Memory.lootWarW39S1; w.mode = 'watch'; w.phase = 'won';
+  Game.rooms.W39S1 = { name: 'W39S1', controller: {}, find: () => [], lookForAt: () => [] };
+  const hn = mk('战猫辛.hunter', 'hunter', 1400, 'W38S2', 25, 25, { boosts: [], slotKey: undefined });
+  const he = mk('战猫丙.healer', 'healer', 650, 'W39S1', 21, 36, { goHome: 74490954, hunterHeal: '战猫辛.hunter' });
+  Game.creeps[hn.name] = hn; Game.creeps[he.name] = he;
+  moves.length = 0; acts.length = 0; retired.length = 0;
+  warrior.run(he);
+  assert.ok(!moves.some((m) => m.name === he.name) && !retired.length, 'healer waits in W39S1 while the hunter is on the way');
+  hn.pos = new RoomPosition(30, 30, 'W39S1'); hn.room = { name: 'W39S1' }; hn.hits = 1500;
+  moves.length = 0; acts.length = 0;
+  warrior.run(he);
+  assert.ok(moves.some((m) => m.name === he.name && m.to.x === 30 && m.to.y === 30), 'healer moves to the hunter in W39S1');
+  he.pos = new RoomPosition(29, 30, 'W39S1'); acts.length = 0;
+  warrior.run(he);
+  assert.ok(acts.some((x) => x[0] === he.name && x[1] === 'heal' && x[2] === hn.name), 'healer heals the hurt hunter');
+  hn.memory.retired = true; acts.length = 0;
+  warrior.run(he);
+  assert.ok(he.memory.retired && retired.indexOf(he.name) >= 0, 'healer recycles together with the hunter');
+  ok('hunter healer: waits, follows, heals, recycles with the hunter');
+})();
+
 console.log('ALL W39S1 NO-CLAIMER TESTS PASSED (' + pass + ')');

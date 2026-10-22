@@ -731,9 +731,30 @@ function runHunter(creep) {
     goWar(creep, t.pos, 1);
 }
 
+function runHunterHealer(creep) {
+    if (creep.spawning) return;
+    const h = Game.creeps[creep.memory.hunterHeal];
+    if (!h || (h.memory && h.memory.retired)) {
+        creep.memory.retired = true;
+        war.logEvent('huntHealerDone', { name: creep.name, hunter: creep.memory.hunterHeal, ttl: creep.ticksToLive });
+        retireMod.retireAtSpawn(creep);
+        return;
+    }
+    const near = !h.spawning && war.roomOf(h) === war.roomOf(creep) ? war.dist(creep, h) : Infinity;
+    const hurt = h.hits < h.hitsMax;
+    if (near <= 1 && (hurt || creep.hits >= creep.hitsMax)) creep.heal(h);
+    else if (near <= 3 && hurt) creep.rangedHeal(h);
+    else if (creep.hits < creep.hitsMax) creep.heal(creep);
+    else if (near <= 1) creep.heal(h);
+    if (!inTarget(h)) { if (inTarget(creep)) stepOffEdge(creep); else intoTarget(creep); return; }
+    if (near > 1) goWar(creep, h.pos, 1);
+    else stepOffEdge(creep);
+}
+
 function run(creep) {
     if (creep.memory.retired) { retireMod.retireAtSpawn(creep); return; }
     if (creep.memory.warRole === 'hunter') { runHunter(creep); return; }
+    if (creep.memory.hunterHeal) { runHunterHealer(creep); return; }
     const w = war.state();
     if (!w) {
         if (war.paused()) holdPaused(creep);
