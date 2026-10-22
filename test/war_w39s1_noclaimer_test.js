@@ -339,4 +339,32 @@ const ST = (type, x, y) => ({ structureType: type, id: type + x + '_' + y, pos: 
   ok('towers down (spawn still up) -> 8/6 split + W39S1 out of hardAvoid');
 })();
 
+(function killSupportFirst() {
+  fresh(); incidentCreeps();
+  war.tick();
+  const w = Memory.lootWarW39S1; w.breachDone = Game.time;
+  const tw = Object.assign(ST('tower', 14, 4), { store: { energy: 510 } });
+  const hc = (name, x, y, parts, energy) => ({ name, id: name, pos: new RoomPosition(x, y, 'W39S1'), owner: { username: 'sriptulous' }, body: parts.map((t) => ({ type: t, hits: 100 })), store: { energy: energy || 0 } });
+  const rep = hc('Builder1', 17, 5, ['work', 'carry', 'move'], 50);
+  const fill = hc('Harvester1', 16, 6, ['carry', 'move'], 200);
+  const far = hc('Miner1', 4, 21, ['work', 'move']);
+  const corr = hc('Sneak', 29, 2, ['work', 'move']);
+  const ally = Object.assign(hc('Ally1', 15, 5, ['work', 'move']), { owner: { username: 'Alepoldar' } });
+  config.allies = { names: ['Alepoldar'] };
+  const room = tRoom({ towers: [tw], spawns: [ST('spawn', 17, 16)] });
+  const creeps = [rep, fill, far, corr, ally];
+  room.find = (k) => (k === 'hostileStructures' ? [tw] : k === 'hostileSpawns' ? [ST('spawn', 17, 16)] : k === 'hostileCreeps' ? creeps : []);
+  const a = Game.creeps['战猫甲.attacker'];
+  a.pos = new RoomPosition(13, 5, 'W39S1'); a.pos.findClosestByRange = RoomPosition.prototype.findClosestByRange; a.room = { name: 'W39S1' };
+  let t = warrior.lootAttackTarget(a, room);
+  assert.strictEqual(t && t.name, 'Harvester1', 'nearest support creep (tower filler) first: ' + (t && t.name));
+  creeps.splice(creeps.indexOf(fill), 1);
+  t = warrior.lootAttackTarget(a, room);
+  assert.strictEqual(t && t.name, 'Builder1', 'then the repairer near the tower');
+  creeps.splice(creeps.indexOf(rep), 1);
+  t = warrior.lootAttackTarget(a, room);
+  assert.ok(t && t.structureType === 'tower', 'far miner, corridor creep and ally are ignored; back to the tower');
+  ok('noClaimer: kill tower fillers/repairers (WORK near tower/spawn, energy CARRY near tower) before structures; ignore far/corridor/ally creeps');
+})();
+
 console.log('ALL W39S1 NO-CLAIMER TESTS PASSED (' + pass + ')');

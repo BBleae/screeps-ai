@@ -163,9 +163,36 @@ function notAlly(o) {
     return !(o && o.owner && allySet().has(o.owner.username));
 }
 
+function hasPart(c, type) {
+    return Array.isArray(c.body) && c.body.some((p) => p.type === type && (p.hits == null || p.hits > 0));
+}
+
+function inCorridor(p) {
+    return p.x <= 1 || p.y <= 1 || p.x >= 48 || p.y >= 48 || (p.x >= 27 && p.y <= 3);
+}
+
+function supportCreep(room, towers) {
+    const spawns = (room.find(FIND_HOSTILE_SPAWNS) || []).filter(notAlly);
+    const keys = towers.concat(spawns);
+    const near = (c, list, r) => list.some((o) => Math.max(Math.abs(o.pos.x - c.pos.x), Math.abs(o.pos.y - c.pos.y)) <= r);
+    const energyOf = (c) => (c.store ? Number(c.store.energy != null ? c.store.energy : (typeof c.store.getUsedCapacity === 'function' ? c.store.getUsedCapacity('energy') : 0)) || 0 : 0);
+    return (room.find(FIND_HOSTILE_CREEPS) || []).filter(notAlly).filter((c) => {
+        if (!c.pos || inCorridor(c.pos)) return false;
+        const work = hasPart(c, 'work');
+        const carry = hasPart(c, 'carry');
+        if (!work && !carry) return false;
+        if (work && near(c, keys, 3)) return true;
+        return carry && energyOf(c) > 0 && near(c, towers, 2);
+    });
+}
+
 function lootAttackTarget(creep, room) {
     const order = wcfg().towerOrder || [];
     const towers = enemyTowers(room).filter(notAlly);
+    if (war.noClaimer() && towers.length) {
+        const sup = supportCreep(room, towers);
+        if (sup.length) return creep.pos.findClosestByRange(sup);
+    }
     if (towers.length) {
         for (const o of order) {
             const t = towers.find((tw) => tw.pos.x === o.x && tw.pos.y === o.y);
