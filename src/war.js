@@ -828,9 +828,26 @@ function stagingDemands(room, w) {
         out.push(demandRequest(r, r === 'attacker' ? 0 : 'n', 0));
         break;
     }
+    if (lootWar()) lootStagingExtras(room, w, out, gate, p);
     const sched = w.plan || {};
     w.plan = { target: p.target, entry: p.target, spawnHealer: p.spawn.healer, spawnAttacker: p.spawn.attacker, spawnClaimer: p.spawn.claimer, have: p.have, nextClaimerSpawn: p.spawn.claimer, reliefSpawn: sched.reliefSpawn == null ? null : sched.reliefSpawn, at: Game.time };
     return out;
+}
+
+function lootStagingExtras(room, w, out, gate, p) {
+    const T = timing();
+    const E = p ? p.target : Game.time;
+    const hs = liveWar('healer');
+    const usableH = hs.filter((c) => c.spawning || usableAt(c, 'healer', E)).length;
+    if (usableH >= 1 && usableH < T.healerMax && !hs.some((c) => c.spawning)) {
+        gate.healer2 = labsReadyAll(room, ['healer']);
+        if (gate.healer2) out.push(demandRequest('healer', 1, 0));
+    }
+    const dcfg = cfg().dismantler;
+    if (dcfg && dcfg.body && slotHeld('attacker', 0, 0) && !w.towersDownAt && !w.breachDone && !slotHeld('dismantler', 0, 0)) {
+        out.push(demandRequest('dismantler', 0, 0, { body: dcfg.body.slice() }));
+        gate.dismantler = true;
+    }
 }
 
 function getDemands(room) {
@@ -871,7 +888,7 @@ function slotHeld(warRole, idx, minTtl) {
     return false;
 }
 
-const BOOST_PART = { XGHO2: 'tough', XUH2O: 'attack', XLHO2: 'heal' };
+const BOOST_PART = { XGHO2: 'tough', XUH2O: 'attack', XLHO2: 'heal', XZH2O: 'work' };
 
 function fullyBoosted(c) {
     if (!c || !c.body) return false;
@@ -902,6 +919,10 @@ function entryCheck(w) {
     if (h.hits < h.hitsMax || a.hits < a.hitsMax) return { ok: false, why: 'hurt', have: { a: a.hits, h: h.hits }, need: { a: a.hitsMax, h: h.hitsMax } };
     if (a.ticksToLive != null && a.ticksToLive < T.attackerTtl) return { ok: false, why: 'attackerTtl', have: Number(a.ticksToLive), need: T.attackerTtl };
     if (dist(a, h) > 3) return { ok: false, why: 'apart', have: dist(a, h), need: 3 };
+    if (lootWar() && T.healerMax >= 2) {
+        const readyH = staged.filter((c) => fullyBoosted(c) && c.hits >= c.hitsMax && Number(c.ticksToLive) >= T.healerEntryTtl);
+        if (readyH.length < 2) return { ok: false, why: 'healers', have: readyH.length, need: 2 };
+    }
     const inSt = liveWar('claimer').filter((c) => ready(c) && roomOf(c) === st);
     const ttlOk = inSt.filter((c) => fullyBoosted(c) && Number(c.ticksToLive) >= T.entryTtl);
     const cands = ttlOk.filter((c) => dist(c, h) <= 1 && dist(c, a) <= 2);
@@ -1054,6 +1075,14 @@ function observe(w) {
     }
     const spawns = room.find(FIND_HOSTILE_SPAWNS) || [];
     const towers = (room.find(FIND_HOSTILE_STRUCTURES) || []).filter((s) => s.structureType === STRUCTURE_TOWER);
+    if (!w.breachDone && lootWar()) {
+        const b = cfg().breach;
+        const lk = typeof LOOK_STRUCTURES !== 'undefined' ? LOOK_STRUCTURES : 'structure';
+        if (b && typeof room.lookForAt === 'function') {
+            const walls = (room.lookForAt(lk, b.x, b.y) || []).filter((s) => (s.structureType === 'constructedWall' || s.structureType === 'rampart') && !s.my);
+            if (!walls.length) { w.breachDone = Game.time; logEvent('breachDone', { tick: Game.time, at: b }); }
+        }
+    }
     const prev = w.seen || {};
     if (prev.spawn === undefined) { w.seen = { spawn: spawns.length, towers: towers.length }; return; }
     if (prev.spawn > 0 && spawns.length === 0) logEvent('spawnDestroyed', {});

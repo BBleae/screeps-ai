@@ -355,7 +355,11 @@ function runHealerLoot(creep, w, room) {
         if (plan.kind === 'heal') creep.heal(tc);
         else if (plan.kind === 'rangedHeal') creep.rangedHeal(tc);
         else if (creep.hits < creep.hitsMax) creep.heal(creep);
-    } else if (creep.hits < creep.hitsMax) { creep.heal(creep); }
+    } else {
+        const h1 = mostHurtInRange(creep, 1);
+        if (h1) creep.heal(h1);
+        else { const h3 = mostHurtInRange(creep, 3); if (h3) creep.rangedHeal(h3); else if (creep.hits < creep.hitsMax) creep.heal(creep); }
+    }
     if (stepOffEdge(creep)) return;
     if (leader && inTarget(leader) && war.dist(creep, leader) > 1) goWar(creep, leader.pos, 1);
 }
@@ -610,6 +614,99 @@ function run(creep) {
     if (creep.memory.warRole === 'attacker') runAttacker(creep, w, room);
     else if (creep.memory.warRole === 'healer') runHealer(creep, w, room);
     else if (creep.memory.warRole === 'claimer') runClaimer(creep, w, room);
+    else if (creep.memory.warRole === 'dismantler') runDismantlerLoot(creep, w, room);
 }
 
-module.exports = { run, boostRetry, lootAttackTarget, escortReady, escortLeaderFor, escortHealerFor };
+function mostHurtInRange(creep, range) {
+    let best = null;
+    let bestRatio = 1;
+    for (const c of war.liveWar()) {
+        if (!c || c.spawning || war.roomOf(c) !== creep.room.name) continue;
+        if (c.hits >= c.hitsMax) continue;
+        if (war.dist(creep, c) > range) continue;
+        const ratio = c.hits / c.hitsMax;
+        if (ratio < bestRatio) { bestRatio = ratio; best = c; }
+    }
+    return best;
+}
+
+function wallOrRampAt(room, x, y, allowOverLoot) {
+    if (!room || typeof room.lookForAt !== 'function') return null;
+    const lk = typeof LOOK_STRUCTURES !== 'undefined' ? LOOK_STRUCTURES : 'structure';
+    const here = room.lookForAt(lk, x, y) || [];
+    const wall = here.find((o) => o.structureType === 'constructedWall' && notAlly(o));
+    if (wall) return wall;
+    const ramp = here.find((o) => o.structureType === 'rampart' && !o.my && notAlly(o));
+    if (!ramp) return null;
+    if (allowOverLoot) return ramp;
+    const loot = here.find((o) => war.FORBIDDEN_LOOT.indexOf(o.structureType) >= 0);
+    return loot ? null : ramp;
+}
+
+function dismantleTargetLoot(creep, w, room) {
+    const wc = wcfg();
+    if (wc.breach && !w.breachDone) {
+        const b = wallOrRampAt(room, wc.breach.x, wc.breach.y, true);
+        if (b) return b;
+    }
+    const towers = enemyTowers(room).filter(notAlly);
+    const order = wc.towerOrder || [];
+    for (const o of order) {
+        const t = towers.find((tw) => tw.pos.x === o.x && tw.pos.y === o.y);
+        if (!t) continue;
+        const r = wallOrRampAt(room, t.pos.x, t.pos.y, false);
+        if (r) return r;
+    }
+    for (const t of towers) {
+        const r = wallOrRampAt(room, t.pos.x, t.pos.y, false);
+        if (r) return r;
+    }
+    const sp = wc.spawnPos;
+    if (sp) {
+        const spawns = (room.find(FIND_HOSTILE_SPAWNS) || []).filter(notAlly);
+        const es = spawns.find((s) => s.pos.x === sp.x && s.pos.y === sp.y) || spawns[0];
+        if (es) { const r = wallOrRampAt(room, es.pos.x, es.pos.y, false); if (r) return r; }
+    }
+    const objs = [];
+    if (wc.breach && !w.breachDone) objs.push(wc.breach);
+    for (const t of towers) objs.push(t.pos);
+    if (!objs.length) return null;
+    let near = null;
+    let nd = Infinity;
+    for (const o of objs) { const d = Math.max(Math.abs(creep.pos.x - o.x), Math.abs(creep.pos.y - o.y)); if (d < nd) { nd = d; near = o; } }
+    if (!near) return null;
+    let blk = null;
+    let bd = nd;
+    for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+            if (!dx && !dy) continue;
+            const x = creep.pos.x + dx;
+            const y = creep.pos.y + dy;
+            if (x < 0 || x > 49 || y < 0 || y > 49) continue;
+            const d = Math.max(Math.abs(x - near.x), Math.abs(y - near.y));
+            if (d >= nd) continue;
+            const wr = wallOrRampAt(room, x, y, false);
+            if (wr && d < bd) { bd = d; blk = wr; }
+        }
+    }
+    return blk;
+}
+
+function recycleDismantler(creep, w) {
+    if (!creep.memory.done) { creep.memory.done = Game.time; war.logEvent('dismantlerDone', { name: creep.name, breachDone: w.breachDone || null, towersDownAt: w.towersDownAt || null }); }
+    if (creep.room.name === creep.memory.home) { creep.memory.retired = true; retireMod.retireAtSpawn(creep); return; }
+    retreatHome(creep);
+}
+
+function runDismantlerLoot(creep, w, room) {
+    if (w.phase === 'staging') { toGather(creep); return; }
+    if (!inTarget(creep)) { crossOrHold(creep, w); return; }
+    if (stepOffEdge(creep)) return;
+    if (creep.memory.done || w.towersDownAt) { recycleDismantler(creep, w); return; }
+    const target = dismantleTargetLoot(creep, w, room);
+    if (!target) { recycleDismantler(creep, w); return; }
+    if (creep.pos.isNearTo(target.pos)) { creep.dismantle(target); return; }
+    goWar(creep, target.pos, 1);
+}
+
+module.exports = { run, boostRetry, lootAttackTarget, escortReady, escortLeaderFor, escortHealerFor, dismantleTargetLoot, runDismantlerLoot };
