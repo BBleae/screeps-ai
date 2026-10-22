@@ -329,6 +329,15 @@ function clearHealer(creep, w, room) {
     const { a } = pairOf(w);
     const ttlLow = creep.ticksToLive != null && creep.ticksToLive < war.clearCfg().homeTtl;
     if (creep.memory.goHome || ttlLow || !a || (a.memory && (a.memory.goHome || a.memory.retired)) || w.mode !== 'clear') { homeUnboost(creep, w); return; }
+    if (clearHurt(w, a, creep)) { healTick(creep, a); if (war.roomOf(a) !== war.roomOf(creep) || war.dist(creep, a) > 1) goWar(creep, a.pos, 1); return; }
+    const scan = inTarget(creep) ? war.clearScan(room) : null;
+    if (scan && scan.sites.length && !scan.creeps.length) {
+        healAround(creep);
+        if (stepOffEdge(creep)) return;
+        const at = war.clearTarget(a, scan);
+        const site = war.pickSite(creep, scan.sites, at && at.kind === 'site' ? at.obj.id : null);
+        if (site) { goWar(creep, site.pos, 0); return; }
+    }
     healTick(creep, a);
     if (war.roomOf(a) !== war.roomOf(creep) || war.dist(creep, a) > 1) goWar(creep, a.pos, 1);
 }
@@ -338,7 +347,7 @@ function clearClaimer(creep, w, room) {
     const ctrl = room && room.controller;
     if (!ctrl) return;
     if (!creep.pos.isNearTo(ctrl.pos)) { goWar(creep, ctrl.pos, 1); return; }
-    if (!(Number(ctrl.upgradeBlocked) > 0) && !(Number(ctrl.safeMode) > 0)) creep.attackController(ctrl);
+    if (!(Number(ctrl.upgradeBlocked) > 1) && !(Number(ctrl.safeMode) > 0)) creep.attackController(ctrl);
 }
 
 function runWatcher(creep, w, room) {
