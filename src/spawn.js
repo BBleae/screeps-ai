@@ -2279,7 +2279,8 @@ function runQueue(room) {
     lap('d.expansion');
     const aidDemands = idle.length && !state.recovering ? aid.getDemands(room) : [];
     lap('d.aid');
-    const remoteOnly = idle.length && !state.recovering ? remote.getDemands(room) : [];
+    let remoteOnly = idle.length && !state.recovering ? remote.getDemands(room) : [];
+    try { remoteOnly = require('side_loot').filterRemoteDemands(room.name, remoteOnly); } catch (e) { utils.logErr('side_loot.filterRemote', e); }
     lap('d.remote');
     const conquestDemands = idle.length && !state.recovering ? conquest.getDemands(room) : [];
     lap('d.conquest');
@@ -2404,8 +2405,9 @@ function runQueue(room) {
         for (const item of aidDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'aid', settings, { strategic: item.strategic !== false }));
         for (const item of remoteOnly.filter((d) => d.starvedLine).concat(remoteOnly.filter((d) => !d.starvedLine))) if (unmet(item)) requests.push(demandRequest(room, item, item.maintain ? 'remoteMaintain' : 'remote', settings, { jumpable: true }));
         for (const item of conquestDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'conquest', settings, { jumpable: true, blocking: false }));
+        for (const item of sideLootDemands) if (unmet(item)) requests.push(demandRequest(room, item, item.cls || 'conquest', settings, { jumpable: true, blocking: false }));
         for (const item of depositDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'opportunistic', settings, { jumpable: true, blocking: false, opportunistic: true }));
-        for (const item of sideLootDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'opportunistic', settings, { jumpable: true, blocking: false, opportunistic: true }));
+
         for (const item of breachDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'remote', settings, { jumpable: true, blocking: false }));
     }
     lap('r.demandReq');

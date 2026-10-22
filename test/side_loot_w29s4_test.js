@@ -34,40 +34,89 @@ const mkStore = (o, cap) => Object.assign({}, o, {
 });
 const home = (name, energy, used) => ({ name, energyCapacityAvailable: 5600, controller: { my: true, level: 7 }, storage: { pos: new RoomPosition(36, 22, name), store: mkStore(used != null ? { energy, O: used - energy } : { energy }) }, find: () => [] });
 
-console.log('--- config: W29S4 side loot from W31S5, power > energy > O, unload W31S5 ---');
+console.log('--- config: W29S4 side loot from W31S5 + W29S3, power > energy > O, unload nearer of the two ---');
 {
   const c = config.sideLoot.rooms.W29S4;
-  assert.strictEqual(c.home, 'W31S5');
-  assert.notStrictEqual(c.home, 'W37S5');
-  assert.ok(c.haulers >= 2 && c.haulers <= 3);
+  assert.deepStrictEqual(c.homes, { W31S5: 3, W29S3: 3 });
+  assert.ok(!('W37S5' in c.homes));
   assert.deepStrictEqual(c.order, ['power', 'energy', 'O']);
-  assert.strictEqual(config.conquest.lootDropFixed.W29S4, 'W31S5');
+  assert.deepStrictEqual(c.unload.slice().sort(), ['W29S3', 'W31S5']);
+  assert.deepStrictEqual(c.pauseRemotes, { W29S3: ['W29S2'] });
+  assert.ok(!config.conquest.lootDropFixed.W29S4);
   assert.strictEqual(config.conquest.lootHaulerTotal, 14, 'war/loot hauler pool unchanged');
   assert.ok(!(config.lootRoutes || {}).W29S4, 'no strict route list');
   console.log('OK');
 }
 
-console.log('--- demands: 3 unboosted opportunistic haulers only from W31S5, outside the 14-hauler pool ---');
+console.log('--- demands: 3+3 unboosted haulers, conquest class (below survival/defense/war, above remote/development) ---');
 {
   Memory.sideLoot = {};
   const d = side.getDemands(home('W31S5', 30000));
   assert.strictEqual(d.length, 3);
-  for (const x of d) {
+  const h3 = Object.assign(home('W29S3', 37000), { energyCapacityAvailable: 2300 });
+  const d3 = side.getDemands(h3);
+  assert.strictEqual(d3.length, 3);
+  assert.ok(d3[0].body.length === 46 && d3[0].body.every((p) => p === 'carry' || p === 'move'), 'W29S3 RCL6: 23C23M');
+  for (const x of d.concat(d3)) {
     assert.strictEqual(x.role, 'lootHauler');
-    assert.strictEqual(x.cls, 'opportunistic');
-    assert.ok(x.body.every((p) => p === 'carry' || p === 'move') && x.body.length === 50, 'carry/move 25+25');
+    assert.strictEqual(x.cls, 'conquest');
+    assert.ok(x.body.every((p) => p === 'carry' || p === 'move'));
     assert.strictEqual(x.memory.targetRoom, 'W29S4');
-    assert.strictEqual(x.memory.home, 'W31S5');
     assert.strictEqual(x.memory.sideLoot, true);
     assert.ok(!x.memory.salvageLoot && !x.memory.pullLoot && !x.memory.boosts, 'not counted by salvage cap / war split, no boosts');
-    assert.ok(x.slot.startsWith('side:W29S4:W31S5:'));
   }
-  assert.strictEqual(new Set(d.map((x) => x.slot)).size, 3);
-  for (const r of ['W37S5', 'W29S3', 'W37S7']) assert.strictEqual(side.getDemands(home(r, 300000)).length, 0, r + ' spawns none');
-  const prio = config.spawn && config.spawn.classes ? config.spawn.classes : null;
-  if (prio) assert.ok(prio.opportunistic > prio.survival && prio.opportunistic > prio.conquest && prio.opportunistic >= Math.max.apply(null, Object.values(prio)), 'lowest spawn class');
+  assert.strictEqual(d[0].body.length, 50);
+  assert.strictEqual(new Set(d.concat(d3).map((x) => x.slot)).size, 6);
+  for (const r of ['W37S5', 'W31S4', 'W37S7']) assert.strictEqual(side.getDemands(home(r, 300000)).length, 0, r + ' spawns none');
+  const cls = config.spawnQueue.classes;
+  assert.ok(cls.conquest > cls.defense && cls.conquest > cls.survival + 0.75, 'below defense and room basics');
+  assert.ok(cls.conquest < cls.remote && cls.conquest < cls.remoteMaintain && cls.conquest < cls.development && cls.conquest < cls.opportunistic, 'above remotes and normal tasks');
+  const warSrc = fs.readFileSync(path.join(src, 'war.js'), 'utf8');
+  assert.ok(/priority: Number\(c\.priority\) != null \? Number\(c\.priority\) : 0/.test(warSrc), 'war requests use priority 0');
   const spawnSrc = fs.readFileSync(path.join(src, 'spawn.js'), 'utf8');
-  assert.ok(/sideLootDemands\) if \(unmet\(item\)\) requests\.push\(demandRequest\(room, item, 'opportunistic'/.test(spawnSrc), 'spawned as opportunistic');
+  assert.ok(/sideLootDemands\) if \(unmet\(item\)\) requests\.push\(demandRequest\(room, item, item\.cls \|\| 'conquest'/.test(spawnSrc));
+  console.log('OK');
+}
+
+console.log('--- W29S3 remotes (W29S2) paused while W29S4 has loot, resume when empty; other homes untouched ---');
+{
+  Memory.sideLoot = {};
+  const dem = [{ role: 'remoteMiner', memory: { home: 'W29S3', remoteRoom: 'W29S2' } }, { role: 'reserver', memory: { home: 'W29S3', remoteRoom: 'W29S2' } }, { role: 'remoteHauler', memory: { home: 'W29S3', remoteRoom: 'W29S2' } }, { role: 'remoteMiner', memory: { home: 'W29S3', remoteRoom: 'W29S9' } }];
+  assert.deepStrictEqual(side.filterRemoteDemands('W29S3', dem).map((x) => x.memory.remoteRoom), ['W29S9']);
+  assert.strictEqual(side.filterRemoteDemands('W31S4', dem).length, 4, 'other homes keep remotes');
+  side.remotePause('W29S4', config.sideLoot.rooms.W29S4);
+  assert.deepStrictEqual(Memory.sideLoot.W29S4.remotesPaused, { W29S3: ['W29S2'] });
+  assert.ok(Memory.sideLoot.W29S4.events.some((e) => e.e === 'remotesPaused'));
+  Memory.sideLoot.W29S4.doneAt = Game.time;
+  assert.strictEqual(side.filterRemoteDemands('W29S3', dem).length, 4, 'resumed once W29S4 empty');
+  side.remotePause('W29S4', config.sideLoot.rooms.W29S4);
+  assert.ok(Memory.sideLoot.W29S4.remotesResumedAt && Memory.sideLoot.W29S4.events.some((e) => e.e === 'remotesResumed'));
+  Memory.sideLoot = {};
+  console.log('OK');
+}
+
+console.log('--- damage: event + 300 tick spawn hold; squad avoidance cost ---');
+{
+  Memory.sideLoot = {};
+  const creep = { name: 'hx', memory: { sideLoot: true, targetRoom: 'W29S4' }, hits: 900, hitsMax: 2500, room: { name: 'W30S4' } };
+  assert.ok(side.noteDamage(creep));
+  assert.ok(Memory.sideLoot.W29S4.events.some((e) => e.e === 'haulerDamaged' && e.name === 'hx' && e.room === 'W30S4'));
+  assert.strictEqual(side.getDemands(home('W31S5', 30000)).length, 0);
+  assert.strictEqual(Memory.sideLoot.W29S4.wait, 'damage');
+  Game.time += 301;
+  assert.strictEqual(side.getDemands(home('W31S5', 30000)).length, 3);
+  const squad = [{ owner: { username: 'Kasami' }, pos: { x: 8, y: 40 }, body: [{ type: ATTACK, hits: 100 }] }, { owner: { username: 'Kasami' }, pos: { x: 9, y: 40 }, body: [{ type: HEAL, hits: 100 }] }];
+  const r = { name: 'W30S4', find: (t) => t === FIND_HOSTILE_CREEPS ? squad : [] };
+  const cb = side.avoidCallback(r, 5);
+  const set = {};
+  const cm = { get: () => 0, set: (x, y, v) => { set[x + ',' + y] = v; } };
+  cb('W30S4', cm);
+  assert.strictEqual(set['13,45'], 250); assert.strictEqual(set['3,35'], 250); assert.ok(!set['14,40'], 'only within radius 5 of the armed creep');
+  const o = side.moveOpts({ memory: { sideLoot: true, targetRoom: 'W29S4' }, room: r }, { range: 20, reusePath: 20 });
+  assert.ok(typeof o.costCallback === 'function' && o.reusePath <= 3);
+  const o2 = side.moveOpts({ memory: { targetRoom: 'W37S2' }, room: r }, { range: 1 });
+  assert.ok(!o2.costCallback, 'other haulers unchanged');
+  Memory.sideLoot = {};
   console.log('OK');
 }
 
@@ -75,7 +124,7 @@ console.log('--- gates: storage floor, bucket, armed threat, towers, done ---');
 {
   Memory.sideLoot = {};
   assert.strictEqual(side.getDemands(home('W31S5', 10000)).length, 0, 'floor');
-  assert.strictEqual(Memory.sideLoot.W29S4.wait, 'floor');
+  assert.strictEqual(Memory.sideLoot.W29S4.wait, 'floor:W31S5');
   Game.cpu.bucket = 3000;
   assert.strictEqual(side.getDemands(home('W31S5', 30000)).length, 0, 'bucket');
   Game.cpu.bucket = 10000;
@@ -149,14 +198,18 @@ console.log('--- hauler run: withdraws power first from storage over a nearer ex
   console.log('OK');
 }
 
-console.log('--- unload: W31S5 storage, next room when full ---');
+console.log('--- unload: nearer of W31S5/W29S3 with space, else nearest with space ---');
 {
-  Game.rooms = { W31S5: home('W31S5', 30000), W29S3: home('W29S3', 37000) };
-  const creep = { memory: { role: 'lootHauler', home: 'W31S5', targetRoom: 'W29S4', sideLoot: true } };
-  assert.strictEqual(hauler.dropRoom(creep), 'W31S5');
+  Game.rooms = { W31S5: home('W31S5', 30000), W29S3: home('W29S3', 37000), W31S4: home('W31S4', 14000) };
+  const creep = { memory: { role: 'lootHauler', home: 'W29S3', targetRoom: 'W29S4', sideLoot: true } };
+  Memory.lootDrop = { _steps: { 'W29S4:W31S5': { s: 79, n: 79, ok: 1, at: Game.time }, 'W29S4:W29S3': { s: 82, n: 82, ok: 1, at: Game.time } } };
+  assert.strictEqual(hauler.dropRoom(creep), 'W31S5', 'nearer');
   Game.rooms.W31S5 = home('W31S5', 30000, 950000);
-  Memory.lootDrop = { W29S4: { v: 3, at: Game.time, list: [['W31S5', 79, 1], ['W29S3', 82, 1]] } };
-  assert.strictEqual(hauler.dropRoom(creep), 'W29S3', 'full -> next nearest with space');
+  assert.strictEqual(hauler.dropRoom(creep), 'W29S3', 'W31S5 full -> W29S3');
+  Game.rooms.W29S3 = home('W29S3', 30000, 950000);
+  Memory.lootDrop.W29S4 = { v: 3, at: Game.time, list: [['W31S5', 79, 1], ['W29S3', 82, 1], ['W31S4', 88, 1]] };
+  assert.strictEqual(hauler.dropRoom(creep), 'W31S4', 'both full -> nearest with space');
+  delete Memory.lootDrop;
   console.log('OK');
 }
 

@@ -8,8 +8,12 @@ const sideLoot = require('side_loot');
 
 const ENERGY = typeof RESOURCE_ENERGY === 'undefined' ? 'energy' : RESOURCE_ENERGY;
 
+function mv(creep, target, opts) {
+    return movement.go(creep, target, creep.memory && creep.memory.sideLoot ? sideLoot.moveOpts(creep, opts) : opts);
+}
+
 function goRoom(creep, roomName) {
-    movement.go(creep, new RoomPosition(25, 25, roomName), { range: 20, reusePath: 20 });
+    mv(creep, new RoomPosition(25, 25, roomName), { range: 20, reusePath: 20 });
 }
 
 function nonEnergyKey(store) {
@@ -133,6 +137,10 @@ function dropRoom(creep) {
     const m = creep.memory;
     const target = m.targetRoom;
     if (!target) return m.home;
+    if (m.sideLoot) {
+        const u = sideLoot.unloadRoom(creep, pathSteps, storageOk);
+        if (u) return u;
+    }
     const fixed = ((require('config').conquest || {}).lootDropFixed || {})[target];
     if (fixed && storageOk(Game.rooms[fixed])) return fixed;
     const list = dropList(target);
@@ -228,8 +236,8 @@ function routePickup(creep) {
     if (obj.store) {
         const res = conquest.salvagePickResource(obj.store, m.lootOrder);
         if (!res || (m.state !== 'deliver' && res === ENERGY)) { delete m.pick; return false; }
-        if (creep.withdraw(obj, res) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 5 });
-    } else if (creep.pickup(obj) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 5 });
+        if (creep.withdraw(obj, res) === ERR_NOT_IN_RANGE) mv(creep, obj, { range: 1, reusePath: 5 });
+    } else if (creep.pickup(obj) === ERR_NOT_IN_RANGE) mv(creep, obj, { range: 1, reusePath: 5 });
     return true;
 }
 
@@ -310,7 +318,7 @@ function deliver(creep) {
     const dest = !storageOk(room) && term && term.my !== false && term.store && typeof term.store.getFreeCapacity === 'function' && term.store.getFreeCapacity() >= used + 20000 ? term : room.storage;
     const amount = Number(creep.store[res] || 0);
     const ret = creep.transfer(dest, res);
-    if (ret === ERR_NOT_IN_RANGE) movement.go(creep, dest, { range: 1, reusePath: 15 });
+    if (ret === ERR_NOT_IN_RANGE) mv(creep, dest, { range: 1, reusePath: 15 });
     else if (ret === OK) noteUnload(creep, res, Math.min(amount, typeof dest.store.getFreeCapacity === 'function' ? Number(dest.store.getFreeCapacity(res)) || amount : amount));
     return true;
 }
@@ -320,7 +328,7 @@ function parkInside(creep) {
     const p = creep.pos;
     if (p.x > 2 && p.x < 47 && p.y > 2 && p.y < 47) return;
     const anchor = creep.room.find(FIND_MY_CREEPS).find((c) => c.memory && c.memory.role === 'siegeDismantler');
-    movement.go(creep, anchor ? anchor.pos : new RoomPosition(25, 25, creep.room.name), { range: anchor ? 3 : 5, reusePath: 20 });
+    mv(creep, anchor ? anchor.pos : new RoomPosition(25, 25, creep.room.name), { range: anchor ? 3 : 5, reusePath: 20 });
 }
 
 function toPull(creep) {
@@ -358,16 +366,16 @@ function lootHoldRun(creep) {
     const list = lr[m.targetRoom];
     const back = lr.reentry && lr.reentry[creep.room.name];
     if (back && Array.isArray(list) && list.indexOf(creep.room.name) < 0) {
-        movement.go(creep, new RoomPosition(25, 25, back), { range: 20, reusePath: 50, avoidRooms: new Set(lr.hardAvoid || []) });
+        mv(creep, new RoomPosition(25, 25, back), { range: 20, reusePath: 50, avoidRooms: new Set(lr.hardAvoid || []) });
         return true;
     }
     const h = Memory.lootHold;
     if (!h || !(h === true || h[m.targetRoom])) return false;
     const home = m.home;
     if (!home) return false;
-    if (creep.room.name !== home) { movement.go(creep, new RoomPosition(25, 25, home), { range: 15, reusePath: 50 }); return true; }
+    if (creep.room.name !== home) { mv(creep, new RoomPosition(25, 25, home), { range: 15, reusePath: 50 }); return true; }
     const p = creep.pos;
-    if (p.x <= 2 || p.x >= 47 || p.y <= 2 || p.y >= 47) movement.go(creep, new RoomPosition(25, 25, home), { range: 15, reusePath: 50 });
+    if (p.x <= 2 || p.x >= 47 || p.y <= 2 || p.y >= 47) mv(creep, new RoomPosition(25, 25, home), { range: 15, reusePath: 50 });
     return true;
 }
 
@@ -426,7 +434,7 @@ function gateHold(creep) {
     if (!gateArmed(gate) || (gateRooms.indexOf(here) >= 0 && gateArmed(here))) { delete m.gateWait; return false; }
     if (!m.gateWait) m.gateWait = Game.time;
     const p = creep.pos;
-    if (p.x <= 2 || p.x >= 47 || p.y <= 2 || p.y >= 47) movement.go(creep, new RoomPosition(25, 25, here), { range: 10, reusePath: 20 });
+    if (p.x <= 2 || p.x >= 47 || p.y <= 2 || p.y >= 47) mv(creep, new RoomPosition(25, 25, here), { range: 10, reusePath: 20 });
     return true;
 }
 
@@ -671,7 +679,7 @@ function loadStep(creep, carrying) {
             delete m.src; delete m.stk;
             return;
         }
-        movement.go(creep, obj, { range: 1, reusePath: 5 });
+        mv(creep, obj, { range: 1, reusePath: 5 });
         return;
     }
     delete m.stk;
@@ -690,6 +698,10 @@ function run(creep) {
         else if (m0.boostDone) delete m0.boostDone;
         if (m0.boostSince !== undefined) delete m0.boostSince;
         if (!m0.boostDone && boostHere(creep) && boost.nextJob(creep) && boost.apply(creep)) return;
+    }
+    if (m0.sideLoot && sideLoot.noteDamage(creep) && creep.room.name !== m0.home && sideLoot.armed(creep.room).length) {
+        if (creep.store.getUsedCapacity && creep.store.getUsedCapacity() > 0) m0.state = 'deliver';
+        else { goRoom(creep, m0.home); return; }
     }
     if (lootHoldRun(creep)) return;
     if (gateHold(creep)) return;
