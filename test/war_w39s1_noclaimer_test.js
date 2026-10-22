@@ -89,7 +89,7 @@ function fresh() {
 
 assert.strictEqual(config.war.noClaimer, true, 'no claimer in the war template');
 assert.strictEqual(config.war.noRespawn, true, 'no respawn of war creeps');
-ok('config: noClaimer + noRespawn, entry tile (28,1)');
+ok('config: noClaimer + noRespawn, entry tile (27,2)');
 
 (function incidentNoScrap() {
   fresh(); incidentCreeps();
@@ -144,19 +144,19 @@ ok('config: noClaimer + noRespawn, entry tile (28,1)');
   moves.length = 0;
   warrior.run(Game.creeps['战猫甲.attacker']);
   const am = moves.find((m) => m.name === '战猫甲.attacker');
-  assert.ok(am && am.to.room === 'W39S1' && am.to.x === 28 && am.to.y === 1, 'attacker heads for the breach entry tile W39S1 (28,1), not TOP');
+  assert.ok(am && am.to.room === 'W39S1' && am.to.x === 27 && am.to.y === 2, 'attacker heads for the breach entry tile W39S1 (27,2), west of the breach, not TOP');
   warrior.run(Game.creeps['战猫丁.dismantler']);
   assert.ok(!moves.some((m) => m.name === '战猫丁.dismantler' && m.to.room === 'W39S1'), 'dismantler waits at gather until the attacker is inside');
   const a = Game.creeps['战猫甲.attacker'];
-  a.pos = new RoomPosition(28, 1, 'W39S1'); a.room = { name: 'W39S1' };
+  a.pos = new RoomPosition(27, 2, 'W39S1'); a.room = { name: 'W39S1' };
   moves.length = 0;
   warrior.run(Game.creeps['战猫.healer']);
   const hm = moves.find((m) => m.name === '战猫.healer');
   assert.ok(hm && hm.to.room === 'W39S1', 'healer follows the attacker in');
   warrior.run(Game.creeps['战猫丁.dismantler']);
   const dm = moves.find((m) => m.name === '战猫丁.dismantler');
-  assert.ok(dm && dm.to.room === 'W39S1' && dm.to.x === 28 && dm.to.y === 1 && dm.range === 1, 'dismantler follows once attacker is in');
-  ok('crossing: attacker leads to (28,1) via BOTTOM exit, healers follow, dismantler after');
+  assert.ok(dm && dm.to.room === 'W39S1' && dm.to.x === 27 && dm.to.y === 2 && dm.range === 1, 'dismantler follows once attacker is in');
+  ok('crossing: attacker leads to (27,2) via BOTTOM exit, healers follow, dismantler after');
 })();
 
 function tRoom(opts) {
@@ -178,9 +178,9 @@ const ST = (type, x, y) => ({ structureType: type, id: type + x + '_' + y, pos: 
   const room = tRoom({ towers: [ST('tower', 16, 12), ST('tower', 14, 4)], spawns: [ST('spawn', 17, 16)], tiles: { '28,2': [wall] } });
   Game.rooms.W39S1 = room;
   const a = Game.creeps['战猫甲.attacker'];
-  a.pos = new RoomPosition(28, 1, 'W39S1'); a.pos.findClosestByRange = RoomPosition.prototype.findClosestByRange; a.room = { name: 'W39S1' };
+  a.pos = new RoomPosition(27, 2, 'W39S1'); a.pos.findClosestByRange = RoomPosition.prototype.findClosestByRange; a.room = { name: 'W39S1' };
   const h = Game.creeps['战猫.healer'];
-  h.pos = new RoomPosition(27, 1, 'W39S1'); h.room = { name: 'W39S1' };
+  h.pos = new RoomPosition(26, 2, 'W39S1'); h.room = { name: 'W39S1' };
   acts.length = 0;
   warrior.run(a);
   assert.ok(acts.some((x) => x[0] === '战猫甲.attacker' && x[1] === 'attack' && x[2] === wall.id), 'attacker hits the breach wall first, no waiting for a controller lock');

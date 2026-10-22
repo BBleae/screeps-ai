@@ -818,7 +818,7 @@ module.exports = {
         lootSplit: { room: 'W39S1', haulers: 8, keepOthers: 6, unload: 'W37S5' },
         noClaimer: true,
         noRespawn: true,
-        entryPos: { x: 28, y: 1 },
+        entryPos: { x: 27, y: 2 },
         attackerMinTtl: 250,
         boostTicks: 30,
         squadToStaging: 450,
