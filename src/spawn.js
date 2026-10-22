@@ -2287,6 +2287,8 @@ function runQueue(room) {
     if (idle.length) { try { warDemands = war.getDemands(room); } catch (e) { utils.logErr('war.getDemands', e); } }
     let depositDemands = [];
     if (idle.length && !state.recovering) { try { depositDemands = depositMod.getDemands(room); } catch (e) { utils.logErr('deposit.getDemands', e); } }
+    let sideLootDemands = [];
+    if (idle.length && !state.recovering) { try { sideLootDemands = require('side_loot').getDemands(room); } catch (e) { utils.logErr('side_loot.getDemands', e); } }
     let breachDemands = [];
     if (idle.length && !state.recovering) { try { breachDemands = wallBreach.getDemands(room); } catch (e) { utils.logErr('wall_breach.getDemands', e); } }
     const remoteDemands = defenseDemands.concat(expansionDemands, aidDemands, remoteOnly, conquestDemands);
@@ -2403,6 +2405,7 @@ function runQueue(room) {
         for (const item of remoteOnly.filter((d) => d.starvedLine).concat(remoteOnly.filter((d) => !d.starvedLine))) if (unmet(item)) requests.push(demandRequest(room, item, item.maintain ? 'remoteMaintain' : 'remote', settings, { jumpable: true }));
         for (const item of conquestDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'conquest', settings, { jumpable: true, blocking: false }));
         for (const item of depositDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'opportunistic', settings, { jumpable: true, blocking: false, opportunistic: true }));
+        for (const item of sideLootDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'opportunistic', settings, { jumpable: true, blocking: false, opportunistic: true }));
         for (const item of breachDemands) if (unmet(item)) requests.push(demandRequest(room, item, 'remote', settings, { jumpable: true, blocking: false }));
     }
     lap('r.demandReq');

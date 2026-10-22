@@ -4,6 +4,7 @@ const conquest = require('conquest');
 const retireMod = require('retire');
 const boost = require('boost');
 const lootBlocked = require('loot_blocked');
+const sideLoot = require('side_loot');
 
 const ENERGY = typeof RESOURCE_ENERGY === 'undefined' ? 'energy' : RESOURCE_ENERGY;
 
@@ -576,7 +577,11 @@ function resRank(res) {
     return 2;
 }
 
-function loadPick(store) {
+function loadPick(store, order) {
+    if (Array.isArray(order) && order.length) {
+        const r = conquest.salvagePickResource(store, order);
+        if (r) return r;
+    }
     let best = null;
     let bestR = Infinity;
     for (const k in store) {
@@ -609,7 +614,11 @@ function pickTarget(creep) {
         if (rest.length) list = rest;
     } else if (m.skip) delete m.skip;
     const tiers = [[], [], []];
-    for (const o of list) tiers[tierOf(o) - 1].push(o);
+    if (m.sideLoot && Array.isArray(m.lootOrder) && m.lootOrder.length) {
+        let top = 0;
+        for (const o of list) top = Math.max(top, sideLoot.orderScore(o, m.lootOrder));
+        for (const o of list) tiers[sideLoot.orderScore(o, m.lootOrder) === top ? 0 : 2].push(o);
+    } else for (const o of list) tiers[tierOf(o) - 1].push(o);
     let obj = null;
     let tier = 0;
     for (let i = 0; i < tiers.length && !obj; i++) {
@@ -635,7 +644,7 @@ function loadStep(creep, carrying) {
     const m = creep.memory;
     let obj = m.src ? Game.getObjectById(m.src) : null;
     if (conquest.salvageArmedThreat(creep.room)) { if (carrying) m.state = 'deliver'; else parkInside(creep); return; }
-    if (stillLoadable(obj, creep.room.name) && creep.pos.getRangeTo(obj) > 1 && tierOf(obj) > (m.lootTier || 3)) obj = null;
+    if (!m.sideLoot && stillLoadable(obj, creep.room.name) && creep.pos.getRangeTo(obj) > 1 && tierOf(obj) > (m.lootTier || 3)) obj = null;
     if (!stillLoadable(obj, creep.room.name)) obj = pickTarget(creep);
     if (!obj && !carrying && Memory.lootBad && Memory.lootBad[creep.room.name] && Object.keys(Memory.lootBad[creep.room.name]).length && !(Game.time - (m.badClr || 0) < 50)) {
         m.badClr = Game.time;
@@ -644,6 +653,11 @@ function loadStep(creep, carrying) {
     }
     if (!obj) {
         if (carrying) { m.state = 'deliver'; return; }
+        if (m.sideLoot) {
+            if (sideLoot.mem(m.targetRoom).doneAt) retireMod.retireAtSpawn(creep);
+            else parkInside(creep);
+            return;
+        }
         if (toPull(creep)) return;
         parkInside(creep);
         return;
@@ -661,7 +675,7 @@ function loadStep(creep, carrying) {
         return;
     }
     delete m.stk;
-    const ret = obj.store ? creep.withdraw(obj, loadPick(obj.store)) : creep.pickup(obj);
+    const ret = obj.store ? creep.withdraw(obj, loadPick(obj.store, m.sideLoot ? m.lootOrder : null)) : creep.pickup(obj);
     if (ret !== OK && ret !== ERR_NOT_IN_RANGE) { badBook(creep.room.name)[obj.id] = Game.time; delete m.src; delete m.stk; }
 }
 

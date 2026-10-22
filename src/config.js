@@ -120,7 +120,7 @@ module.exports = {
     conquest: {
         lootHaulerTotal: 14,
         haulerBoost: {},
-        lootDropFixed: { W37S2: 'W37S5', W35S1: 'W37S5', W37S3: 'W37S5' },
+        lootDropFixed: { W37S2: 'W37S5', W35S1: 'W37S5', W37S3: 'W37S5', W29S4: 'W31S5' },
         lootDropFullShare: 0.9,
         boostPlanMinBucket: 8000,
         cpuExemptHaulers: ['W37S2', 'W35S1'],
@@ -677,6 +677,11 @@ module.exports = {
         W35S1: ['W37S5', 'W38S5', 'W38S4', 'W37S4', 'W37S3', 'W36S3', 'W35S3', 'W35S2', 'W35S1'],
         gates: { W38S5: ['W37S5', 'W38S4'] },
         gateRooms: ['W38S5', 'W38S4', 'W37S4', 'W37S3', 'W36S3', 'W35S3', 'W35S2', 'W38S6', 'W37S6'],
+    },
+    sideLoot: {
+        rooms: {
+            W29S4: { home: 'W31S5', haulers: 3, order: ['power', 'energy', 'O'], budget: 2500, minBucket: 6000, storageFloor: 15000, threatHold: 300, lead: 100 },
+        },
     },
     lootShed: {
         pauseAbove: 150,
