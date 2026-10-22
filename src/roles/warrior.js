@@ -300,7 +300,9 @@ function homeUnboost(creep, w) {
 function stomp(creep, pos) {
     const d = Math.max(Math.abs(creep.pos.x - pos.x), Math.abs(creep.pos.y - pos.y));
     if (d === 1 && typeof creep.pos.getDirectionTo === 'function') { creep.move(creep.pos.getDirectionTo(pos)); return; }
-    goWar(creep, pos, 0);
+    if (d === 1) { goWar(creep, pos, 0); return; }
+    if (creep.memory) creep.memory.stompAt = { x: pos.x, y: pos.y, t: Game.time };
+    goWar(creep, pos, 1);
 }
 
 function clearHurt(w, a, h) {
