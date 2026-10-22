@@ -620,6 +620,26 @@ function waveRoadsPending() {
     });
 }
 
+function lowRoomAllowed(roomName, isLab) {
+    const cfg = siteSettings();
+    if (!cfg.lowRooms) return true;
+    if (cfg.lowRooms.indexOf(roomName) >= 0) return true;
+    return !!(isLab && cfg.labAtRcl8 && rcl8Room(roomName));
+}
+function pruneLowSites(room) {
+    if (!room || typeof room.find !== 'function') return 0;
+    const cfg = siteSettings();
+    if (!cfg.lowRooms || cfg.lowRooms.indexOf(room.name) >= 0) return 0;
+    const kind = typeof FIND_MY_CONSTRUCTION_SITES === 'undefined' ? 'myConstructionSites' : FIND_MY_CONSTRUCTION_SITES;
+    const labType = typeof STRUCTURE_LAB === 'undefined' ? 'lab' : STRUCTURE_LAB;
+    let n = 0;
+    for (const s of (room.find(kind) || []).slice()) {
+        if (cfg.lowTypes.indexOf(s.structureType) < 0 || (Number(s.progress) || 0) > 0) continue;
+        if (lowRoomAllowed(room.name, s.structureType === labType)) continue;
+        if (removeSite(s, 'lowRooms')) n++;
+    }
+    return n;
+}
 function siteTier(type, wave) {
     if (type === STRUCTURE_ROAD) return wave ? 'wave' : 'road';
     return siteSettings().lowTypes.indexOf(type) >= 0 ? 'low' : 'core';
@@ -696,7 +716,7 @@ function siteAllowed(roomName, type, wave) {
     if (tally.nonRoad >= cfg.nonRoadMax || (tally.byRoom[roomName] || 0) >= cfg.nonRoadPerRoom) return false;
     if (tier === 'core') return true;
     const isLab = type === (typeof STRUCTURE_LAB === 'undefined' ? 'lab' : STRUCTURE_LAB);
-    if (cfg.lowRooms && cfg.lowRooms.indexOf(roomName) < 0 && !(isLab && ((cfg.labAtRcl8 && rcl8Room(roomName)) || cfg.labSpotRooms.indexOf(roomName) >= 0))) return false;
+    if (!lowRoomAllowed(roomName, isLab)) return false;
     const roadBlockedAt = Math.max(Number(Memory.siteCap && Memory.siteCap.roadBlockedAt) || 0, tally.roadBlocked ? Game.time : 0);
     return !waveRoadsPending() && Game.time - roadBlockedAt >= cfg.lowAfterRoadBlocked;
 }
@@ -1407,6 +1427,8 @@ module.exports = { setCreepIndexRecount, tickMemoOff,
     conserving,
     conserveUpgradeAllowed,
     upgradeHold,
+    pruneLowSites,
+    lowRoomAllowed,
     lootExcessWork,
     rcl8Room,
     rcl8Ready,

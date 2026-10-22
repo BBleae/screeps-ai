@@ -413,6 +413,7 @@ function getDemands(home) {
             const needNew = !live || (live.memory && live.memory.done) || (live.ticksToLive != null && live.ticksToLive <= lead);
             if (needNew && Game.cpu.bucket < (Number(cfg.minerBucketMin) || 8000)) { noteWait(m, id, home.name, cfg, 'bucket'); continue; }
             if (needNew && !gate.avgOk(cfg.withdrawAvg || 150)) { noteWait(m, id, home.name, cfg, 'cpu'); continue; }
+            if (!live && !cpuOk(cfg)) { noteWait(m, id, home.name, cfg, 'cpuGate'); continue; }
             if (!live) noteWait(m, id, home.name, cfg, 'spawn');
             else if (m.wait && m.wait[id]) { delete m.wait[id]; if (m.spawnWait && m.spawnWait.id === id) delete m.spawnWait; }
             out.push({ role: 'depositMiner', slot: 'deposit:' + id, body,

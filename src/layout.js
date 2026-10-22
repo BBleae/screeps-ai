@@ -608,6 +608,7 @@ function trimSites(room, plan) {
             utils.removeSite(s, 'trim' + type);
         }
     }
+    utils.pruneLowSites(room);
     if (!ringKeep(room, plan)) {
         const core = new Set(coreRampartSpots(room).map((p) => p.x + '.' + p.y));
         let trimmed = 0;

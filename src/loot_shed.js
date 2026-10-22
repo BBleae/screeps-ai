@@ -116,9 +116,22 @@ function activeRemotes() {
     return out;
 }
 
+function keepList() {
+    const k = settings().keep;
+    return Array.isArray(k) ? k : [];
+}
+
+function restoreKept() {
+    const keep = keepList();
+    if (!keep.length) return;
+    const m = mem();
+    for (const p of m.paused) if (!p.restoredAt && keep.indexOf(p.room) >= 0) { restoreOne(p); p.keep = true; }
+}
+
 function nextToPause() {
     const prefer = settings().prefer || [];
-    const active = activeRemotes();
+    const keep = keepList();
+    const active = activeRemotes().filter((a) => keep.indexOf(a.room) < 0);
     const byName = {};
     for (const a of active) byName[a.room] = a;
     const last = settings().last || [];
@@ -132,7 +145,8 @@ function nextToPause() {
 function pauseOrder() {
     const prefer = settings().prefer || [];
     const last = settings().last || [];
-    const active = activeRemotes();
+    const keep = keepList();
+    const active = activeRemotes().filter((a) => keep.indexOf(a.room) < 0);
     const names = active.map((a) => a.room);
     const head = prefer.filter((n) => names.indexOf(n) >= 0 && last.indexOf(n) < 0);
     const rest = active.filter((a) => prefer.indexOf(a.room) < 0 && last.indexOf(a.room) < 0).sort((a, b) => b.cpu - a.cpu || a.room.localeCompare(b.room)).map((a) => a.room);
@@ -272,6 +286,7 @@ function run() {
         m.avg10 = avg;
         m.at = Game.time;
         forcePause(cfg);
+        restoreKept();
         if (avg == null) return m;
         if (!cfg.holdUntilDone) releaseHeld(cfg, avg);
         const clean = avgClean(10);
@@ -294,4 +309,4 @@ function run() {
     return m;
 }
 
-module.exports = { run, settings, avgN, avgClean, lootRunning, lootFinished, haulerBucketOk, pixelHeld, mem, nextToPause, activeRemotes, pauseOrder };
+module.exports = { restoreKept, keepList, run, settings, avgN, avgClean, lootRunning, lootFinished, haulerBucketOk, pixelHeld, mem, nextToPause, activeRemotes, pauseOrder };

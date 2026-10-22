@@ -15865,7 +15865,7 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     console.log('== 10-18 ③ 矿工开关写进 config：W31S6 K 关，W33S3/W32S4 H、W31S4 L 开，W35S7 O 采完不再开，H maxStock 不再卡 5 万 ==');
     const mm = ROLES.mineralMiner;
     const f = config.minerals.force;
-    assert(f.W33S3 === true && f.W32S4 === true && f.W31S4 === true && f.W31S6 === false && f.W37S7 === false && f.W37S5 === false && f.W29S3 === false && f.W38S7 === undefined, '开关：W33S3/W32S4/W31S4 开；W31S6/W37S7/W37S5/W29S3 关；W38S7 照旧');
+    assert(f.W33S3 === true && f.W32S4 === true && f.W31S4 === true && f.W31S6 === false && f.W37S7 === false && f.W37S5 === false && f.W29S3 && f.W29S3.accountBelow === 30000 && f.W38S7 === undefined, '开关：W33S3/W32S4/W31S4 开；W31S6/W37S7/W37S5 关；10-22 W29S3 全帐号 H<3 万才开；W38S7 照旧');
     const on = { version: 1, enabled: true, count: 1, reason: 'harvest', mineralType: 'K' };
     const off = mm.forced({ name: 'W31S6' }, on);
     assert(off.enabled === false && off.count === 0 && on.enabled === true, 'W31S6 的 K 即使指令开着也关掉（不改原指令）');
@@ -15975,7 +15975,7 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     const mm = ROLES.mineralMiner;
     const c = config.minerals.rooms.W31S4;
     assert(c && c.mineralType === 'L' && c.sinks.length === 2 && c.recycle && Array.isArray(c.body) && !('outbound' in c), 'config 只放静态小字段，不带路径方向场');
-    assert(Object.keys(config.minerals.rooms).join() === 'W31S4', '只有 W31S4 试点');
+    assert(Object.keys(config.minerals.rooms).sort().join() === 'W29S3,W31S4', 'W31S4 试点 + 10-22 W29S3 H 矿');
     const p = mm.directive({ name: 'W31S4' });
     assert(p && p.source === 'config' && p.enabled === true && p.count === 1 && p.mineralId === c.mineralId && p.sinks[0].id === c.sinks[0] && !p.sinks[0].path, 'W31S4：开关仍走 force，字段来自 config，sink 不带 path');
     assert(mm.configPlan({ name: 'W33S3' }) === null, '其他房不走 minerals.rooms 试点格式');
@@ -15987,7 +15987,7 @@ console.log('== 控制器容器贴着源（2026-10-14，validation-52vHk6 W41N40
     assert(w38 && w38.enabled === true && w38.count === 1 && w38.reason === 'harvest' && w38.mineralType === 'U' && w38.outbound && w38.sinks[0].path, '没有大脑指令时 W38S7 照旧按 config 里的冻结计划开采 U，带方向场');
     assert(mm.directive({ name: 'W31S6' }).enabled === false && mm.directive({ name: 'W33S3' }).enabled === true, '没有大脑指令时 force 开关照旧生效');
     const w29 = mm.basePlan({ name: 'W29S3' });
-    assert(w29 && w29.build === false && mm.directive({ name: 'W29S3' }).count === 0, 'W29S3 照旧 build:false、不出矿工');
+    assert(w29 && w29.source === 'config' && w29.mineralType === 'H' && w29.stand.x === 25 && w29.stand.y === 16, '10-22 W29S3 走 minerals.rooms：H 矿、站位 (25,16)');
     assert(mm.directive({ name: 'W99N99' }) === null, '没有计划的房不出矿工');
     Memory.brain = savedBrainMem;
     const moves = [];
@@ -16958,11 +16958,9 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     const mkR = (name, energy) => ({ name, storage: { store: { energy } }, find: (t) => (t === FIND_MINERALS ? [mineral] : []) });
     assert(plans.W29S3 && plans.W29S3.build === false, 'config 计划：W29S3 build:false');
     assert(config.minerals.buildExtractor && config.minerals.buildExtractor.W29S3 && config.minerals.buildExtractor.W29S3.minStorage === 20000, 'config：W29S3 storage ≥ 2 万放 extractor');
-    assert(config.minerals.force.W29S3 === false, 'W29S3 矿工开关照旧关着');
+    assert(config.minerals.force.W29S3 && config.minerals.force.W29S3.accountBelow === 30000, '10-22 W29S3 矿工按全帐号 H<3 万开');
     const p1 = layout.extractorSpot(mkR('W29S3', 27100), {});
-    assert(p1 && p1.x === 40 && p1.y === 12, 'W29S3 storage 2.71 万：放在矿上（得 ' + JSON.stringify(p1) + '）');
-    assert(layout.extractorSpot(mkR('W29S3', 19000), {}) === null, 'storage 不到 2 万不放');
-    assert(layout.extractorSpot(mkR('W29S3', 27100), { structures: { extractor: { x: 41, y: 13 } } }).x === 41, '有布局里的 extractor 位置就用布局的');
+    assert(p1 && p1.x === 24 && p1.y === 15, '10-22 W29S3 extractor 已建、config 写了矿位：用 (24,15)（得 ' + JSON.stringify(p1) + '）');
     plans.W37S7 = { version: 1, enabled: false, build: false, count: 0, reason: 'rcl' };
     assert(layout.extractorSpot(mkR('W37S7', 90000), {}) === null, '不在名单的房照旧听计划（build:false 不放）');
     plans.W37S7 = { version: 1, build: true, pos: { x: 5, y: 6 } };
@@ -17371,7 +17369,18 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     assert(utils.placeSite(r, 20, 10, C.STRUCTURE_LAB) !== C.OK, '补路刚被挡过（1500 tick 内）：lab 不放');
     world.time += 1500;
     assert(utils.placeSite(r, 21, 11, C.STRUCTURE_FACTORY) !== C.OK, '第一波不缺、补路没被挡，但 W31S4 不在 lowRooms：factory 照样不放');
-    assert(utils.placeSite(r, 21, 10, C.STRUCTURE_LAB) === C.OK, '10-21 战略猫：RCL8 的房（sites.labAtRcl8）不在 lowRooms 也放 lab');
+    assert(utils.placeSite(r, 21, 10, C.STRUCTURE_LAB) !== C.OK, '10-22 战略猫：新 lab/factory 只在 W32S4、W33S3，RCL8 房不在 lowRooms 也不放 lab（labAtRcl8 关）');
+    const pr = makeRoom('W33S7', { rcl: 8, owner: 'me' });
+    const removed = [];
+    const mkSite = (id, type, progress) => ({ id, structureType: type, progress, progressTotal: 50000, pos: { x: 30, y: 30, roomName: 'W33S7' }, remove() { removed.push(id); return C.OK; } });
+    const prSites = [mkSite('s1', C.STRUCTURE_LAB, 0), mkSite('s2', C.STRUCTURE_LAB, 0), mkSite('s3', C.STRUCTURE_LAB, 120), mkSite('s4', C.STRUCTURE_EXTENSION, 0)];
+    const prFind = pr.find;
+    pr.find = (t, o) => (t === C.FIND_MY_CONSTRUCTION_SITES ? prSites : prFind ? prFind.call(pr, t, o) : []);
+    assert(utils.pruneLowSites(pr) === 2 && removed.join() === 's1,s2', 'W33S7 不在 lowRooms：零进度 lab 工地清掉，有进度的和 extension 不动（得 ' + removed.join() + '）');
+    const okRoom = makeRoom('W33S3', { rcl: 8, owner: 'me' });
+    const okRemoved = [];
+    okRoom.find = (t) => (t === C.FIND_MY_CONSTRUCTION_SITES ? [Object.assign(mkSite('k1', C.STRUCTURE_LAB, 0), { remove() { okRemoved.push('k1'); return C.OK; } })] : []);
+    assert(utils.pruneLowSites(okRoom) === 0 && !okRemoved.length, 'W33S3 在 lowRooms：lab 工地保留');
     for (const key of Object.keys(world.constructionSites)) delete world.constructionSites[key];
     assert(JSON.stringify(liveSites.lowRooms) === JSON.stringify(['W32S4', 'W33S3']), '配置 config.sites.lowRooms 只放 W32S4、W33S3');
     const labRoom = makeRoom('W32S4', { rcl: 8, owner: 'me' });
@@ -17536,7 +17545,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
         U: { L: 'UL' }, L: { U: 'UL' }, Z: { K: 'ZK' }, K: { Z: 'ZK' }, UL: { ZK: 'G' }, ZK: { UL: 'G' } };
     const savedOpp = config.industry.labOpportunistic;
     config.industry.labOpportunistic = false;
-    assert(JSON.stringify(config.industry.labFullOutputs) === JSON.stringify(['W32S4', 'W33S3', 'W37S5']) && JSON.stringify(config.industry.chainTargetsByRoom) === JSON.stringify({ W33S3: ['XGH2O', 'GH2O'], W32S4: ['G'], W37S5: ['KH'] }) &&
+    assert(JSON.stringify(config.industry.labFullOutputs) === JSON.stringify(['W32S4', 'W33S3', 'W37S5']) && JSON.stringify(config.industry.chainTargetsByRoom) === JSON.stringify({ W33S3: ['XGH2O', 'GH2O'], W32S4: ['G'], W37S5: [] }) &&
         JSON.stringify(config.industry.boostTargets) === JSON.stringify(['XGH2O']), '配置：两个 lab 房全输出；10-21 起 W33S3 主线目标 XGH2O（不够 X 时退回 GH2O），W32S4 只做到 G');
     assert(config.industry.productHold.OH.on === 5000 && config.market.dailyBuyCredits === 500000, 'OH hold 5000、原料日额度 50 万不动');
     const r3 = makeRoom('W33S3', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
@@ -18117,9 +18126,11 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const mem = { plan };
     assert(utils.linkSupplyWork(ur(0), mem, config.energy.upgradeSurplus) === 75, 'storage link→ctrl link 距离 10：776/10 = 77 → 封顶 75');
     const at = (e, lvl) => { world.time++; return utils.upgradeSurplusWork(ur(e, lvl), mem); };
-    assert(at(70000) === 75, 'storage 7 万：75 WORK');
-    assert(at(59000) === 30, '5.9 万：30');
-    assert(at(50000) === 30, '5 万：30');
+    assert(at(70000) === 0, '10-22 W37S5 只用 ≥10 万档：7 万不加');
+    assert(at(100000) === 45, '10 万：45 WORK');
+    assert(at(99000) === 45, '9.9 万：还在档内（95000 才退）');
+    assert(at(94000) === 0, '9.4 万：退档');
+    assert(at(50000) === 0, '5 万：0');
     assert(at(49000) === 0, '4.9 万：回默认（不加量）');
     assert(at(120000, 8) === 45, 'RCL8：不再用 W37S5 专用档（回到通用档，升级上限另有 15 封顶）');
     const W = (name, storageE, termE, lvl) => ({ name, controller: { my: true, level: lvl || 7 }, storage: { my: true, store: mkStore(storageE, 1000000) },

@@ -457,6 +457,25 @@ function boostHere(creep) {
     return !!m.tripAt && m.drop === at && !used;
 }
 
+function dropStaleBoosts(creep) {
+    const m = creep.memory;
+    if (!Array.isArray(m.boosts) || !m.boosts.length) return false;
+    const hb = ((require('config').conquest || {}).haulerBoost || {})[m.targetRoom];
+    const allowed = hb && Array.isArray(hb.compounds) && Array.isArray(hb.homes) && hb.homes.indexOf(m.home) >= 0 ? hb.compounds : [];
+    const keep = m.boosts.filter((c) => allowed.indexOf(c) >= 0);
+    if (keep.length === m.boosts.length) return false;
+    if (keep.length) m.boosts = keep;
+    else {
+        delete m.boosts;
+        delete m.boostMinParts;
+        delete m.boostRoom;
+        delete m.boostReserve;
+        delete m.boostSince;
+        m.boostDone = true;
+    }
+    return true;
+}
+
 function boostedWith(creep, list) {
     return (creep.body || []).some((p) => p.boost && list.indexOf(p.boost) >= 0);
 }
@@ -651,6 +670,7 @@ function run(creep) {
     track(creep);
     const m0 = creep.memory;
     for (const k of STALE_KEYS) if (m0[k] !== undefined) delete m0[k];
+    dropStaleBoosts(creep);
     if (Array.isArray(m0.boosts) && m0.boosts.length) {
         if (boostedWith(creep, m0.boosts)) m0.boostDone = true;
         else if (m0.boostDone) delete m0.boostDone;
@@ -685,4 +705,4 @@ function run(creep) {
     loadStep(creep, carrying);
 }
 
-module.exports = { reachable, queued, pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, loadPick, tierOf, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };
+module.exports = { dropStaleBoosts, reachable, queued, pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, loadPick, tierOf, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks };

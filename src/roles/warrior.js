@@ -183,13 +183,49 @@ function healAround(creep) {
     else if (creep.pos.inRangeTo(near.pos, 3)) creep.rangedHeal(near);
 }
 
+const APPROACH = [{ x: 20, y: 2 }, { x: 19, y: 2 }, { x: 21, y: 2 }];
+
+function pairAtGather(a, h) {
+    const st = war.staging();
+    const ga = war.gatherPos('attacker');
+    const gh = war.gatherPos('healer');
+    return !!a && !!h && !a.spawning && !h.spawning && war.roomOf(a) === st && war.roomOf(h) === st &&
+        a.pos.x === ga.x && a.pos.y === ga.y && h.pos.x === gh.x && h.pos.y === gh.y;
+}
+
+function approachTile(creep) {
+    const st = war.staging();
+    for (const t of APPROACH) {
+        const taken = Object.keys(Game.creeps).some((n) => {
+            const c = Game.creeps[n];
+            return c.name !== creep.name && c.pos && c.pos.roomName === st && c.pos.x === t.x && c.pos.y === t.y;
+        });
+        if (!taken) return new RoomPosition(t.x, t.y, st);
+    }
+    return null;
+}
+
+function claimerStage(creep) {
+    const { a, h } = squad();
+    if (pairAtGather(a, h)) {
+        const t = approachTile(creep);
+        if (t) {
+            if (creep.room.name === t.roomName && creep.pos.x === t.x && creep.pos.y === t.y) return;
+            goWar(creep, t, 0);
+            return;
+        }
+        if (creep.room.name === war.staging() && Math.max(Math.abs(creep.pos.x - h.pos.x), Math.abs(creep.pos.y - h.pos.y)) <= 1) return;
+    }
+    toGather(creep);
+}
+
 function runClaimer(creep, w, room) {
-    if (w.phase === 'staging') { toGather(creep); return; }
+    if (w.phase === 'staging') { claimerStage(creep); return; }
     const { a, h } = squad();
     const ctrlXy = wcfg().controllerPos || { x: 22, y: 20 };
     if (!inTarget(creep)) {
         if (inTarget(a) && inTarget(h)) goWar(creep, targetRoomPos(ctrlXy), 1);
-        else toGather(creep);
+        else claimerStage(creep);
         return;
     }
     const ctrl = room && room.controller;

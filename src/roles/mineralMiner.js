@@ -6,6 +6,11 @@ function forced(room, plan) {
     const force = ((require('config').minerals) || {}).force;
     const mode = force && force[room.name];
     if (mode === false) return plan.enabled || plan.count ? Object.assign({}, plan, { enabled: false, count: 0, reason: 'forcedOff' }) : plan;
+    if (mode && typeof mode === 'object' && mode.accountBelow != null) {
+        let have = 0;
+        try { have = require('market').accountStock(plan.mineralType); } catch (e) { have = 0; }
+        if (!(have < Number(mode.accountBelow))) return Object.assign({}, plan, { enabled: false, count: 0, reason: 'accountStock' });
+    }
     if (mode === 'drain' && drained(room, plan)) return plan.enabled || plan.count ? Object.assign({}, plan, { enabled: false, count: 0, reason: 'drained' }) : plan;
     if (!mode || plan.enabled) return plan;
     const tick = typeof Game !== 'undefined' ? Game.time : 0;
