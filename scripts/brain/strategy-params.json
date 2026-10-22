@@ -9,8 +9,6 @@
   "energy": {
     "starvingBelow": 10000,
     "priorityReceivers": [
-      "W37S5",
-      "W38S7",
       "W33S3",
       "W31S8",
       "W31S4",
@@ -20,7 +18,8 @@
     ],
     "noNewConsumersUntilBalanced": false,
     "policy": "第 2 阶段：storageRich 的房可以加 lab 和升级消耗",
-    "labEnergyGate": 20000
+    "labEnergyGate": 20000,
+    "priorityReceiversNote": "2026-10-22 战略猫：去掉 W37S5、W38S7；RCL8 房（含 W32S4 到 8 级后）一律不进 priorityReceivers"
   },
   "remotes": {
     "maxPerRoomDefault": 3,
@@ -37,6 +36,13 @@
       "W29S3": {
         "plan": "外矿全开（W29S2/W29S1/W31S1）攒能量；storage 攒到 terminalMinStorage（W29S3 单独下调到 3 万，terminalMinStorageByRoom.W29S3=30000；全局仍 10 万）即建 terminal，建成后恢复全局 10 万并接入能量网络、作为缺能房的优先能量来源（先内部发送、不够再市场买）；不再硬冲 RCL7，已移出 forceRichUpgraders",
         "date": "2026-10-17"
+      }
+    },
+    "removed": {
+      "W38S6": {
+        "date": "2026-10-22",
+        "by": "战略猫 10-22 复盘",
+        "note": "继续停，并移出外矿规划（config.remote.ceded），不再付规划 CPU"
       }
     }
   },

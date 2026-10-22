@@ -14988,10 +14988,9 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     Memory.wallBreach.measured = { W37S5: { W38S4: { steps: [59, 55], ok: true, at: 1 } } };
     wb.measureUnlocks('W38S6:30:23');
     const m6 = Memory.wallBreach.measured.W37S5.W38S6;
-    assert(m6 && m6.ok === true && m6.steps.join() === '96,95' && Memory.wallBreach.measured.W37S5.W38S4.at === 1, '复量 96/95 ≤105：W38S6 达标，W38S4 旧记录不动（得 ' + JSON.stringify(m6) + '）');
-    const cb = searches[0] && searches[0].opts.roomCallback;
-    assert(cb && cb('W36S6') === false && cb('W38S7') === false && cb('W38S5') !== false && cb('W37S6') !== false, '复量路径只走 W37S5/W38S5/W37S6/W38S6，不进 W36S6 stronghold');
-    assert(JSON.stringify(rem.remoteWhitelist('W37S5')) === '["W38S4","W38S6"]', '达标：W38S6 并入 W37S5 外矿（得 ' + JSON.stringify(rem.remoteWhitelist('W37S5')) + '）');
+    assert(!m6 && searches.length === 0 && Memory.wallBreach.measured.W37S5.W38S4.at === 1, '10-22 W38S6 移出规划：不再复量，W38S4 旧记录不动（得 ' + JSON.stringify(m6) + '）');
+    Memory.wallBreach.measured.W37S5.W38S6 = { steps: [96, 95], ok: true };
+    assert(JSON.stringify(rem.remoteWhitelist('W37S5')) === '["W38S4"]', '10-22 W38S6 已 ceded：即使旧复量达标也不进 W37S5 外矿（得 ' + JSON.stringify(rem.remoteWhitelist('W37S5')) + '）');
     assert(!rem.remoteWhitelist('W37S5').includes('W38S5'), 'W38S5 不开（等 24h 数据）');
     assert(!(rem.remoteWhitelist('W38S7') || []).includes('W38S6'), 'W38S6 只挂 W37S5');
     Memory.wallBreach.measured.W37S5.W38S6 = { steps: [110, 95], ok: false };
@@ -17662,7 +17661,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
 
     const term = require('terminal');
     const tcfg = term.settings();
-    assert(JSON.stringify(tcfg.priorityReceivers) === JSON.stringify(['W37S5', 'W38S7', 'W33S3', 'W31S8', 'W31S4', 'W34S7', 'W35S7', 'W31S5']), 'priorityReceivers 换成新名单（10-20 15:29 烧能量房 W37S5 排第一）');
+    assert(JSON.stringify(tcfg.priorityReceivers) === JSON.stringify(['W33S3', 'W31S8', 'W31S4', 'W34S7', 'W35S7', 'W31S5']), 'priorityReceivers 10-22 新名单（去掉 W37S5、W38S7）');
     const tR = (name, storageE, termE, lvl) => ({ name, controller: { my: true, level: lvl || 7 }, storage: { my: true, store: mkStore(storageE, 1000000) },
         terminal: { my: true, cooldown: 0, store: mkStore(termE, 300000), send() { return C.OK; } }, find: () => [] });
     world.time += 10;
@@ -18122,8 +18121,8 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const utils = require('../src/utils');
     const tm = require('terminal');
     const tcfg = tm.settings();
-    assert(tcfg.priorityReceivers[0] === 'W37S5' && config.terminalNetwork.senders.W33S7.to[0] === 'W37S5' && JSON.stringify(tcfg.burnRooms) === JSON.stringify(['W37S5']),
-        'W37S5 排在 priorityReceivers 和 W33S7 发送名单第一');
+    assert(tcfg.priorityReceivers.indexOf('W37S5') < 0 && tcfg.priorityReceivers.indexOf('W38S7') < 0 && config.terminalNetwork.senders.W33S7.to[0] === 'W37S5' && JSON.stringify(tcfg.burnRooms) === JSON.stringify(['W37S5']),
+        '10-22 W37S5/W38S7 移出 priorityReceivers；W33S7 发送名单仍以 W37S5 开头');
     const plan = { links: { store: { x: 20, y: 31 }, ctrl: { x: 21, y: 21 } } };
     const ur = (e, lvl) => ({ name: 'W37S5', controller: { my: true, level: lvl || 7 }, storage: { my: true, store: { energy: e } } });
     const mem = { plan };
@@ -18141,8 +18140,8 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     Memory.terminalNetwork = {};
     const rich = () => true;
     let pl = tm.planStarving([W('W37S5', 52000, 30000), W('W33S8', 120000, 30000), W('W38S7', 60000, 20000)], tcfg, rich);
-    assert(pl && pl.to.name === 'W37S5' && pl.from.name === 'W33S8' && pl.burn === true && pl.amount <= 10000,
-        '富房 W33S8（15 万）送给 W37S5；peer W38S7 不拿出来烧（得 ' + JSON.stringify(pl && { f: pl.from.name, t: pl.to.name, a: pl.amount }) + '）');
+    assert(!pl || pl.to.name !== 'W37S5',
+        '10-22 W37S5 不在 priorityReceivers：富房 W33S8 不再送去烧（得 ' + JSON.stringify(pl && { f: pl.from.name, t: pl.to.name, a: pl.amount }) + '）');
     pl = tm.planStarving([W('W37S5', 52000, 30000), W('W33S8', 60000, 30000)], tcfg, rich);
     assert(!pl, '富房自己不到 sendAbove 10 万：不送去烧');
     pl = tm.planStarving([W('W37S5', 52000, 30000), W('W33S8', 120000, 30000), W('W31S8', 3000, 2000)], tcfg, rich);

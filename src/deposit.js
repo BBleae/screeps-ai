@@ -140,7 +140,6 @@ function statsCpuOk(max, samples, minBucket) {
 }
 
 function windowAvg() {
-    try { const v = require('loot_shed').avgClean(10); if (v != null) return v; } catch (e) { }
     const stats = Array.isArray(Memory.stats) ? Memory.stats : [];
     const recent = stats.slice(-10).map((s) => Number(s && s.cpu)).filter((v) => v > 0);
     return recent.length ? recent.reduce((a, b) => a + b, 0) / recent.length : null;

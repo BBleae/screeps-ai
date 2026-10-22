@@ -52,7 +52,7 @@ console.log('OK');
 console.log('--- lootShed keep list: W31S2/W29S7 restored and never auto-paused; W31S9/W38S6 stay stopped ---');
 const ls = require('loot_shed');
 assert.deepStrictEqual(config.lootShed.keep, ['W31S2', 'W29S7', 'W38S5']);
-assert.ok(config.lootShed.force.indexOf('W31S9') >= 0 && config.lootShed.force.indexOf('W38S6') >= 0);
+assert.ok(config.lootShed.force.indexOf('W31S9') >= 0 && config.remote.ceded.indexOf('W38S6') >= 0);
 Memory.rooms = { W31S4: { remotes: { W31S2: { enabled: true, suspendReason: 'lootShed', suspendedUntil: Number.MAX_SAFE_INTEGER } } }, W31S6: { remotes: { W29S7: { enabled: true, suspendReason: 'lootShed', suspendedUntil: Number.MAX_SAFE_INTEGER } } }, W31S8: { remotes: { W31S9: { enabled: true, suspendReason: 'lootShed', suspendedUntil: Number.MAX_SAFE_INTEGER } } }, W37S5: { remotes: { W38S5: { enabled: true, suspendedUntil: 0 } } } };
 Memory.lootShed = { paused: [{ room: 'W31S2', home: 'W31S4', at: 1 }, { room: 'W29S7', home: 'W31S6', at: 1 }, { room: 'W31S9', home: 'W31S8', at: 1 }], log: [] };
 ls.restoreKept();
