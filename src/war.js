@@ -201,7 +201,18 @@ function clearTarget(creep, scan) {
         return best;
     };
     if (scan.creeps.length) return { kind: 'creep', obj: pick(scan.creeps) };
-    if (scan.sites.length) return { kind: 'site', obj: pick(scan.sites) };
+    const sites = creep && creep.pos ? scan.sites.filter((o) => !(o.pos.x === creep.pos.x && o.pos.y === creep.pos.y)) : scan.sites;
+    const w = state();
+    const cap = Number(clearCfg().siteTicks) || 150;
+    if (w && !scan.sites.length && w.siteSince != null) delete w.siteSince;
+    if (w && scan.sites.length && w.siteSince == null) w.siteSince = Game.time;
+    const long = !!w && w.siteSince != null && Game.time - w.siteSince > cap && scan.structs.length > 0;
+    if (long) {
+        const urgent = sites.filter((o) => o.structureType === 'spawn' || Number(o.progress) > 0);
+        if (urgent.length) return { kind: 'site', obj: pick(urgent) };
+        return { kind: 'struct', obj: pick(scan.structs) };
+    }
+    if (sites.length) return { kind: 'site', obj: pick(sites) };
     if (scan.structs.length) return { kind: 'struct', obj: pick(scan.structs) };
     return null;
 }

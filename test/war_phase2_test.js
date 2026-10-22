@@ -169,6 +169,36 @@ assert.strictEqual(ev('clearDone').length, 1, 'clearDone once');
 assert.strictEqual(W().mode, 'watch');
 console.log('OK', order.length, 'actions');
 
+console.log('--- site placed under the attacker: it moves to another site instead of standing on it ---');
+reset2();
+hc.length = 0;
+const A1 = mk('A', 'attacker', 'W38S2', 36, 30, 1000);
+mk('H', 'healer', 'W38S2', 36, 31, 1000);
+hs = [mine({ id: 'u1', structureType: 'extension', pos: new RoomPosition(36, 30, 'W38S2') }), mine({ id: 'u2', structureType: 'extension', pos: new RoomPosition(29, 31, 'W38S2') })];
+step();
+assert.ok(moves.some((m) => m.name === 'A' && m.to.x === 29 && m.to.y === 31 && m.range === 0), 'walks to the other site');
+hs = [mine({ id: 'u1', structureType: 'extension', pos: new RoomPosition(36, 30, 'W38S2') })];
+moves.length = 0; step();
+assert.ok(moves.some((m) => m.name === 'A' && m.range === 1), 'only the site under it left -> goes on to structures and comes back later');
+console.log('OK');
+
+console.log('--- he keeps re-placing sites: after 150 ticks of sites, structures go first (spawn/progress sites still stomped) ---');
+reset2();
+hc.length = 0;
+mk('A', 'attacker', 'W38S2', 25, 25, 1000);
+mk('H', 'healer', 'W38S2', 25, 26, 1000);
+hs = [mine({ id: 'q1', structureType: 'extension', pos: new RoomPosition(10, 45, 'W38S2') })];
+step();
+assert.strictEqual(war.clearTarget(Game.creeps.A, war.clearScan(Game.rooms.W38S2)).kind, 'site');
+Game.time += 151;
+assert.strictEqual(war.clearTarget(Game.creeps.A, war.clearScan(Game.rooms.W38S2)).kind, 'struct', 'endless sites do not starve the structures');
+hs.push(mine({ id: 'q2', structureType: 'spawn', pos: new RoomPosition(12, 45, 'W38S2') }));
+assert.strictEqual(war.clearTarget(Game.creeps.A, war.clearScan(Game.rooms.W38S2)).obj.id, 'q2', 'spawn site still first');
+hs.length = 0;
+war.clearTarget(Game.creeps.A, war.clearScan(Game.rooms.W38S2));
+assert.strictEqual(W().siteSince, undefined, 'timer resets when sites are gone');
+console.log('OK');
+
 console.log('--- claimer relief kept until creeps dead AND sites stomped AND 40 extensions gone ---');
 reset2();
 mk('A', 'attacker', 'W38S2', 25, 25, 1000);
