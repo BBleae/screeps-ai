@@ -336,11 +336,12 @@ function senderFillWant(room, terminal, storageRich) {
 
 function terminalFillWantBase(room, terminal, storageRich) {
     const cfg = config.industry || {};
-    const target = Math.max(0, Number(cfg.terminalTarget) || 0);
-    if (!storageRich || !(target > 0) || !terminal || terminal.my === false || !terminal.store) return 0;
+    const own = cfg.terminalFillByRoom && room && cfg.terminalFillByRoom[room.name];
+    const target = Math.max(0, Number(own && own.target != null ? own.target : cfg.terminalTarget) || 0);
+    if ((!storageRich && !own) || !(target > 0) || !terminal || terminal.my === false || !terminal.store) return 0;
     const storage = room.storage && room.storage.my !== false && room.storage.store ? room.storage : null;
     if (!storage) return 0;
-    const surplus = energyOf(storage.store) - Math.max(0, Number(cfg.terminalFillStorageAbove) || 0);
+    const surplus = energyOf(storage.store) - Math.max(0, Number(own && own.storageAbove != null ? own.storageAbove : cfg.terminalFillStorageAbove) || 0);
     return Math.max(0, Math.min(target - energyOf(terminal.store), surplus));
 }
 

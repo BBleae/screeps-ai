@@ -74,6 +74,7 @@ function mk(name, role, roomName, x, y, ttl, opts) {
     heal(t) { this.acts.push(['heal', t.name, Game.time]); return 0; },
     rangedHeal(t) { this.acts.push(['rangedHeal', t.name, Game.time]); return 0; },
     attackController(t) { this.acts.push(['attackController', Game.time]); return 0; },
+    dismantle(t) { this.acts.push(['dismantle', t.id, Game.time]); return 0; },
   };
   Game.creeps[name] = c;
   return c;
@@ -82,6 +83,11 @@ function place(c, roomName, x, y) { c.room = { name: roomName }; c.pos = new Roo
 BODY.watcher = [['attack', 1], ['move', 1]];
 BODY.relief = [['claim', 1], ['move', 2]];
 BOOSTS.watcher = [];
+BODY.dismantler = [['work', 10], ['move', 10]];
+BOOSTS.dismantler = [];
+const config = require('../src/config');
+const noHome = () => { config.war.clear = Object.assign({}, config.war.clear || {}, { pairHomeAfterSites: false }); };
+const yesHome = () => { if (config.war.clear) delete config.war.clear.pairHomeAfterSites; };
 
 let hc, hs, st, ramps;
 const mine = (o) => Object.assign({ my: false, owner: { username: 'ags131' } }, o);
@@ -128,6 +134,7 @@ const kill = (list, id) => { const i = list.findIndex((o) => o.id === id); if (i
 
 console.log('--- clear order: creeps, then sites (stomp), then structures; roads untouched ---');
 reset2();
+noHome();
 const A = mk('A', 'attacker', 'W38S2', 25, 25, 1000);
 const H = mk('H', 'healer', 'W38S2', 25, 26, 1000);
 const C = mk('C', 'claimer', 'W38S2', 22, 21, 300);
@@ -395,9 +402,14 @@ assert.ok(A4.memory.retired && H4.memory.retired, 'recycled after unboost');
 assert.ok(W().labsReleased, 'labs released');
 assert.strictEqual(war.labActive(room37), false, 'labs back to reactions');
 assert.strictEqual(ev('labsReleased').length, 1);
-assert.strictEqual(W().mode, 'watch', 'pair gone with work left -> watch');
+assert.strictEqual(W().mode, 'clear', 'pair gone, dismantler still to come -> stays clear');
+const dms = war.getDemands({ name: 'W37S5' });
+assert.strictEqual(dms.filter((x) => x.memory.warRole === 'attacker' || x.memory.warRole === 'healer').length, 0, 'no new boosted squad');
+assert.strictEqual(dms.filter((x) => x.memory.warRole === 'dismantler').length, 1, 'one dismantler instead');
+Memory.ags131War.dismantler = { spawned: 'gone' };
+step();
+assert.strictEqual(W().mode, 'watch', 'pair and dismantler gone with work left -> watch');
 assert.strictEqual(ev('clearIncomplete').length, 1);
-assert.strictEqual(war.getDemands({ name: 'W37S5' }).filter((x) => x.memory.warRole === 'attacker' || x.memory.warRole === 'healer').length, 0, 'no new squad');
 console.log('OK');
 
 console.log('--- one lab on cooldown: second creep waits for a free lab, labs stay held until both unboosted ---');
@@ -472,6 +484,121 @@ Game.map = { getRoomLinearDistance: () => 3 };
 for (let i = 0; i < 40; i++) step();
 assert.strictEqual(obs.calls, 2);
 assert.strictEqual(obs.room, 'W38S2');
+console.log('OK');
+
+
+console.log('--- 11:18 only extension sites: attacker / dismantler go for structures, never the sites ---');
+reset2();
+noHome();
+hc.length = 0;
+hs = [mine({ id: 'es1', structureType: 'extension', pos: new RoomPosition(26, 26, 'W38S2') }), mine({ id: 'es2', structureType: 'extension', pos: new RoomPosition(24, 24, 'W38S2') })];
+const Ae = mk('A', 'attacker', 'W38S2', 25, 25, 1000);
+mk('H', 'healer', 'W38S2', 25, 26, 1000);
+step();
+let te = war.clearTarget(Ae, war.clearScan(Game.rooms.W38S2));
+assert.strictEqual(te.kind, 'struct', 'attacker -> structure');
+assert.strictEqual(te.obj.structureType, 'extension');
+assert.ok(!moves.some((m) => m.range === 0), 'nobody stomps extension sites');
+const De = mk('D', 'dismantler', 'W38S2', 25, 25, 1400);
+moves.length = 0; step();
+assert.ok(moves.some((m) => m.name === 'D' && m.range === 1 && m.to.y >= 32), 'dismantler heads to an extension structure');
+assert.ok(!moves.some((m) => m.name === 'D' && m.range === 0), 'dismantler ignores extension sites');
+const cm = { v: {}, get(x, y) { return this.v[x + ',' + y] || 0; }, set(x, y, c) { this.v[x + ',' + y] = c; } };
+const goCall = moves.find((m) => m.name === 'D');
+assert.ok(goCall, 'moved');
+console.log('OK');
+
+console.log('--- 11:18 attacker stomps the spawn site then goes home; healer goes home too ---');
+reset2();
+yesHome();
+hc.length = 0;
+hs = [mine({ id: 'sp7', structureType: 'spawn', pos: new RoomPosition(37, 30, 'W38S2') }), mine({ id: 'ex7', structureType: 'extension', pos: new RoomPosition(30, 30, 'W38S2') })];
+const A7 = mk('A', 'attacker', 'W38S2', 36, 30, 160);
+const H7 = mk('H', 'healer', 'W38S2', 35, 30, 700);
+A7.pos.getDirectionTo = () => 3;
+step();
+assert.ok(A7.acts.some((x) => x[0] === 'move' && x[1] === 3), 'stomps (37,30) first');
+assert.ok(!A7.memory.goHome);
+kill(hs, 'sp7');
+step();
+assert.ok(A7.memory.goHome, 'no spawn/tower sites left -> attacker home');
+step();
+assert.ok(H7.memory.goHome, 'healer follows home');
+console.log('OK');
+
+console.log('--- 11:18 dismantler: one 10W10M unboosted, order ext > terminal > storage > container > link, no roads ---');
+reset2();
+hc.length = 0; hs.length = 0;
+mk('C', 'claimer', 'W38S2', 22, 21, 500);
+step();
+let dq = war.getDemands({ name: 'W37S5' }).filter((x) => x.memory.warRole === 'dismantler');
+assert.strictEqual(dq.length, 1);
+assert.deepStrictEqual(dq[0].body(5600), ['work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'move', 'move', 'move', 'move', 'move', 'move', 'move', 'move', 'move', 'move']);
+assert.strictEqual(dq[0].body(5600).reduce((t, p) => t + ({ work: 100, move: 50 })[p], 0), 1500);
+assert.deepStrictEqual(dq[0].memory.boosts, []);
+const D8 = mk('D', 'dismantler', 'W38S2', 30, 31, 1400);
+step();
+assert.deepStrictEqual(war.getDemands({ name: 'W37S5' }).filter((x) => x.memory.warRole === 'dismantler'), [], 'only one');
+assert.strictEqual(W().dismantler.spawned, 'D');
+global.__simMove = true;
+const dorder = [];
+for (let i = 0; i < 400 && st.some((x) => x.structureType !== 'road'); i++) {
+  D8.acts.length = 0;
+  step();
+  const dd2 = D8.acts.find((x) => x[0] === 'dismantle');
+  if (dd2) { const o = st.find((x) => x.id === dd2[1]); assert.ok(o); assert.notStrictEqual(o.structureType, 'road'); dorder.push(o.structureType); kill(st, o.id); }
+}
+global.__simMove = false;
+const firstNonExt = dorder.findIndex((k) => k !== 'extension');
+assert.strictEqual(firstNonExt, 40, 'all extensions first');
+assert.deepStrictEqual(dorder.slice(40), ['terminal', 'storage', 'container', 'link']);
+assert.strictEqual(st.length, 2, 'roads left');
+step();
+assert.ok(D8.memory.retired, 'done -> recycle');
+console.log('OK');
+
+console.log('--- 11:18 dismantler stomps spawn/tower sites near its path only, retreats on combat creep / safe mode ---');
+reset2();
+hc.length = 0;
+hs = [mine({ id: 'far', structureType: 'spawn', pos: new RoomPosition(5, 5, 'W38S2') })];
+mk('C', 'claimer', 'W38S2', 22, 21, 500);
+const D9 = mk('D', 'dismantler', 'W38S2', 30, 31, 1400);
+step();
+assert.ok(!moves.some((m) => m.name === 'D' && m.range === 0), 'far spawn site ignored');
+hs.push(mine({ id: 'near', structureType: 'tower', pos: new RoomPosition(32, 31, 'W38S2') }));
+moves.length = 0; step();
+assert.ok(moves.some((m) => m.name === 'D' && m.range === 0 && m.to.x === 32), 'near tower site stomped');
+hs.length = 0;
+hc.push(mine({ id: 'k9', name: 'k9', pos: new RoomPosition(10, 10, 'W38S2'), body: [{ type: 'attack', hits: 100 }] }));
+moves.length = 0; step();
+assert.ok(moves.some((m) => m.name === 'D' && m.to.roomName === 'W37S5'), 'combat creep -> retreat home');
+hc.length = 0;
+moves.length = 0; step();
+assert.ok(!moves.some((m) => m.name === 'D' && m.to.roomName === 'W37S5'), 'threat gone -> back to work');
+Game.rooms.W38S2.controller.safeMode = 5000;
+moves.length = 0; step();
+assert.ok(moves.some((m) => m.name === 'D' && m.to.roomName === 'W37S5'), 'enemy safe mode -> home');
+console.log('OK');
+
+console.log('--- site avoid costCallback marks extension sites, not spawn/tower ---');
+{
+  reset2();
+  hc.length = 0;
+  hs = [mine({ id: 'e', structureType: 'extension', pos: new RoomPosition(10, 10, 'W38S2') }), mine({ id: 't', structureType: 'tower', pos: new RoomPosition(11, 11, 'W38S2') })];
+  Memory.ags131War.mode = 'clear';
+  const D0 = mk('D', 'dismantler', 'W38S2', 10, 40, 1400);
+  let captured = null;
+  const mv = require.cache[path.join(src, 'movement.js')].exports;
+  const og = mv.go;
+  mv.go = (c, t, o) => { captured = o; };
+  step();
+  mv.go = og;
+  assert.ok(captured && typeof captured.costCallback === 'function', JSON.stringify([captured, W().mode, D0.acts, D0.memory]));
+  const cm2 = { v: {}, get(x, y) { return this.v[x + ',' + y] || 0; }, set(x, y, c) { this.v[x + ',' + y] = c; } };
+  captured.costCallback('W38S2', cm2);
+  assert.strictEqual(cm2.get(10, 10), 60);
+  assert.strictEqual(cm2.get(11, 11), 0);
+}
 console.log('OK');
 
 console.log('ALL PHASE 2 TESTS PASSED');

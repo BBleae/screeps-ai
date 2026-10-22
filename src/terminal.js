@@ -183,8 +183,14 @@ function planSenders(rooms, cfg) {
         if (left < minSend) continue;
         const budget = energyOf(from.terminal.store) - Math.max(feeKeep, feeReserveOf(from));
         const below = Number(rule.receiverBelow) || Infinity;
-        const targets = (rule.to || []).map((n) => byName[n]).filter((to) => to && to.name !== name && !noEnergyIn(to) && !(to.controller && to.controller.level >= 8) && freeOf(to.terminal.store) > 0 && roomEnergy(to) < below)
-            .sort((a, b) => (burnRoom(cfg, b) - burnRoom(cfg, a)) || (roomEnergy(a) - roomEnergy(b)));
+        const byRoomBelow = rule.receiverBelowByRoom || {};
+        const storageOnly = Array.isArray(rule.receiverStorageOnly) ? rule.receiverStorageOnly : [];
+        const level = (to) => (storageOnly.indexOf(to.name) >= 0 ? energyOf(to.storage && to.storage.my !== false && to.storage.store) : roomEnergy(to));
+        const lineOf = (to) => (byRoomBelow[to.name] != null ? Number(byRoomBelow[to.name]) : below);
+        const lastList = Array.isArray(rule.receiverLast) ? rule.receiverLast : [];
+        const lastOf = (to) => (lastList.indexOf(to.name) >= 0 ? 1 : 0);
+        const targets = (rule.to || []).map((n) => byName[n]).filter((to) => to && to.name !== name && !noEnergyIn(to) && !(to.controller && to.controller.level >= 8) && freeOf(to.terminal.store) > 0 && level(to) < lineOf(to))
+            .sort((a, b) => (lastOf(a) - lastOf(b)) || (burnRoom(cfg, b) - burnRoom(cfg, a)) || (roomEnergy(a) - roomEnergy(b)));
         for (const to of targets) {
             let amount = Math.min(spare, Number(rule.maxSend) || cfg.maxSend, freeOf(to.terminal.store), budget, left);
             let cost = transactionCost(amount, from.name, to.name);

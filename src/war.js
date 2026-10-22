@@ -74,6 +74,10 @@ function clearCfg() {
         hardCapTick: 74487500,
         urgentSites: ['spawn', 'tower'],
         stomperBody: ['move'],
+        dismantlerBody: ['work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'work', 'move', 'move', 'move', 'move', 'move', 'move', 'move', 'move', 'move', 'move'],
+        structOrder: ['extension', 'terminal', 'storage', 'container', 'link'],
+        pairHomeAfterSites: true,
+        siteRange: 5,
     }, cfg().clear || {});
 }
 
@@ -227,19 +231,26 @@ function clearTarget(creep, scan) {
     };
     if (scan.creeps.length) return { kind: 'creep', obj: pick(scan.creeps) };
     const sites = creep && creep.pos ? scan.sites.filter((o) => !(o.pos.x === creep.pos.x && o.pos.y === creep.pos.y)) : scan.sites;
-    const w = state();
-    const cap = Number(clearCfg().siteTicks) || 0;
-    if (w && !scan.sites.length && w.siteSince != null) delete w.siteSince;
-    if (w && scan.sites.length && w.siteSince == null) w.siteSince = Game.time;
-    const long = cap > 0 && !!w && w.siteSince != null && Game.time - w.siteSince > cap && scan.structs.length > 0;
-    if (long) {
-        const urgent = sites.filter((o) => o.structureType === 'spawn' || Number(o.progress) > 0);
-        if (urgent.length) return { kind: 'site', obj: pick(urgent) };
-        return { kind: 'struct', obj: pick(scan.structs) };
-    }
     if (sites.length) return { kind: 'site', obj: pickSite(creep, sites) };
-    if (scan.structs.length) return { kind: 'struct', obj: pick(scan.structs) };
+    if (scan.structs.length) return { kind: 'struct', obj: pickStruct(creep, scan.structs) };
     return null;
+}
+
+function pickStruct(creep, list) {
+    const order = clearCfg().structOrder;
+    let best = null;
+    let bk = null;
+    for (const o of list) {
+        const r = order.indexOf(o.structureType);
+        const d = creep && creep.pos && o.pos ? Math.max(Math.abs(creep.pos.x - o.pos.x), Math.abs(creep.pos.y - o.pos.y)) : 0;
+        const k = (r < 0 ? order.length : r) * 100 + d;
+        if (bk == null || k < bk) { bk = k; best = o; }
+    }
+    return best;
+}
+
+function dismantlers() {
+    return liveWar('dismantler');
 }
 
 function leftOf(scan) {
@@ -331,7 +342,9 @@ function clearTick(w) {
             w.mode = 'watch';
         } else {
             const pair = phase2Pair(w);
-            const fighting = pair.some((n) => { const c = Game.creeps[n]; return c && !(c.memory && (c.memory.goHome || c.memory.retired)); });
+            const dm = w.dismantler || {};
+            const fighting = pair.some((n) => { const c = Game.creeps[n]; return c && !(c.memory && (c.memory.goHome || c.memory.retired)); }) ||
+                dismantlers().length > 0 || (!dm.spawned && !!scan && scan.structs.length > 0);
             if (!fighting) {
                 logEvent('clearIncomplete', { left: w.clear && w.clear.left });
                 w.mode = 'watch';
@@ -429,6 +442,13 @@ function phase2Demands(room, w) {
         if ((coverDue || (!cover && next != null && Game.time >= next)) && !homeBusy && cs.length < timing().claimerMax) {
             out.push(demandRequest('claimer', 'n', 0, { body: cc.claimerBody.slice(), phase2: true }));
         }
+    }
+    const dm = w.dismantler || (w.dismantler = {});
+    if (w.mode === 'clear' && !dm.spawned) {
+        const live = dismantlers();
+        const left = w.clear && w.clear.left;
+        if (live.length) { dm.spawned = live[0].name; dm.at = Game.time; logEvent('dismantler', { name: live[0].name }); }
+        else if (!left || left.structs > 0) out.push(demandRequest('dismantler', 0, 0, { body: cc.dismantlerBody.slice(), phase2: true }));
     }
     const wt = w.watch;
     if (w.mode === 'watch' && wt) {
@@ -1072,5 +1092,5 @@ module.exports = {
     home, target, boostsFor, cpuPressure, cfg, state, liveWar, fullyBoosted,
     paused, gatherPos, staging, dist, roomOf, locked, schedule, entryCheck, cohesion, timing, deathTick,
     primaryHealer, healerNeeded, warLive, labsReady, processRecycle, costCap, trackSpend,
-    hardCapped, mode, clearCfg, clearScan, clearTarget, pickSite, reliefOn, recordUnboost, labHold, threatOf,
+    hardCapped, mode, clearCfg, clearScan, pickStruct, dismantlers, clearTarget, pickSite, reliefOn, recordUnboost, labHold, threatOf,
 };

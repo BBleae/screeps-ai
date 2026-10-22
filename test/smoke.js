@@ -17669,6 +17669,15 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const s1 = term.planSenders([tR('W33S7', 90000, 30000, 8), tR('W38S7', 34000, 2400), tR('W33S3', 30000, 8000), tR('W31S8', 14000, 7000)], tcfg);
     assert(s1 && s1.from.name === 'W33S7' && s1.to.name === 'W31S8' && s1.amount <= 10000 && s1.amount >= 5000 && s1.amount + s1.cost <= 30000 - 3000, 'W33S7 storage 9 万：送 1 万给三房里最缺的 W31S8，留 terminal 燃料 3000（得 ' + JSON.stringify(s1 && { to: s1.to.name, a: s1.amount, c: s1.cost }) + '）');
     world.time += 10;
+    const s1b = term.planSenders([tR('W33S7', 90000, 30000, 8), tR('W38S7', 4000, 1000), tR('W33S3', 90000, 8000)], tcfg);
+    assert(s1b && s1b.to.name === 'W33S3', '10-22 11:18 W38S7 排最后：W33S3 还缺就先送 W33S3（得 ' + JSON.stringify(s1b && s1b.to.name) + '）');
+    world.time += 10;
+    assert(term.planSenders([tR('W33S7', 90000, 30000, 8), tR('W38S7', 60000, 1000)], tcfg) === null, 'W38S7 storage 6 万（terminal 只 1000）：不收');
+    world.time += 10;
+    const s1c = term.planSenders([tR('W33S7', 90000, 30000, 8), tR('W38S7', 40000, 30000)], tcfg);
+    assert(s1c && s1c.to.name === 'W38S7', 'W38S7 storage 4 万 < 5 万：才收（只看 storage）');
+    assert(config.industry.terminalFillByRoom.W38S7.storageAbove === 5000 && config.rampartFloorByPos.W33S3['47,12'] === 20000, 'W38S7 terminal 从自家 storage 补；W33S3 (47,12) rampart 2 万');
+    world.time += 10;
     assert(term.planSenders([tR('W33S7', 54000, 30000, 8), tR('W31S8', 14000, 7000)], tcfg) === null, 'storage 5.4 万：多出不到 5000，不送（storage 留 5 万）');
     world.time += 10;
     const s2 = term.planSenders([tR('W33S7', 60000, 20000, 8), tR('W31S8', 14000, 7000)], tcfg);
