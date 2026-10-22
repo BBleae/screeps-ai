@@ -350,9 +350,11 @@ const ST = (type, x, y) => ({ structureType: type, id: type + x + '_' + y, pos: 
   const far = hc('Miner1', 4, 21, ['work', 'move']);
   const corr = hc('Sneak', 29, 2, ['work', 'move']);
   const ally = Object.assign(hc('Ally1', 15, 5, ['work', 'move']), { owner: { username: 'Alepoldar' } });
+  const spMiner = hc('Miner2', 16, 15, ['work', 'move']);
+  const spawning = Object.assign(hc('Builder9', 14, 6, ['work', 'carry', 'move']), { spawning: true });
   config.allies = { names: ['Alepoldar'] };
   const room = tRoom({ towers: [tw], spawns: [ST('spawn', 17, 16)] });
-  const creeps = [rep, fill, far, corr, ally];
+  const creeps = [rep, fill, far, corr, ally, spMiner, spawning];
   room.find = (k) => (k === 'hostileStructures' ? [tw] : k === 'hostileSpawns' ? [ST('spawn', 17, 16)] : k === 'hostileCreeps' ? creeps : []);
   const a = Game.creeps['战猫甲.attacker'];
   a.pos = new RoomPosition(13, 5, 'W39S1'); a.pos.findClosestByRange = RoomPosition.prototype.findClosestByRange; a.room = { name: 'W39S1' };
@@ -363,7 +365,7 @@ const ST = (type, x, y) => ({ structureType: type, id: type + x + '_' + y, pos: 
   assert.strictEqual(t && t.name, 'Builder1', 'then the repairer near the tower');
   creeps.splice(creeps.indexOf(rep), 1);
   t = warrior.lootAttackTarget(a, room);
-  assert.ok(t && t.structureType === 'tower', 'far miner, corridor creep and ally are ignored; back to the tower');
+  assert.ok(t && t.structureType === 'tower', 'far miner, miner by the spawn, spawning creep, corridor creep and ally are ignored; back to the tower');
   ok('noClaimer: kill tower fillers/repairers (WORK near tower/spawn, energy CARRY near tower) before structures; ignore far/corridor/ally creeps');
 })();
 

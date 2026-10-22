@@ -172,12 +172,11 @@ function inCorridor(p) {
 }
 
 function supportCreep(room, towers) {
-    const spawns = (room.find(FIND_HOSTILE_SPAWNS) || []).filter(notAlly);
-    const keys = towers.concat(spawns);
+    const keys = towers;
     const near = (c, list, r) => list.some((o) => Math.max(Math.abs(o.pos.x - c.pos.x), Math.abs(o.pos.y - c.pos.y)) <= r);
     const energyOf = (c) => (c.store ? Number(c.store.energy != null ? c.store.energy : (typeof c.store.getUsedCapacity === 'function' ? c.store.getUsedCapacity('energy') : 0)) || 0 : 0);
     return (room.find(FIND_HOSTILE_CREEPS) || []).filter(notAlly).filter((c) => {
-        if (!c.pos || inCorridor(c.pos)) return false;
+        if (!c.pos || c.spawning || inCorridor(c.pos)) return false;
         const work = hasPart(c, 'work');
         const carry = hasPart(c, 'carry');
         if (!work && !carry) return false;
