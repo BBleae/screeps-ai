@@ -120,7 +120,7 @@ module.exports = {
     conquest: {
         lootHaulerTotal: 14,
         haulerBoost: {},
-        lootDropFixed: { W37S2: 'W37S5', W35S1: 'W37S5', W37S3: 'W37S5' },
+        lootDropFixed: { W37S2: 'W37S5', W35S1: 'W37S5', W37S3: 'W37S5', W39S1: 'W37S5' },
         lootDropFullShare: 0.9,
         boostPlanMinBucket: 8000,
         cpuExemptHaulers: ['W37S2', 'W35S1'],
@@ -184,7 +184,7 @@ module.exports = {
         aggressorTtl: 20000,
         highThreatIds: ['5a8a3d2d90d85961a7b853de'],
         armedMemory: 300,
-        dangerRooms: ['W38S2', 'W39S1'],
+        dangerRooms: ['W39S1'],
         tempAvoid: {
             W29S10: { until: 74405600 }, W30S10: { until: 74405600 }, W31S10: { until: 74405600 }, W32S10: { until: 74405600 }, W33S10: { until: 74405600 },
             W30S8: { until: 74405600, untilNoPowerBank: true },
@@ -671,10 +671,11 @@ module.exports = {
         modules: ['terminal', 'deposit', 'demolition', 'expansion', 'wheel', 'conquest'],
     },
     lootRoutes: {
-        hardAvoid: ['W38S2', 'W38S3', 'W39S1', 'W39S2', 'W39S3', 'W39S4', 'W39S5', 'W38S1', 'W37S1', 'W36S1', 'W36S2', 'W36S6'],
+        hardAvoid: ['W38S3', 'W39S2', 'W39S3', 'W39S4', 'W39S5', 'W37S1', 'W36S1', 'W36S2', 'W36S6'],
         W37S2: ['W37S7', 'W37S6', 'W37S5', 'W38S7', 'W38S6', 'W38S5', 'W38S4', 'W37S4', 'W37S3', 'W37S2'],
         W37S3: ['W37S7', 'W37S6', 'W37S5', 'W38S5', 'W38S4', 'W37S4', 'W37S3', 'W38S6', 'W38S7'],
         W35S1: ['W37S5', 'W38S5', 'W38S4', 'W37S4', 'W37S3', 'W36S3', 'W35S3', 'W35S2', 'W35S1'],
+        W39S1: ['W37S5', 'W38S5', 'W38S4', 'W37S4', 'W37S3', 'W37S2', 'W38S2', 'W38S1', 'W38S0', 'W39S0', 'W39S1'],
         gates: { W38S5: ['W37S5', 'W38S4'] },
         gateRooms: ['W38S5', 'W38S4', 'W37S4', 'W37S3', 'W36S3', 'W35S3', 'W35S2', 'W38S6', 'W37S6'],
     },

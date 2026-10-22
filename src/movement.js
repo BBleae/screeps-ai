@@ -840,6 +840,15 @@ function invalidateRoom(roomName) {
     return pathResult === undefined ? matrixResult : pathResult;
 }
 
+function resetRouteCaches() {
+    lootAvoidCache.clear();
+    civRoutes.clear();
+    detourRoutes.clear();
+    resetSafeRoutes();
+    state.danger = null;
+    state.civDanger = null;
+}
+
 function resetCreepPath(creep) {
     const name = creep && typeof creep === 'object' ? creep.name : creep;
     if (!name) return resultCode('ERR_INVALID_ARGS', -10);
@@ -887,7 +896,7 @@ api = {
     keeperAvoidCallback,
     hostileTerritoryRooms,
     lootAvoidFor, safeRouteExists, frozenOwnerRooms, civilianRefuge, rangedThreats, rangedAvoidCallback, highwayBlocks, civilianDangerRooms, civilianRouteOk, isHighwayRoom, isCombatCreep,
-    resetSafeRoutes,
+    resetSafeRoutes, resetRouteCaches,
     knownLairs,
     noteKeeperTransit,
     stats,
