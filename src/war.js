@@ -241,6 +241,15 @@ function pickSite(creep, sites, skipId) {
     return best;
 }
 
+function creepRank(c) {
+    const n = String((c && c.name) || '');
+    if (/^(Builder|Maintenance)/.test(n)) return 0;
+    const body = Array.isArray(c && c.body) ? c.body : [];
+    const has = (t) => body.some((p) => p.type === t);
+    if (has('work') && has('carry') && !/^(Miner|Harvester|Upgrader)/.test(n)) return 0;
+    return 1;
+}
+
 function clearTarget(creep, scan) {
     if (!scan) return null;
     const pick = (list) => {
@@ -253,7 +262,13 @@ function clearTarget(creep, scan) {
         }
         return best;
     };
-    if (scan.creeps.length) return { kind: 'creep', obj: pick(scan.creeps) };
+    if (scan.creeps.length) {
+        if (lootWar()) {
+            const top = Math.min.apply(null, scan.creeps.map(creepRank));
+            return { kind: 'creep', obj: pick(scan.creeps.filter((c) => creepRank(c) === top)) };
+        }
+        return { kind: 'creep', obj: pick(scan.creeps) };
+    }
     const sites = creep && creep.pos ? scan.sites.filter((o) => !(o.pos.x === creep.pos.x && o.pos.y === creep.pos.y)) : scan.sites;
     if (sites.length) return { kind: 'site', obj: pickSite(creep, sites) };
     if (scan.structs.length) return { kind: 'struct', obj: pickStruct(creep, scan.structs) };
@@ -287,6 +302,7 @@ function hardCapped() {
 }
 
 function reliefOn(w) {
+    if (noClaimer()) return false;
     if (w.claimerUntilCreepsDead === false) return false;
     if (hardCapped()) return false;
     if (w.enemySafe) return false;

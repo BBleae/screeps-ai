@@ -600,7 +600,7 @@ function clearClaimer(creep, w, room) {
 
 function runWatcher(creep, w, room) {
     if (!inTarget(creep)) { intoTarget(creep); return; }
-    const canHit = (creep.body || []).some((p) => p.type === 'attack');
+    const canHit = !war.noClaimer() && (creep.body || []).some((p) => p.type === 'attack');
     const hostiles = canHit ? (room.find(FIND_HOSTILE_CREEPS) || []) : [];
     if (hostiles.length) {
         const t = creep.pos.findClosestByRange(hostiles);
@@ -665,6 +665,7 @@ function runPhase2(creep, w) {
     }
     if (role === 'dismantler') { runDismantler(creep, w, room); return; }
     if (w.phase === 'safemode' || w.enemySafe) { retreatHome(creep); return; }
+    if (role === 'claimer' && war.noClaimer()) { creep.memory.retired = true; retireMod.retireAtSpawn(creep); return; }
     if (role === 'claimer') clearClaimer(creep, w, room);
     else if (role === 'watcher') runWatcher(creep, w, room);
 }

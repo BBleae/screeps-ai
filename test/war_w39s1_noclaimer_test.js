@@ -369,4 +369,52 @@ const ST = (type, x, y) => ({ structureType: type, id: type + x + '_' + y, pos: 
   ok('noClaimer: kill tower fillers/repairers (WORK near tower/spawn, energy CARRY near tower) before structures; ignore far/corridor/ally creeps');
 })();
 
+(function clearModeNoClaimers() {
+  fresh(); incidentCreeps();
+  const w = Memory.lootWarW39S1;
+  w.mode = 'watch'; w.phase = 'won'; w.clear = { left: { creeps: 10, sites: 0, sitesLive: 0, extSites: 0, structs: 0, ext: 0 } };
+  delete w.claimerUntilCreepsDead;
+  assert.strictEqual(war.reliefOn(w), false, 'relief claimers off in noClaimer mode even if claimerUntilCreepsDead is unset');
+  const d = war.getDemands(homeRoom);
+  assert.ok(!d.some((r) => r.memory && r.memory.warRole === 'claimer'), 'no relief CLAIM creep requested in clear/watch mode');
+  retired.length = 0;
+  const cl = mk('战猫庚.claimer', 'claimer', 577, 'W38S5', 2, 17);
+  cl.body = [{ type: 'claim' }, { type: 'move' }, { type: 'move' }];
+  let attacked = false; cl.attackController = () => { attacked = true; };
+  Game.creeps[cl.name] = cl;
+  warrior.run(cl);
+  assert.ok(cl.memory.retired && retired.indexOf(cl.name) >= 0 && !attacked, 'a live claimer is sent to recycle and never attackControllers');
+  ok('clear/watch mode: no relief claimers, existing claimers recycle, never attackController');
+})();
+
+(function clearOrderBuildersFirst() {
+  const hc = (name, x, y, parts) => ({ name, id: name, pos: new RoomPosition(x, y, 'W39S1'), owner: { username: 'sriptulous' }, body: parts.map((t) => ({ type: t })) });
+  const up = hc('Upgrader1', 13, 6, ['work', 'carry', 'move']);
+  const mi = hc('Miner1', 13, 7, ['work', 'move']);
+  const bu = hc('Builder2', 30, 30, ['work', 'carry', 'move']);
+  const ma = hc('Maintenance3', 31, 31, ['work', 'carry', 'move']);
+  const a = { pos: new RoomPosition(13, 5, 'W39S1') };
+  let t = war.clearTarget(a, { creeps: [up, mi, bu, ma], sites: [], liveSites: [], structs: [] });
+  assert.strictEqual(t.obj.name, 'Builder2', 'Builder/Maintenance first even when farther');
+  t = war.clearTarget(a, { creeps: [up, mi], sites: [], liveSites: [], structs: [] });
+  assert.strictEqual(t.obj.name, 'Upgrader1', 'then the nearest economy creep');
+  ok('clear order: Builder*/Maintenance* before other economy creeps');
+})();
+
+(function watcherSitesOnly() {
+  fresh(); incidentCreeps();
+  const w = Memory.lootWarW39S1; w.mode = 'watch'; w.phase = 'won';
+  const site = { id: 's1', structureType: 'tower', progress: 10, pos: new RoomPosition(20, 20, 'W39S1'), owner: { username: 'sriptulous' } };
+  const foe = { name: 'Upgrader1', pos: new RoomPosition(11, 10, 'W39S1'), owner: { username: 'sriptulous' }, body: [{ type: 'work' }] };
+  Game.rooms.W39S1 = { name: 'W39S1', controller: {}, find: (k) => (k === 'hostileCreeps' ? [foe] : k === 'hostileSites' ? [site] : []), lookForAt: () => [] };
+  const wt = mk('战猫戊.watcher', 'watcher', 1300, 'W39S1', 10, 10);
+  wt.body = [{ type: 'attack' }, { type: 'move' }];
+  let hit = false; wt.attack = () => { hit = true; };
+  moves.length = 0;
+  warrior.run(wt);
+  assert.ok(!hit, 'watcher never attacks creeps in noClaimer mode');
+  assert.ok(moves.some((m) => m.name === '战猫戊.watcher' && m.to.x === 20 && m.to.y === 20), 'watcher heads for the tower site to stomp it');
+  ok('watcher only stomps spawn/tower sites in noClaimer mode');
+})();
+
 console.log('ALL W39S1 NO-CLAIMER TESTS PASSED (' + pass + ')');
