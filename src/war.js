@@ -1075,6 +1075,7 @@ function squadTick(w) {
     }
     if (w.phase !== 'assault' && w.phase !== 'won') return;
     if (deathWithdraw(w)) return;
+    if (ttlWithdraw(w)) return;
     if (!w.squad) { regroup(w, 'noSquad'); return; }
     const a = liveWar('attacker')[0];
     const h = primaryHealer();
@@ -1098,6 +1099,15 @@ function withdrawAll(w, why, data) {
     w.squad = null;
     w.crossAt = null;
     logEvent('withdraw', w.withdraw);
+}
+
+function ttlWithdraw(w) {
+    const lim = Number(cfg().squadHomeTtl) || 0;
+    if (!noClaimer() || !lim || !Array.isArray(w.squadBoosted)) return false;
+    const low = w.squadBoosted.filter((n) => { const c = Game.creeps[n]; return c && c.ticksToLive != null && c.ticksToLive <= lim; });
+    if (!low.length) return false;
+    withdrawAll(w, 'ttl', { low, lim });
+    return true;
 }
 
 function deathWithdraw(w) {
@@ -1148,7 +1158,7 @@ function observe(w) {
         w.phase = 'won';
         logEvent('objectivesDown', {});
     }
-    lootSplit(w, room, spawns.length === 0 && towers.length === 0);
+    lootSplit(w, room, noClaimer() ? towers.length === 0 : spawns.length === 0 && towers.length === 0);
 }
 
 function lootSplit(w, room, structsCleared) {
@@ -1234,5 +1244,5 @@ module.exports = {
     paused, gatherPos, staging, dist, roomOf, locked, schedule, entryCheck, cohesion, timing, deathTick,
     primaryHealer, healerNeeded, warLive, labsReady, processRecycle, costCap, trackSpend,
     hardCapped, mode, clearCfg, clearScan, pickStruct, dismantlers, clearTarget, pickSite, reliefOn, recordUnboost, labHold, threatOf,
-    lootWar, FORBIDDEN_LOOT, memKey, lootSplit, observe, nearHealer, liveWarAll, noClaimer, noRespawn, withdrawAll, deathWithdraw, openLootRoute,
+    lootWar, FORBIDDEN_LOOT, memKey, lootSplit, observe, nearHealer, liveWarAll, noClaimer, noRespawn, withdrawAll, deathWithdraw, ttlWithdraw, openLootRoute,
 };

@@ -174,7 +174,7 @@ console.log('--- war: split after towers+spawn dead; controller lock required on
 {
   const warSrc = fs.readFileSync(path.join(src, 'war.js'), 'utf8');
   assert.ok(/if \(!structsCleared\) return;\s*\n\s*if \(!noClaimer\(\) && !locked\(room\)\) return;/.test(warSrc));
-  assert.ok(/lootSplit\(w, room, spawns\.length === 0 && towers\.length === 0\)/.test(warSrc));
+  assert.ok(/lootSplit\(w, room, noClaimer\(\) \? towers\.length === 0 : spawns\.length === 0 && towers\.length === 0\)/.test(warSrc));
   const mainSrc = fs.readFileSync(path.join(src, 'main.js'), 'utf8');
   assert.ok(/require\('loot_split'\)\.run\(\)/.test(mainSrc));
   console.log('OK');

@@ -248,6 +248,7 @@ const ST = (type, x, y) => ({ structureType: type, id: type + x + '_' + y, pos: 
 
 (function agedOutNoWithdraw() {
   fresh(); incidentCreeps();
+  const keepTtl = config.war.squadHomeTtl; config.war.squadHomeTtl = 0;
   war.tick();
   Game.creeps['战猫.healer'].ticksToLive = 1;
   Game.time++; war.tick();
@@ -259,6 +260,7 @@ const ST = (type, x, y) => ({ structureType: type, id: type + x + '_' + y, pos: 
   delete Game.creeps['战猫乙.healer'];
   Game.time++; war.tick();
   assert.ok(w.withdraw && w.withdraw.why === 'death', 'a real death still withdraws');
+  config.war.squadHomeTtl = keepTtl;
   ok('old-age expiry logs agedOut without withdrawal; a combat death still withdraws');
 })();
 
@@ -303,6 +305,38 @@ const ST = (type, x, y) => ({ structureType: type, id: type + x + '_' + y, pos: 
   Game.time++; war.tick();
   assert.strictEqual(w.phase, 'staging', 'a boosted creep under 50% -> pull out of W39S1');
   ok('healers heal the lowest effective-HP squad member (incl. self, predicted tower dmg), no fixed pairing; <50% -> pull out');
+})();
+
+(function ttlHome() {
+  fresh(); incidentCreeps();
+  war.tick();
+  const w = Memory.lootWarW39S1;
+  Game.creeps['战猫.healer'].ticksToLive = 151;
+  Game.time++; war.tick();
+  assert.ok(!w.withdraw, 'ttl 151 keeps fighting');
+  Game.creeps['战猫.healer'].ticksToLive = 150;
+  Game.time++; war.tick();
+  assert.ok(w.withdraw && w.withdraw.why === 'ttl' && w.withdraw.low[0] === '战猫.healer', 'boosted squad ttl <= squadHomeTtl -> whole squad home');
+  moves.length = 0;
+  warrior.run(Game.creeps['战猫乙.healer']);
+  assert.ok(moves.some((m) => m.name === '战猫乙.healer' && m.to.room === 'W37S5'), 'healthy creeps go home too');
+  assert.deepStrictEqual(war.getDemands(homeRoom), []);
+  ok('squad ttl <= 150 -> whole squad withdraws to W37S5 to unboost');
+})();
+
+(function splitAtTowersDown() {
+  fresh(); incidentCreeps();
+  Memory.cfg = { lootRoutes: { hardAvoid: ['W39S1', 'W36S6'] } };
+  delete Memory.lootWarLoot;
+  const spawn = ST('spawn', 17, 16);
+  const room = tRoom({ towers: [ST('tower', 16, 12)], spawns: [spawn] });
+  Game.rooms.W39S1 = room;
+  war.tick();
+  room.find = (k) => (k === 'hostileSpawns' ? [spawn] : []);
+  Game.time++; war.tick();
+  assert.ok(Memory.lootWarLoot && Memory.lootWarLoot.haulers === 8, 'haulers sent when both towers are down even with the spawn alive');
+  assert.deepStrictEqual(Memory.cfg.lootRoutes.hardAvoid, ['W36S6']);
+  ok('towers down (spawn still up) -> 8/6 split + W39S1 out of hardAvoid');
 })();
 
 console.log('ALL W39S1 NO-CLAIMER TESTS PASSED (' + pass + ')');
