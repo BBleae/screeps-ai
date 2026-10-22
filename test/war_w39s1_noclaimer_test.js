@@ -417,4 +417,39 @@ const ST = (type, x, y) => ({ structureType: type, id: type + x + '_' + y, pos: 
   ok('watcher only stomps spawn/tower sites in noClaimer mode');
 })();
 
+(function hunterOrderAndRecycle() {
+  fresh(); incidentCreeps();
+  const w = Memory.lootWarW39S1; w.mode = 'watch'; w.phase = 'won';
+  const hc = (name, x, y, owner) => ({ name, id: name, pos: new RoomPosition(x, y, 'W39S1'), owner: { username: owner || 'sriptulous' }, body: [{ type: 'work' }, { type: 'carry' }, { type: 'move' }] });
+  let foes = [hc('Miner1', 20, 21), hc('Harvester1', 21, 20), hc('Upgrader1', 22, 22), hc('Builder1', 40, 40), hc('Maintenance1', 41, 41), hc('Ally1', 20, 19, 'Alepoldar')];
+  const ctl = {};
+  Game.rooms.W39S1 = { name: 'W39S1', controller: ctl, find: (k) => (k === 'hostileCreeps' ? foes : []), lookForAt: () => [] };
+  const h = mk('战猫辛.hunter', 'hunter', 1400, 'W39S1', 20, 20, { boosts: [], slotKey: undefined });
+  h.body = [{ type: 'attack' }, { type: 'move' }];
+  Game.creeps[h.name] = h;
+  const order = [];
+  for (let i = 0; i < 8 && foes.some((f) => f.owner.username === 'sriptulous'); i++) {
+    acts.length = 0; moves.length = 0;
+    warrior.run(h);
+    const hit = acts.find((x) => x[0] === h.name && x[1] === 'attack');
+    const mv = moves.find((m) => m.name === h.name);
+    let t = hit ? foes.find((f) => f.id === hit[2]) : (mv ? foes.find((f) => f.pos.x === mv.to.x && f.pos.y === mv.to.y) : null);
+    assert.ok(t, 'hunter acts on a foe');
+    assert.notStrictEqual(t.owner.username, 'Alepoldar', 'never targets the ally');
+    order.push(t.name);
+    foes = foes.filter((f) => f !== t);
+  }
+  assert.deepStrictEqual(order.slice(0, 3), ['Builder1', 'Maintenance1', 'Upgrader1'], 'kill order: ' + order.join(','));
+  assert.deepStrictEqual(order.slice(3).sort(), ['Harvester1', 'Miner1'], 'miners/harvesters last: ' + order.join(','));
+  retired.length = 0; acts.length = 0;
+  warrior.run(h);
+  assert.ok(h.memory.retired && retired.indexOf(h.name) >= 0, 'recycles when only the ally is left');
+  assert.ok(!acts.some((x) => x[1] === 'attack'), 'no attack on the ally');
+  const h2 = mk('战猫壬.hunter', 'hunter', 1400, 'W39S1', 20, 20, { boosts: [], slotKey: undefined });
+  foes = [hc('Builder9', 21, 21)]; ctl.safeMode = 500; retired.length = 0; acts.length = 0;
+  warrior.run(h2);
+  assert.ok(h2.memory.retired && retired.indexOf(h2.name) >= 0 && !acts.length, 'enemy safe mode -> withdraw and recycle at once');
+  ok('hunter: Builder/Maintenance > Upgrader > Miner/Harvester, ally untouched, recycles when cleared or on safe mode');
+})();
+
 console.log('ALL W39S1 NO-CLAIMER TESTS PASSED (' + pass + ')');

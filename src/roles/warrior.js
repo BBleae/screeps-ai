@@ -688,8 +688,52 @@ function boostRetry(creep) {
     return false;
 }
 
+const HUNT_RANK = [/^(Builder|Maintenance)/, /^Upgrader/, /^(Miner|Harvester)/];
+
+function huntRank(c) {
+    const n = String((c && c.name) || '');
+    const i = HUNT_RANK.findIndex((re) => re.test(n));
+    return i < 0 ? HUNT_RANK.length : i;
+}
+
+function huntPick(creep, list) {
+    let best = null;
+    let bk = null;
+    for (const c of list) {
+        const k = [huntRank(c), war.dist(creep, c)];
+        if (!bk || k[0] < bk[0] || (k[0] === bk[0] && k[1] < bk[1])) { bk = k; best = c; }
+    }
+    return best;
+}
+
+function huntDone(creep, why) {
+    creep.memory.retired = true;
+    war.logEvent('huntDone', { name: creep.name, why, ttl: creep.ticksToLive });
+    retireMod.retireAtSpawn(creep);
+}
+
+function runHunter(creep) {
+    if (creep.spawning) return;
+    const room = Game.rooms[war.target()];
+    const w = war.state() || {};
+    if (w.enemySafe || (room && room.controller && room.controller.safeMode)) { huntDone(creep, 'safemode'); return; }
+    if (!inTarget(creep)) { intoTarget(creep); return; }
+    const scan = war.clearScan(room);
+    const foes = scan ? scan.creeps.filter((c) => !c.spawning) : [];
+    if (!foes.length) {
+        if (scan && !scan.creeps.length) huntDone(creep, 'cleared');
+        else if (stepOffEdge(creep)) return;
+        return;
+    }
+    const t = huntPick(creep, foes);
+    if (creep.pos.isNearTo(t.pos)) { creep.attack(t); return; }
+    if (stepOffEdge(creep)) return;
+    goWar(creep, t.pos, 1);
+}
+
 function run(creep) {
     if (creep.memory.retired) { retireMod.retireAtSpawn(creep); return; }
+    if (creep.memory.warRole === 'hunter') { runHunter(creep); return; }
     const w = war.state();
     if (!w) {
         if (war.paused()) holdPaused(creep);
