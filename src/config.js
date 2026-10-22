@@ -395,7 +395,7 @@ module.exports = {
         storageFeedRate: 20,
         maxUpgradersRich: { 1: 1, 2: 4, 3: 4, 4: 4, 5: 3, 6: 3, 7: 3, 8: 1 },
         forceRichUpgraders: [],
-        hold: { W31S5: { resumeAt: 10000, holdBelow: 6000, guardLow: 0.5, guardHigh: 0.9, work: 2, smooth: 0.02, retireMaxTtl: 1400 }, W37S5: { resumeAt: 100000, holdBelow: 95000, guardLow: 0.5, guardHigh: 0.9, work: 2, smooth: 0.02, retireMaxTtl: 1400 } },
+        hold: { W31S5: { resumeAt: 10000, holdBelow: 6000, guardLow: 0.5, guardHigh: 0.9, work: 2, smooth: 0.02, retireMaxTtl: 1400 }, W37S5: { resumeAt: 80000, holdBelow: 78000, guardLow: 0.5, guardHigh: 0.9, work: 2, smooth: 0.02, retireMaxTtl: 1400 } },
         storageFullAt: 30000,
         poorBelow: 10000,
         poorBudgetShare: 0.5,
@@ -579,6 +579,8 @@ module.exports = {
         dailySellShare: { keanium_bar: 0.12, OH: 0.12, LO: 0.12, battery: 0.12 },
         sellCapMinusLabUse: ['H'],
         sellStopAccountBelow: { H: 20000 },
+        sellResumeAccountAbove: { H: 22000 },
+        sellResumeStableTicks: 300,
         dealOnly: ['ZH2O'],
         noSellOrders: true,
         lootHoldRooms: ['W37S5'],
@@ -737,7 +739,7 @@ module.exports = {
     cfgOverlay: { interval: 200 },
     brain: { retired: true },
     energy: {
-        upgradeSurplus: { reserve: 50000, tiers: [[60000, 30], [100000, 45]], exitBelow: 45000, tiersByRoom: { W37S5: [[100000, 45]] }, exitBelowByRoom: { W37S5: 95000 }, linkWorkCap: 75, rooms: ['W32S4', 'W37S5', 'W33S8', 'W31S6', 'W29S3'], maxWorkPerCreep: 25, workPerMove: 5, maxCreepsByRoom: { W32S4: 1, W31S6: 1 } },
+        upgradeSurplus: { reserve: 50000, tiers: [[60000, 30], [100000, 45]], exitBelow: 45000, tiersByRoom: { W37S5: [[80000, 45]] }, exitBelowByRoom: { W37S5: 78000 }, linkWorkCap: 75, rooms: ['W32S4', 'W37S5', 'W33S8', 'W31S6', 'W29S3'], maxWorkPerCreep: 25, workPerMove: 5, maxCreepsByRoom: { W32S4: 1, W31S6: 1 } },
     },
     policy: {
         stage1Fallback: { lowStorage: 2000, lowRooms: 4, storageDownDays: 2, interval: 500 },

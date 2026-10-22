@@ -18099,9 +18099,9 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     Memory.market = { ledger: { day, sold: { H: 0 }, bought: {}, soldCredits: 0, buyCredits: 0, deals: 0 } };
     const mkR = (name, h) => ({ name, controller: { my: true, level: 8 }, storage: { my: true, store: { H: 0 } }, terminal: { my: true, store: { energy: 30000, H: h } } });
     Game.rooms = { W29S3: mkR('W29S3', 30000) };
+    Memory.strategistAlerts = { sellStop_H: { at: 1, clearedAt: 2, resumed: 'stable' } };
     const hs = mk.sellable(Game.rooms.W29S3, cfg, null);
     assert(hs.length === 1 && hs[0].amount === 7000, '帐号 H 3 万：今天未卖、lab 用 3000：还能卖 7000（得 ' + JSON.stringify(hs) + '）');
-    delete Memory.strategistAlerts;
     world.time++;
     Game.rooms = { W29S3: mkR('W29S3', 15000) };
     assert(mk.sellable(Game.rooms.W29S3, cfg, null).length === 0 && Memory.strategistAlerts.sellStop_H && Memory.strategistAlerts.sellStop_H.total === 15000 && Memory.strategistAlerts.sellStop_H.clearedAt == null,
@@ -18109,7 +18109,10 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     world.time++;
     Game.rooms = { W29S3: mkR('W29S3', 25000) };
     mk.sellable(Game.rooms.W29S3, cfg, null);
-    assert(Memory.strategistAlerts.sellStop_H.clearedAt === Game.time, '回到 2 万以上：恢复，告警记 clearedAt');
+    assert(Memory.strategistAlerts.sellStop_H.clearedAt == null && Memory.strategistAlerts.sellStop_H.okSince === Game.time, '10-22 回到 2.5 万：还不卖，≥2.2 万要稳 300 tick');
+    world.time += 300;
+    mk.sellable(Game.rooms.W29S3, cfg, null);
+    assert(Memory.strategistAlerts.sellStop_H.clearedAt === Game.time && Memory.strategistAlerts.sellStop_H.resumed === 'stable', '≥2.2 万稳 300 tick：恢复，告警记 clearedAt');
     config.market = savedCfgMarket; Memory.market = savedMem;
 }
 
@@ -18126,10 +18129,10 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const mem = { plan };
     assert(utils.linkSupplyWork(ur(0), mem, config.energy.upgradeSurplus) === 75, 'storage link→ctrl link 距离 10：776/10 = 77 → 封顶 75');
     const at = (e, lvl) => { world.time++; return utils.upgradeSurplusWork(ur(e, lvl), mem); };
-    assert(at(70000) === 0, '10-22 W37S5 只用 ≥10 万档：7 万不加');
-    assert(at(100000) === 45, '10 万：45 WORK');
-    assert(at(99000) === 45, '9.9 万：还在档内（95000 才退）');
-    assert(at(94000) === 0, '9.4 万：退档');
+    assert(at(70000) === 0, '10-22 W37S5 8 万以上才加：7 万不加');
+    assert(at(81000) === 45, '8.1 万：45 WORK（≥10 万档的量）');
+    assert(at(79000) === 45, '7.9 万：还在档内（78000 才退）');
+    assert(at(77000) === 0, '7.7 万：退档');
     assert(at(50000) === 0, '5 万：0');
     assert(at(49000) === 0, '4.9 万：回默认（不加量）');
     assert(at(120000, 8) === 45, 'RCL8：不再用 W37S5 专用档（回到通用档，升级上限另有 15 封顶）');

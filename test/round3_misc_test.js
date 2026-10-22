@@ -66,8 +66,7 @@ assert.ok(!nx || ['W31S2', 'W29S7', 'W38S5'].indexOf(nx.room) < 0);
 console.log('OK');
 
 console.log('--- W37S5 energy: upgraders on >=100k tier, export keeps 80k ---');
-assert.deepStrictEqual(config.energy.upgradeSurplus.tiersByRoom.W37S5, [[100000, 45]]);
-assert.strictEqual(config.upgrading.hold.W37S5.resumeAt, 100000);
+assert.strictEqual(config.upgrading.hold.W37S5.resumeAt, 80000);
 assert.ok(!config.upgrading.hold.W37S5.untilLootDone, 'no more upgrade hold while looting');
 assert.strictEqual(config.terminalNetwork ? true : true, true);
 const lx = (config.terminalNetwork && config.terminalNetwork.lootExport) || (config.terminal && config.terminal.lootExport);
@@ -78,8 +77,8 @@ const mk = (e) => ({ name: 'W37S5', controller: { my: true, level: 7, ticksToDow
 Memory.rooms.W37S5 = {};
 const h1 = utils.upgradeHold(mk(150000), {});
 assert.ok(h1 && !h1.on, '150k storage -> upgraders allowed');
-const h2 = utils.upgradeHold(mk(90000), {});
-assert.ok(h2 && h2.on, '90k -> held');
+const h2 = utils.upgradeHold(mk(70000), {});
+assert.ok(h2 && h2.on, '70k -> held');
 console.log('OK');
 
 console.log('--- W33S3 XGH2O: GH and G pulled from W32S4 ---');
@@ -107,3 +106,55 @@ assert.ok(Memory.deposits.wait && Memory.deposits.wait.d1 && JSON.stringify(Memo
 console.log('OK (bucket 10000 gave', okSpawn, 'miner request)');
 
 console.log('ROUND3 MISC TESTS PASSED');
+
+console.log('--- H selling: stop <20k, resume only after >=22k held 300 ticks ---');
+{
+  const mk2 = require('market');
+  const cfgH = { sellStopAccountBelow: { H: 20000 }, sellResumeAccountAbove: { H: 22000 }, sellResumeStableTicks: 300 };
+  let H = 21700;
+  const myRoom = { controller: { my: true }, storage: { store: { H: 0 } }, terminal: { store: {} } };
+  Game.rooms = { R1: myRoom };
+  const set = (v) => { H = v; myRoom.storage.store.H = v; Game.time++; };
+  Memory.strategistAlerts = { sellStop_H: { at: 1, clearedAt: 50, total: 20500 } };
+  set(21700);
+  assert.strictEqual(mk2.sellStopped('H', cfgH), true, '21.7k after an old-style clear -> stopped');
+  set(19000);
+  assert.strictEqual(mk2.sellStopped('H', cfgH), true, '<20k stopped');
+  set(22100);
+  assert.strictEqual(mk2.sellStopped('H', cfgH), true, 'first >=22k: still stopped');
+  Game.time += 150; myRoom.storage.store.H = 21900;
+  assert.strictEqual(mk2.sellStopped('H', cfgH), true, 'dip below 22k resets');
+  set(22000);
+  assert.strictEqual(mk2.sellStopped('H', cfgH), true);
+  Game.time += 299;
+  assert.strictEqual(mk2.sellStopped('H', cfgH), true, '299 ticks stable: not yet');
+  Game.time += 1;
+  assert.strictEqual(mk2.sellStopped('H', cfgH), false, '300 ticks >=22k: resumes');
+  set(21000);
+  assert.strictEqual(mk2.sellStopped('H', cfgH), false, 'resumed: 21k still selling (hysteresis)');
+  set(19999);
+  assert.strictEqual(mk2.sellStopped('H', cfgH), true, '<20k stops again');
+  set(21500);
+  assert.strictEqual(mk2.sellStopped('H', cfgH), true, 'back to 21.5k: stays stopped');
+  assert.strictEqual(mk2.sellStopped('U', cfgH), false, 'other resources untouched');
+  console.log('OK');
+}
+
+console.log('--- W37S5 upgraders on the 45-WORK tier above 80k (drop below 78k) ---');
+{
+  const ut = require('utils');
+  assert.deepStrictEqual(config.energy.upgradeSurplus.tiersByRoom.W37S5, [[80000, 45]]);
+  assert.strictEqual(config.energy.upgradeSurplus.exitBelowByRoom.W37S5, 78000);
+  assert.deepStrictEqual(config.energy.upgradeSurplus.tiers, [[60000, 30], [100000, 45]], 'other rooms unchanged');
+  const mem37 = { plan: {} };
+  const r37 = (e) => ({ name: 'W37S5', controller: { my: true, level: 7 }, storage: { my: true, store: { energy: e } } });
+  const at = (e) => { Game.time++; return ut.upgradeSurplusWork(r37(e), mem37); };
+  assert.strictEqual(at(79000), 0);
+  assert.strictEqual(at(81000), 45);
+  assert.strictEqual(at(78500), 45, 'hysteresis');
+  assert.strictEqual(at(77000), 0);
+  const hA = ut.upgradeHold(r37(90000), {});
+  assert.ok(hA && !hA.on, '90k: not held');
+  console.log('OK');
+}
+console.log('ROUND3 MISC TESTS PASSED (2)');

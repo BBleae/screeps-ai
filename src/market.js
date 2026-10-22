@@ -499,6 +499,24 @@ function sellStopped(resource, cfg) {
     const total = accountStock(resource);
     const alerts = Memory.strategistAlerts || (Memory.strategistAlerts = {});
     const key = 'sellStop_' + resource;
+    const resumeAt = Number(cfg.sellResumeAccountAbove && cfg.sellResumeAccountAbove[resource]) || 0;
+    if (resumeAt > floor) {
+        const stable = Math.max(0, Number(cfg.sellResumeStableTicks) || 0);
+        let rec = alerts[key];
+        const selling = !!rec && rec.clearedAt != null && rec.resumed === 'stable';
+        if (selling && !(total < floor)) return false;
+        if (!rec || rec.clearedAt != null) {
+            rec = alerts[key] = { at: Game.time, resource, total, floor, resumeAt, msg: resource + ' account stock below ' + (total < floor ? 'floor' : 'resume line') + ', selling stopped' };
+        }
+        rec.total = total;
+        if (total >= resumeAt) {
+            if (rec.okSince == null) rec.okSince = Game.time;
+            if (Game.time - rec.okSince >= stable) { rec.clearedAt = Game.time; rec.resumed = 'stable'; delete rec.okSince; return false; }
+        } else if (rec.okSince != null) {
+            delete rec.okSince;
+        }
+        return true;
+    }
     if (total < floor) {
         const rec = alerts[key];
         if (!rec || rec.clearedAt != null) alerts[key] = { at: Game.time, resource, total, floor, msg: resource + ' account stock below floor, selling stopped' };
@@ -1545,4 +1563,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { tradeOrders, learnBlocked, closeSoldDay, belowFor, dailyVolume, pixelPrice, notePixel, labUsedToday, sellCapFor, sellStopped, buyRoomOk, confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
+module.exports = { sellStopped, tradeOrders, learnBlocked, closeSoldDay, belowFor, dailyVolume, pixelPrice, notePixel, labUsedToday, sellCapFor, sellStopped, buyRoomOk, confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
