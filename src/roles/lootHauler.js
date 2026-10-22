@@ -626,7 +626,13 @@ function pickTarget(creep) {
         let top = 0;
         for (const o of list) top = Math.max(top, sideLoot.orderScore(o, m.lootOrder));
         for (const o of list) tiers[sideLoot.orderScore(o, m.lootOrder) === top ? 0 : 2].push(o);
-    } else for (const o of list) tiers[tierOf(o) - 1].push(o);
+    } else {
+        tiers.splice(2, 0, []);
+        for (const o of list) {
+            const t = tierOf(o);
+            tiers[t < 3 ? t - 1 : (o.structureType === STRUCTURE_STORAGE || o.structureType === STRUCTURE_TERMINAL ? 2 : 3)].push(o);
+        }
+    }
     let obj = null;
     let tier = 0;
     for (let i = 0; i < tiers.length && !obj; i++) {

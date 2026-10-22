@@ -57,14 +57,20 @@ function pickSpawn(creep) {
     return best;
 }
 
+function boosted(creep) {
+    return (creep.body || []).some((p) => p && p.boost);
+}
+
 function giveUp(creep) {
     delete creep.memory.retireSpawn;
     delete creep.memory.retireCheckAt;
+    if (boosted(creep)) return 'hold';
     if (typeof creep.suicide === 'function') creep.suicide();
     return 'suicide';
 }
 
 function worthWalking(creep, spawn, hops) {
+    if (boosted(creep)) return Number.isFinite(travelTicks(creep, spawn, hops));
     const ttl = creep.ticksToLive == null ? Infinity : Number(creep.ticksToLive);
     return travelTicks(creep, spawn, hops) < settings().walkShare * ttl;
 }
