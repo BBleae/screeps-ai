@@ -100,6 +100,10 @@ function squad() {
 }
 
 function leadClaimer(w, near) {
+    if (war.noClaimer()) {
+        const ds = war.liveWar('dismantler').filter(inTarget).filter((d) => !d.memory.done);
+        return ds.length ? ds[0] : null;
+    }
     const cs = war.liveWar('claimer').filter(inTarget);
     if (!cs.length) return null;
     const named = w.squad && cs.find((c) => c.name === w.squad.c);
@@ -109,14 +113,45 @@ function leadClaimer(w, near) {
 }
 
 function stepOffEdge(creep) {
-    if (creep.pos.y < 48 && creep.pos.y > 1 && creep.pos.x > 1 && creep.pos.x < 48) return false;
-    goWar(creep, new RoomPosition(creep.pos.x, Math.min(47, Math.max(2, creep.pos.y)), creep.room.name), 0);
+    const lo = war.noClaimer() ? 0 : 1;
+    if (creep.pos.y < 49 - lo && creep.pos.y > lo && creep.pos.x > lo && creep.pos.x < 49 - lo) return false;
+    goWar(creep, new RoomPosition(creep.pos.x, Math.min(48 - lo, Math.max(lo + 1, creep.pos.y)), creep.room.name), 0);
     return true;
 }
 
+function entryTile() {
+    const e = wcfg().entryPos;
+    return e ? new RoomPosition(e.x, e.y, war.target()) : null;
+}
+
 function crossOrHold(creep, w) {
+    const e = war.noClaimer() ? entryTile() : null;
+    if (e) { crossNoClaimer(creep, w, e); return; }
     const gathered = toGather(creep);
     if (gathered && w.crossAt === Game.time) creep.move(TOP_DIR);
+}
+
+function crossNoClaimer(creep, w, e) {
+    const role = creep.memory.warRole;
+    if (role === 'healer') {
+        healAround(creep);
+        const a = war.liveWar('attacker')[0];
+        const lead = a && !a.spawning ? a : null;
+        if (lead && war.roomOf(lead) === war.roomOf(creep) && war.dist(creep, lead) <= 1 && !inTarget(lead)) return;
+        if (lead) goWar(creep, lead.pos, 1);
+        else toGather(creep);
+        return;
+    }
+    if (role === 'attacker') {
+        const hs = war.liveWar('healer').filter((h) => !h.spawning && war.roomOf(h) === war.roomOf(creep));
+        const h = hs.find((x) => w.squad && x.name === w.squad.h) || hs[0];
+        if (h && !escortReady(creep, h)) return;
+        goWar(creep, e, 0);
+        return;
+    }
+    const a = war.liveWar('attacker')[0];
+    if (!a || !inTarget(a)) { toGather(creep); return; }
+    goWar(creep, e, 1);
 }
 
 function allySet() {
@@ -177,6 +212,12 @@ function escortLeaderFor(healer, w, room) {
         return c;
     }
     return c || a;
+}
+
+function breachWall(room, w) {
+    const b = wcfg().breach;
+    if (!b || w.breachDone || !room) return null;
+    return wallOrRampAt(room, b.x, b.y, true);
 }
 
 function escortHealerFor(leader, w, room) {
@@ -335,11 +376,11 @@ function cpos(c) {
 
 function runAttackerLoot(creep, w, room) {
     const h = escortHealerFor(creep, w, room);
-    if (!war.locked(room)) {
+    if (!war.noClaimer() && !war.locked(room)) {
         if (h && inTarget(h) && war.dist(creep, h) > 1 && escortReady(h, creep)) goWar(creep, h.pos, 1);
         return;
     }
-    const target = lootAttackTarget(creep, room);
+    const target = (war.noClaimer() && breachWall(room, w)) || lootAttackTarget(creep, room);
     if (!target) { if (h && inTarget(h) && war.dist(creep, h) > 1) goWar(creep, h.pos, 1); return; }
     if (creep.pos.isNearTo(target.pos)) { creep.attack(target); return; }
     if (!escortReady(creep, h)) return;
@@ -599,13 +640,16 @@ function run(creep) {
     if (w.mode) { if (!creep.spawning) runPhase2(creep, w); return; }
     if (creep.memory.warRole === 'healer' && w.phase === 'staging' && creep.ticksToLive != null && creep.ticksToLive < war.timing().healerEntryTtl) {
         const other = war.liveWar('healer').find((c) => c.name !== creep.name && !c.spawning && war.fullyBoosted(c));
-        if (other) {
+        if (other && war.noClaimer()) {
+            if (!creep.memory.unfit) { creep.memory.unfit = Game.time; war.logEvent('healerUnfit', { name: creep.name, ttl: creep.ticksToLive, by: other.name, kept: true }); }
+        } else if (other) {
             creep.memory.retired = true;
             war.logEvent('healerRetire', { name: creep.name, ttl: creep.ticksToLive, by: other.name });
             retireMod.retireAtSpawn(creep);
             return;
         }
     }
+    if (w.withdraw) { if (creep.memory.warRole === 'dismantler') retreatHome(creep); else homeUnboost(creep, w); return; }
     if (w.costCapped) { retreatHome(creep); if (creep.memory.warRole === 'healer') healAround(creep); return; }
     if (boostRetry(creep)) return;
     if (boost.run(creep)) return;

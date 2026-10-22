@@ -41,6 +41,7 @@ require.cache[path.join(src, 'boost.js')] = { id: 'b', filename: path.join(src, 
 require.cache[path.join(src, 'retire.js')] = { id: 'r', filename: path.join(src, 'retire.js'), loaded: true, exports: { retireAtSpawn() {} } };
 
 const config = require('../src/config');
+config.war.noClaimer = false; config.war.noRespawn = false; config.war.attackerMinTtl = 800; config.war.healerEntryTtl = 300;
 const war = require('../src/war');
 const warrior = require('../src/roles/warrior');
 

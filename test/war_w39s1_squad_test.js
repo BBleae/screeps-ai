@@ -49,6 +49,7 @@ require.cache[path.join(src, 'retire.js')] = { id: 'r', filename: path.join(src,
 
 const war = require('../src/war');
 const config = require('../src/config');
+config.war.noClaimer = false; config.war.noRespawn = false; config.war.attackerMinTtl = 800; config.war.healerEntryTtl = 300;
 const warrior = require('../src/roles/warrior');
 
 let pass = 0; const ok = (n) => { console.log('OK ' + n); pass++; };

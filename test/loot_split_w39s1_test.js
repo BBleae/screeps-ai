@@ -170,10 +170,10 @@ console.log('--- split: W39S1 empty -> done, haulers sent back to their old pile
   console.log('OK');
 }
 
-console.log('--- war: split only after towers+spawn dead AND controller locked ---');
+console.log('--- war: split after towers+spawn dead; controller lock required only when a claimer is used ---');
 {
   const warSrc = fs.readFileSync(path.join(src, 'war.js'), 'utf8');
-  assert.ok(/if \(!structsCleared\) return;\s*\n\s*if \(!locked\(room\)\) return;/.test(warSrc));
+  assert.ok(/if \(!structsCleared\) return;\s*\n\s*if \(!noClaimer\(\) && !locked\(room\)\) return;/.test(warSrc));
   assert.ok(/lootSplit\(w, room, spawns\.length === 0 && towers\.length === 0\)/.test(warSrc));
   const mainSrc = fs.readFileSync(path.join(src, 'main.js'), 'utf8');
   assert.ok(/require\('loot_split'\)\.run\(\)/.test(mainSrc));

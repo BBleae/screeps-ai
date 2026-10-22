@@ -309,7 +309,7 @@ console.log('--- leftover healer too short-lived for the plan is recycled ---');
 reset();
 const oldH3 = mk('H0', 'healer', 'W37S5', 20, 30, 120);
 war.getDemands({ name: 'W37S5' });
-assert.ok(oldH3.memory.retired, 'TTL 120 healer cannot reach entry with 550 -> unfit, recycled');
+assert.ok(!oldH3.memory.retired && oldH3.memory.unfit, 'TTL 120 healer cannot reach entry with 550 -> flagged unfit, kept (never auto-recycled)');
 assert.ok(ev('unfit').some((e) => e.d.name === 'H0'));
 reset();
 const keepH = mk('H0', 'healer', 'W37S5', 20, 30, 1400);

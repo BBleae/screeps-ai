@@ -190,6 +190,14 @@ function enemyOf(o) {
 
 const FORBIDDEN_LOOT = ['storage', 'terminal', 'factory', 'lab', 'container', 'link', 'extension', 'nuker', 'powerSpawn', 'observer', 'extractor'];
 
+function noClaimer() {
+    return cfg().noClaimer === true;
+}
+
+function noRespawn() {
+    return cfg().noRespawn === true;
+}
+
 function lootWar() {
     const c = cfg();
     if (c.lootWar === true) return true;
@@ -718,7 +726,11 @@ function roundRestart(w) {
     logEvent('restart', { round, costCapTick: w.costCapTick, budget: cfg().roundBudget || null });
 }
 
-const PLAN_ORDER = ['healer', 'attacker', 'claimer'];
+const PLAN_ALL = ['healer', 'attacker', 'claimer'];
+
+function planOrder() {
+    return noClaimer() ? PLAN_ALL.filter((r) => r !== 'claimer') : PLAN_ALL;
+}
 
 function leads() {
     const T = timing();
@@ -750,7 +762,7 @@ function planEntry(w) {
     for (let pass = 0; pass < 4; pass++) {
         have = {};
         let need = Game.time;
-        for (const r of PLAN_ORDER) {
+        for (const r of planOrder()) {
             const pool = liveWar(r).filter((c) => usableAt(c, r, E));
             pool.sort((x, y) => etaToGather(x, r) - etaToGather(y, r));
             have[r] = pool[0] || null;
@@ -767,7 +779,7 @@ function planEntry(w) {
     }
     const spawn = {};
     let last = -Infinity;
-    for (const r of PLAN_ORDER) {
+    for (const r of planOrder()) {
         if (have[r]) { spawn[r] = null; continue; }
         const off = r === 'healer' ? 2 * gap : r === 'attacker' ? gap : 0;
         const t = Math.max(E - L[r] - off, last === -Infinity ? -Infinity : last + gap);
@@ -778,14 +790,15 @@ function planEntry(w) {
 }
 
 function retireUnfit(w, p) {
-    for (const r of PLAN_ORDER) {
+    for (const r of planOrder()) {
         for (const c of liveWar(r)) {
             if (c.spawning || c.name === p.have[r]) continue;
             if (roomOf(c) === target()) continue;
             if (usableAt(c, r, p.target)) continue;
             if (r === 'claimer' && p.have.claimer) continue;
-            c.memory.retired = true;
-            logEvent('unfit', { name: c.name, role: r, ttl: c.ticksToLive, target: p.target });
+            if (c.memory.unfit) continue;
+            c.memory.unfit = Game.time;
+            logEvent('unfit', { name: c.name, role: r, ttl: c.ticksToLive, target: p.target, kept: true });
         }
     }
 }
@@ -816,13 +829,13 @@ function stagingDemands(room, w) {
         claimer: cs.some((c) => c.spawning || roomOf(c) === home()) || cs.length >= T.claimerMax,
     };
     const gate = w.labGate = {};
-    const missing = PLAN_ORDER.filter((r) => !p.have[r]);
-    for (const r of PLAN_ORDER) {
+    const missing = planOrder().filter((r) => !p.have[r]);
+    for (const r of planOrder()) {
         if (p.have[r] || exists[r]) continue;
         if (Game.time < p.spawn[r]) break;
-        const i = PLAN_ORDER.indexOf(r);
-        if (PLAN_ORDER.slice(0, i).some((q) => !p.have[q] && !exists[q])) break;
-        const rest = missing.filter((q) => PLAN_ORDER.indexOf(q) >= i);
+        const i = planOrder().indexOf(r);
+        if (planOrder().slice(0, i).some((q) => !p.have[q] && !exists[q])) break;
+        const rest = missing.filter((q) => planOrder().indexOf(q) >= i);
         gate[r] = labsReadyAll(room, rest);
         if (!gate[r]) break;
         out.push(demandRequest(r, r === 'attacker' ? 0 : 'n', 0));
@@ -856,7 +869,8 @@ function getDemands(room) {
     const phase = w.phase || 'staging';
     if (phase === 'done' || phase === 'off') return [];
     if (Number(Game.cpu.bucket) < (Number(cfg().bucketMin) || 5000)) { w.bucketWait = Game.time; return []; }
-    if (w.costCapped || phase === 'safemode') return [];
+    if (w.costCapped || phase === 'safemode' || w.withdraw) return [];
+    if (noRespawn() && !w.mode) return [];
     if (w.claimSeq != null) delete w.claimSeq;
     if (w.mode) return w.enemySafe ? [] : phase2Demands(room, w);
     schedule(w);
@@ -923,6 +937,7 @@ function entryCheck(w) {
         const readyH = staged.filter((c) => fullyBoosted(c) && c.hits >= c.hitsMax && Number(c.ticksToLive) >= T.healerEntryTtl);
         if (readyH.length < 2) return { ok: false, why: 'healers', have: readyH.length, need: 2 };
     }
+    if (noClaimer()) return { ok: true, a, h, c: null, hs: staged.filter((c) => fullyBoosted(c)) };
     const inSt = liveWar('claimer').filter((c) => ready(c) && roomOf(c) === st);
     const ttlOk = inSt.filter((c) => fullyBoosted(c) && Number(c.ticksToLive) >= T.entryTtl);
     const cands = ttlOk.filter((c) => dist(c, h) <= 1 && dist(c, a) <= 2);
@@ -971,6 +986,7 @@ function cohesion(w) {
     if (!aIn && !hIn) return null;
     if (aIn !== hIn) return { why: 'split' };
     if (dist(a, h) > 3) return { why: 'apart' };
+    if (noClaimer()) return null;
     const cl = liveWar('claimer').filter((c) => ready(c) && roomOf(c) === tgt);
     if (!locked(room)) {
         const follow = Number(cfg().claimerFollowTicks) || 8;
@@ -985,7 +1001,7 @@ function cohesion(w) {
 function allStaged() {
     const st = staging();
     const inSt = (c) => ready(c) && roomOf(c) === st;
-    return liveWar('attacker').some(inSt) && liveWar('healer').some(inSt) && liveWar('claimer').some(inSt);
+    return liveWar('attacker').some(inSt) && liveWar('healer').some(inSt) && (noClaimer() || liveWar('claimer').some(inSt));
 }
 
 function stuckCheck(w, chk) {
@@ -1002,6 +1018,7 @@ function stuckCheck(w, chk) {
 }
 
 function squadTick(w) {
+    if (w.withdraw) return;
     const tgt = target();
     const st = staging();
     const troom = Game.rooms[tgt];
@@ -1033,17 +1050,19 @@ function squadTick(w) {
         stuckCheck(w, chk);
         if (chk.ok) {
             w.phase = 'assault';
-            w.squad = { a: chk.a.name, h: chk.h.name, c: chk.c.name, at: Game.time, cTtl: chk.c.ticksToLive };
+            w.squad = { a: chk.a.name, h: chk.h.name, c: chk.c ? chk.c.name : null, at: Game.time, cTtl: chk.c ? chk.c.ticksToLive : null };
+            if (noClaimer()) w.squadBoosted = [chk.a.name].concat((chk.hs || [chk.h]).map((c) => c.name));
             w.crossAt = null;
             w.breach = null;
             w.entries = {};
-            if (!w.attackStartedAt) { w.attackStartedAt = Game.time; logEvent('attackStart', { tick: Game.time, target: target(), a: chk.a.name, h: chk.h.name, c: chk.c.name }); }
-            logEvent('entered', { a: chk.a.name, h: chk.h.name, c: chk.c.name, cTtl: chk.c.ticksToLive, relief: w.plan && w.plan.reliefSpawn });
+            if (!w.attackStartedAt) { w.attackStartedAt = Game.time; logEvent('attackStart', { tick: Game.time, target: target(), a: chk.a.name, h: chk.h.name, c: chk.c ? chk.c.name : null }); }
+            logEvent('entered', { a: chk.a.name, h: chk.h.name, c: chk.c ? chk.c.name : null, cTtl: chk.c ? chk.c.ticksToLive : null, relief: w.plan && w.plan.reliefSpawn });
         } else {
             return;
         }
     }
     if (w.phase !== 'assault' && w.phase !== 'won') return;
+    if (deathWithdraw(w)) return;
     if (!w.squad) { regroup(w, 'noSquad'); return; }
     const a = liveWar('attacker')[0];
     const h = primaryHealer();
@@ -1059,6 +1078,30 @@ function squadTick(w) {
     const prev = w.breach && w.breach.why === b.why ? w.breach.n : 0;
     w.breach = { why: b.why, n: prev + 1, at: Game.time };
     if (w.breach.n >= (Number(cfg().breachGrace) || 3)) regroup(w, b.why);
+}
+
+function withdrawAll(w, why, data) {
+    if (w.withdraw) return;
+    w.withdraw = Object.assign({ at: Game.time, why }, data || {});
+    w.squad = null;
+    w.crossAt = null;
+    logEvent('withdraw', w.withdraw);
+}
+
+function deathWithdraw(w) {
+    if (!noClaimer() || !Array.isArray(w.squadBoosted)) return false;
+    const last = w.squadTtl || (w.squadTtl = {});
+    const dead = [];
+    const keep = [];
+    for (const n of w.squadBoosted) {
+        const c = Game.creeps[n];
+        if (c) { last[n] = Number(c.ticksToLive) || 0; keep.push(n); continue; }
+        if (last[n] != null && last[n] <= 3) { logEvent('agedOut', { name: n }); delete last[n]; continue; }
+        dead.push(n);
+    }
+    if (!dead.length) { w.squadBoosted = keep; return false; }
+    withdrawAll(w, 'death', { dead });
+    return true;
 }
 
 function observe(w) {
@@ -1100,13 +1143,29 @@ function lootSplit(w, room, structsCleared) {
     const sp = cfg().lootSplit;
     if (!sp || !lootWar() || w.lootSplitDone) return;
     if (!structsCleared) return;
-    if (!locked(room)) return;
+    if (!noClaimer() && !locked(room)) return;
     w.lootSplitDone = Game.time;
+    if (noClaimer()) openLootRoute(w);
     const m = typeof Memory !== 'undefined' ? Memory : null;
     if (m) {
         m.lootWarLoot = { target: sp.room || target(), haulers: Number(sp.haulers) || 8, keepOthers: Number(sp.keepOthers) || 6, unload: sp.unload || home(), since: Game.time };
     }
     logEvent('lootSplit', { tick: Game.time, target: sp.room || target(), haulers: Number(sp.haulers) || 8, keepOthers: Number(sp.keepOthers) || 6, unload: sp.unload || home() });
+}
+
+function openLootRoute(w) {
+    const m = typeof Memory !== 'undefined' ? Memory : null;
+    if (!m) return;
+    const tgt = target();
+    const base = config.lootRoutes && Array.isArray(config.lootRoutes.hardAvoid) ? config.lootRoutes.hardAvoid : [];
+    const c = m.cfg && typeof m.cfg === 'object' && !Array.isArray(m.cfg) ? m.cfg : (m.cfg = {});
+    const lr = c.lootRoutes && typeof c.lootRoutes === 'object' && !Array.isArray(c.lootRoutes) ? c.lootRoutes : (c.lootRoutes = {});
+    const cur = Array.isArray(lr.hardAvoid) ? lr.hardAvoid : base;
+    lr.hardAvoid = cur.filter((r) => r !== tgt);
+    if (c.pvp && Array.isArray(c.pvp.dangerRooms)) c.pvp.dangerRooms = c.pvp.dangerRooms.filter((r) => r !== tgt);
+    m.cfgBy = 'war';
+    if (m.lootDrop && m.lootDrop._steps) delete m.lootDrop._steps;
+    logEvent('lootRouteOpen', { hardAvoid: lr.hardAvoid.slice() });
 }
 
 function tick() {
@@ -1125,6 +1184,7 @@ function tick() {
 
     const smLeft = w.safeModeEnd ? w.safeModeEnd - Game.time : 0;
     const resumeLead = Number(cfg().safeModeResumeLead) || 500;
+    if (noClaimer() && smLeft > 0 && !w.withdraw) withdrawAll(w, 'safemode', { end: w.safeModeEnd });
     if (smLeft >= resumeLead && w.phase !== 'safemode') {
         w.phase = 'safemode';
         w.crossAt = null;
@@ -1162,5 +1222,5 @@ module.exports = {
     paused, gatherPos, staging, dist, roomOf, locked, schedule, entryCheck, cohesion, timing, deathTick,
     primaryHealer, healerNeeded, warLive, labsReady, processRecycle, costCap, trackSpend,
     hardCapped, mode, clearCfg, clearScan, pickStruct, dismantlers, clearTarget, pickSite, reliefOn, recordUnboost, labHold, threatOf,
-    lootWar, FORBIDDEN_LOOT, memKey, lootSplit, observe,
+    lootWar, FORBIDDEN_LOOT, memKey, lootSplit, observe, noClaimer, noRespawn, withdrawAll, deathWithdraw, openLootRoute,
 };
