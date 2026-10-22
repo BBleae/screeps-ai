@@ -648,10 +648,19 @@ function stillLoadable(obj, roomName) {
     return obj.store ? conquest.usedOf(obj.store) > 0 : Number(obj.amount) > 0;
 }
 
+function haulThreat(room) {
+    const c = conquest.salvageArmedThreat(room);
+    if (!c) return null;
+    const towers = (room.find(FIND_HOSTILE_STRUCTURES) || []).some((s) => s.structureType === STRUCTURE_TOWER);
+    if (towers) return c;
+    const utils = require('utils');
+    return (room.find(FIND_HOSTILE_CREEPS) || []).find((h) => !utils.isAlly(h) && (h.body || []).some((p) => p.hits > 0 && (p.type === ATTACK || p.type === RANGED_ATTACK))) || null;
+}
+
 function loadStep(creep, carrying) {
     const m = creep.memory;
     let obj = m.src ? Game.getObjectById(m.src) : null;
-    if (conquest.salvageArmedThreat(creep.room)) { if (carrying) m.state = 'deliver'; else parkInside(creep); return; }
+    if (haulThreat(creep.room)) { if (carrying) m.state = 'deliver'; else parkInside(creep); return; }
     if (!m.sideLoot && stillLoadable(obj, creep.room.name) && creep.pos.getRangeTo(obj) > 1 && tierOf(obj) > (m.lootTier || 3)) obj = null;
     if (!stillLoadable(obj, creep.room.name)) obj = pickTarget(creep);
     if (!obj && !carrying && Memory.lootBad && Memory.lootBad[creep.room.name] && Object.keys(Memory.lootBad[creep.room.name]).length && !(Game.time - (m.badClr || 0) < 50)) {
