@@ -972,11 +972,22 @@ function regroup(w, reason) {
     logEvent('retreat', { reason });
 }
 
+function nearHealer(a) {
+    const hs = liveWar('healer').filter((c) => ready(c) && fullyBoosted(c));
+    if (!a || !hs.length) return null;
+    hs.sort((x, y) => dist(x, a) - dist(y, a) || Number(y.ticksToLive) - Number(x.ticksToLive));
+    return dist(hs[0], a) === Infinity ? null : hs[0];
+}
+
 function cohesion(w) {
     const tgt = target();
     const room = Game.rooms[tgt];
     const a = liveWar('attacker')[0];
-    const h = primaryHealer();
+    let h = primaryHealer();
+    if (noClaimer() && a) {
+        const n = nearHealer(a);
+        if (n) { h = n; if (w.squad && w.squad.h !== n.name) w.squad.h = n.name; }
+    }
     if (!a) return { now: true, why: 'attackerDead' };
     if (!h) return { now: true, why: 'healerDead' };
     const line = Number(cfg().retreatBelow) || 0.5;
@@ -1222,5 +1233,5 @@ module.exports = {
     paused, gatherPos, staging, dist, roomOf, locked, schedule, entryCheck, cohesion, timing, deathTick,
     primaryHealer, healerNeeded, warLive, labsReady, processRecycle, costCap, trackSpend,
     hardCapped, mode, clearCfg, clearScan, pickStruct, dismantlers, clearTarget, pickSite, reliefOn, recordUnboost, labHold, threatOf,
-    lootWar, FORBIDDEN_LOOT, memKey, lootSplit, observe, noClaimer, noRespawn, withdrawAll, deathWithdraw, openLootRoute,
+    lootWar, FORBIDDEN_LOOT, memKey, lootSplit, observe, nearHealer, noClaimer, noRespawn, withdrawAll, deathWithdraw, openLootRoute,
 };

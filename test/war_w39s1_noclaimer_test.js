@@ -262,4 +262,19 @@ const ST = (type, x, y) => ({ structureType: type, id: type + x + '_' + y, pos: 
   ok('old-age expiry logs agedOut without withdrawal; a combat death still withdraws');
 })();
 
+(function splitUsesNearestHealer() {
+  fresh(); incidentCreeps();
+  war.tick();
+  const w = Memory.lootWarW39S1;
+  w.squad.h = '战猫乙.healer';
+  const a = Game.creeps['战猫甲.attacker'];
+  a.pos = new RoomPosition(25, 1, 'W39S1'); a.room = { name: 'W39S1' };
+  const h = Game.creeps['战猫.healer'];
+  h.pos = new RoomPosition(26, 1, 'W39S1'); h.room = { name: 'W39S1' };
+  for (let i = 0; i < 5; i++) { Game.time++; war.tick(); }
+  assert.strictEqual(w.phase, 'assault', 'no split regroup while the adjacent healer crossed with the attacker');
+  assert.strictEqual(w.squad.h, '战猫.healer', 'escort healer re-pointed to the one actually next to the attacker');
+  ok('cohesion follows the healer actually adjacent to the attacker (no split loop when the named healer lags)');
+})();
+
 console.log('ALL W39S1 NO-CLAIMER TESTS PASSED (' + pass + ')');

@@ -143,9 +143,9 @@ function crossNoClaimer(creep, w, e) {
         return;
     }
     if (role === 'attacker') {
-        const hs = war.liveWar('healer').filter((h) => !h.spawning && war.roomOf(h) === war.roomOf(creep));
-        const h = hs.find((x) => w.squad && x.name === w.squad.h) || hs[0];
+        const h = war.nearHealer(creep);
         if (h && !escortReady(creep, h)) return;
+        if (h && w.squad) w.squad.h = h.name;
         goWar(creep, e, 0);
         return;
     }
