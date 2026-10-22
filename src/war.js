@@ -54,7 +54,29 @@ function boostsFor(warRole) {
 
 function warLive() {
     const w = state();
-    return !!w && !w.costCapped && w.phase !== 'won' && w.phase !== 'done' && w.phase !== 'off';
+    return !!w && !w.mode && !w.costCapped && w.phase !== 'won' && w.phase !== 'done' && w.phase !== 'off';
+}
+
+function mode() {
+    const w = state();
+    return (w && w.mode) || null;
+}
+
+function clearCfg() {
+    return Object.assign({
+        homeTtl: 150,
+        enemy: 'ags131',
+        types: ['extension', 'link', 'terminal', 'storage', 'container'],
+        claimerBody: ['claim', 'move', 'move'],
+        watchBody: ['attack', 'move'],
+        observeEvery: 20,
+        unboostWait: 60,
+    }, cfg().clear || {});
+}
+
+function labHold() {
+    const w = state();
+    return !!w && (w.mode === 'clear' || w.mode === 'watch') && !w.labsReleased;
 }
 
 function labCompounds() {
@@ -67,7 +89,7 @@ function labCompounds() {
 }
 
 function labActive(room) {
-    return warLive() && !!room && room.name === home();
+    return (warLive() || labHold()) && !!room && room.name === home();
 }
 
 function liveWar(warRole) {
@@ -117,21 +139,22 @@ function spawnRoom(room) {
     return active() && room && room.name === home();
 }
 
-function demandRequest(warRole, idx, lead) {
+function demandRequest(warRole, idx, lead, over) {
     const c = cfg();
-    const bd = bodies()[warRole];
+    const bd = (over && over.body) || bodies()[warRole];
     const cost = bd.reduce((s, p) => s + (BODY_COST[p] || 0), 0);
     const mem = {
         home: home(),
         role: 'warrior',
         warRole,
         targetRoom: target(),
-        boosts: boostsFor(warRole),
+        boosts: over && over.body ? [] : boostsFor(warRole),
         boostRoom: home(),
-        boostWait: true,
+        boostWait: !(over && over.body),
         boostWaitMax: Number(c.boostWaitMax) || 400,
         slotKey: 'war:' + warRole + ':' + idx,
     };
+    if (over && over.phase2) mem.phase2 = over.phase2;
     return {
         key: 'war:' + warRole + ':' + idx,
         role: 'warrior',
@@ -148,6 +171,203 @@ function demandRequest(warRole, idx, lead) {
 }
 
 const BODY_COST = { move: 50, work: 100, attack: 80, carry: 50, heal: 250, ranged_attack: 150, tough: 10, claim: 600 };
+
+function enemyOf(o) {
+    return !!o && !o.my && !!o.owner && o.owner.username === clearCfg().enemy;
+}
+
+function clearScan(room) {
+    if (!room || typeof room.find !== 'function') return null;
+    const cc = clearCfg();
+    const creeps = (room.find(FIND_HOSTILE_CREEPS) || []).filter(enemyOf);
+    const siteKind = typeof FIND_HOSTILE_CONSTRUCTION_SITES !== 'undefined' ? FIND_HOSTILE_CONSTRUCTION_SITES : 'hostileSites';
+    const sites = (room.find(siteKind) || []).filter(enemyOf);
+    const allKind = typeof FIND_STRUCTURES !== 'undefined' ? FIND_STRUCTURES : 'structures';
+    const structs = (room.find(allKind) || []).filter((s) => cc.types.indexOf(s.structureType) >= 0 && !s.my && (s.structureType === 'container' || enemyOf(s)));
+    const ext = structs.filter((s) => s.structureType === 'extension').length;
+    return { creeps, sites, structs, ext };
+}
+
+function clearTarget(creep, scan) {
+    if (!scan) return null;
+    const pick = (list) => {
+        if (!list.length) return null;
+        let best = list[0];
+        let bd = Infinity;
+        for (const o of list) {
+            const d = creep && creep.pos && o.pos ? Math.max(Math.abs(creep.pos.x - o.pos.x), Math.abs(creep.pos.y - o.pos.y)) : 0;
+            if (d < bd) { bd = d; best = o; }
+        }
+        return best;
+    };
+    if (scan.creeps.length) return { kind: 'creep', obj: pick(scan.creeps) };
+    if (scan.sites.length) return { kind: 'site', obj: pick(scan.sites) };
+    if (scan.structs.length) return { kind: 'struct', obj: pick(scan.structs) };
+    return null;
+}
+
+function leftOf(scan) {
+    return { creeps: scan.creeps.length, sites: scan.sites.length, structs: scan.structs.length, ext: scan.ext };
+}
+
+function reliefOn(w) {
+    if (w.reliefStopped) return false;
+    if (w.claimerUntilCreepsDead === false) return false;
+    const l = w.clear && w.clear.left;
+    if (!l) return true;
+    return !(l.creeps === 0 && l.sites === 0 && l.ext === 0);
+}
+
+function phase2Pair(w) {
+    const p = w.phase2 || {};
+    return [p.a, p.h].filter(Boolean);
+}
+
+function recordUnboost(w, c, returned) {
+    const sp = w.spend || (w.spend = { energy: 0, boostEnergy: 0, boosts: {}, since: Game.time });
+    const ret = sp.returned || (sp.returned = {});
+    for (const k of Object.keys(returned)) ret[k] = (ret[k] || 0) + returned[k];
+    const u = w.unboosted || (w.unboosted = {});
+    u[c.name] = { role: c.memory && c.memory.warRole, t: Game.time, returned };
+    logEvent('unboosted', { name: c.name, role: c.memory && c.memory.warRole, returned });
+}
+
+function labRelease(w) {
+    if (w.labsReleased) return;
+    const pair = phase2Pair(w);
+    const gone = pair.every((n) => (w.unboosted && w.unboosted[n]) || !Game.creeps[n]);
+    if (!gone) return;
+    w.labsReleased = Game.time;
+    logEvent('labsReleased', { pair });
+}
+
+function clearStart(w, room) {
+    const a = liveWar('attacker').find((c) => roomOf(c) === target()) || liveWar('attacker')[0];
+    const h = primaryHealer();
+    w.mode = 'clear';
+    w.phase = 'won';
+    w.clearStart = Game.time;
+    if (w.claimerUntilCreepsDead === undefined) w.claimerUntilCreepsDead = true;
+    w.phase2 = { a: a ? a.name : null, h: h ? h.name : null };
+    w.crossAt = null;
+    w.breach = null;
+    const scan = clearScan(room);
+    if (scan) w.clear = { left: leftOf(scan), at: Game.time };
+    logEvent('clearStart', { a: w.phase2.a, h: w.phase2.h, left: w.clear && w.clear.left });
+}
+
+function clearReady(w, room) {
+    if (w.mode) return false;
+    if (w.phase === 'won') return true;
+    if (!room || w.phase !== 'assault') return false;
+    const spawns = room.find(FIND_HOSTILE_SPAWNS) || [];
+    const towers = (room.find(FIND_HOSTILE_STRUCTURES) || []).filter((s) => s.structureType === STRUCTURE_TOWER);
+    return !spawns.length && !towers.length;
+}
+
+function lockTrack(w, room) {
+    if (!room || !room.controller) return;
+    const ub = Number(room.controller.upgradeBlocked) || 0;
+    if (ub > 0) w.lockEnd = Game.time + ub;
+}
+
+function clearTick(w) {
+    const room = Game.rooms[target()];
+    lockTrack(w, room);
+    const scan = clearScan(room);
+    if (scan) w.clear = { left: leftOf(scan), at: Game.time };
+    if (w.mode === 'clear') {
+        if (scan && !scan.creeps.length && !scan.sites.length && !scan.structs.length) {
+            w.clearDoneAt = Game.time;
+            logEvent('clearDone', { tick: Game.time, spend: w.spend });
+            w.mode = 'watch';
+        } else {
+            const pair = phase2Pair(w);
+            const fighting = pair.some((n) => { const c = Game.creeps[n]; return c && !(c.memory && (c.memory.goHome || c.memory.retired)); });
+            if (!fighting) {
+                logEvent('clearIncomplete', { left: w.clear && w.clear.left });
+                w.mode = 'watch';
+            }
+        }
+    }
+    if (!w.reliefStopped && !reliefOn(w)) {
+        w.reliefStopped = Game.time;
+        logEvent('reliefStop', { left: w.clear && w.clear.left, flag: w.claimerUntilCreepsDead });
+    }
+    if (w.mode === 'watch') watchTick(w, room);
+    labRelease(w);
+    schedule(w);
+}
+
+function myObserver() {
+    const w = state();
+    const tgt = target();
+    if (w && w.watch && w.watch.obs) {
+        const o = Game.getObjectById ? Game.getObjectById(w.watch.obs) : null;
+        if (o) return o;
+    }
+    for (const id in (Game.structures || {})) {
+        const s = Game.structures[id];
+        if (!s || s.structureType !== 'observer') continue;
+        const d = Game.map && Game.map.getRoomLinearDistance ? Game.map.getRoomLinearDistance(s.pos.roomName, tgt) : 99;
+        if (d <= 10) { if (w) (w.watch || (w.watch = {})).obs = s.id; return s; }
+    }
+    return null;
+}
+
+const COMBAT = ['attack', 'ranged_attack', 'heal', 'work'];
+
+function threatOf(room) {
+    const siteKind = typeof FIND_HOSTILE_CONSTRUCTION_SITES !== 'undefined' ? FIND_HOSTILE_CONSTRUCTION_SITES : 'hostileSites';
+    const spawnSites = (room.find(siteKind) || []).filter((s) => s.structureType === 'spawn');
+    if (spawnSites.length) return { why: 'spawnSite', x: spawnSites[0].pos.x, y: spawnSites[0].pos.y, owner: spawnSites[0].owner && spawnSites[0].owner.username };
+    const hostile = (room.find(FIND_HOSTILE_CREEPS) || []).find((c) => (c.body || []).some((p) => COMBAT.indexOf(p.type) >= 0 && p.hits > 0));
+    if (hostile) return { why: 'creep', name: hostile.name, owner: hostile.owner && hostile.owner.username, x: hostile.pos.x, y: hostile.pos.y, body: (hostile.body || []).map((p) => p.type) };
+    return null;
+}
+
+function watchers() {
+    return liveWar('watcher');
+}
+
+function watchTick(w, room) {
+    const wt = w.watch || (w.watch = {});
+    if (!room) {
+        if (watchers().some((c) => !c.spawning)) return;
+        const every = Math.max(1, Number(clearCfg().observeEvery) || 20);
+        if (Game.time % every === 0) {
+            const o = myObserver();
+            if (o) o.observeRoom(target());
+        }
+        return;
+    }
+    wt.seen = Game.time;
+    const th = threatOf(room);
+    if (!th) { if (wt.ep) { wt.last = wt.ep; delete wt.ep; } return; }
+    if (wt.ep) return;
+    wt.ep = Object.assign({ at: Game.time }, th);
+    logEvent('watchTrigger', wt.ep);
+}
+
+function phase2Demands(room, w) {
+    const out = [];
+    const cc = clearCfg();
+    if (reliefOn(w)) {
+        const next = schedule(w);
+        const cs = liveWar('claimer');
+        const homeBusy = cs.some((c) => c.spawning || roomOf(c) === home());
+        if (next != null && !homeBusy && cs.length < timing().claimerMax && Game.time >= next) {
+            out.push(demandRequest('claimer', 'n', 0, { body: cc.claimerBody.slice(), phase2: true }));
+        }
+    }
+    const wt = w.watch;
+    if (w.mode === 'watch' && wt && wt.ep && !wt.ep.spawned) {
+        const live = watchers();
+        if (live.length) wt.ep.spawned = live[0].name;
+        else out.push(demandRequest('watcher', 0, 0, { body: cc.watchBody.slice(), phase2: true }));
+    }
+    return out;
+}
 
 function gatherPos(role) {
     const g = cfg().gather || {};
@@ -264,7 +484,7 @@ function schedule(w) {
     const lead = T.claimerSpawn + T.claimerToStaging + T.toController + T.margin;
     const maxDeath = cs.length ? Math.max.apply(null, cs.map(deathTick)) : null;
     const relief = maxDeath == null ? null : maxDeath - lead;
-    if (w.phase === 'assault' || w.phase === 'won') {
+    if (w.phase === 'assault' || w.phase === 'won' || w.mode) {
         const next = relief == null ? Game.time : relief;
         w.plan = Object.assign({}, w.plan || {}, { nextClaimerSpawn: next, reliefSpawn: relief, at: Game.time });
         return next;
@@ -501,6 +721,7 @@ function getDemands(room) {
     if (Number(Game.cpu.bucket) < (Number(cfg().bucketMin) || 5000)) { w.bucketWait = Game.time; return []; }
     if (w.costCapped || phase === 'safemode') return [];
     if (w.claimSeq != null) delete w.claimSeq;
+    if (w.mode) return phase2Demands(room, w);
     schedule(w);
     if (phase === 'staging') return stagingDemands(room, w);
     const out = [];
@@ -735,6 +956,7 @@ function tick() {
         if (w.phase === 'assault' || w.phase === 'won') regroup(w, 'unpaused');
     }
     observe(w);
+    if (!w.mode && clearReady(w, Game.rooms[target()])) clearStart(w, Game.rooms[target()]);
 
     const smLeft = w.safeModeEnd ? w.safeModeEnd - Game.time : 0;
     const resumeLead = Number(cfg().safeModeResumeLead) || 500;
@@ -751,7 +973,9 @@ function tick() {
     processRecycle(w);
     trackSpend(w);
     costCap(w);
-    if (w.costCapped) {
+    if (w.mode) {
+        clearTick(w);
+    } else if (w.costCapped) {
         w.phase = w.phase === 'assault' || w.phase === 'won' ? 'staging' : w.phase;
         w.squad = null;
         w.crossAt = null;
@@ -760,7 +984,7 @@ function tick() {
         squadTick(w);
     }
     const names = {};
-    for (const r of ['attacker', 'healer', 'claimer']) {
+    for (const r of ['attacker', 'healer', 'claimer', 'watcher']) {
         names[r] = liveWar(r).map((c) => c.name);
     }
     w.creeps = names;
@@ -772,4 +996,5 @@ module.exports = {
     home, target, boostsFor, cpuPressure, cfg, state, liveWar, fullyBoosted,
     paused, gatherPos, staging, dist, roomOf, locked, schedule, entryCheck, cohesion, timing, deathTick,
     primaryHealer, healerNeeded, warLive, labsReady, processRecycle, costCap, trackSpend,
+    mode, clearCfg, clearScan, clearTarget, reliefOn, recordUnboost, labHold, threatOf,
 };

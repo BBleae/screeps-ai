@@ -235,6 +235,142 @@ function runClaimer(creep, w, room) {
     goWar(creep, ctrl.pos, 1);
 }
 
+function boostedParts(creep) {
+    const out = {};
+    for (const p of creep.body || []) if (p.boost) out[p.boost] = (out[p.boost] || 0) + 1;
+    return out;
+}
+
+function homeUnboost(creep, w) {
+    const mem = creep.memory;
+    if (!mem.goHome) { mem.goHome = Game.time; war.logEvent('goHome', { name: creep.name, role: mem.warRole, ttl: creep.ticksToLive }); }
+    if (creep.memory.warRole === 'healer') healAround(creep);
+    if (creep.room.name !== mem.home) { goWar(creep, homePos(creep), 20); return; }
+    const parts = boostedParts(creep);
+    const cc = war.clearCfg();
+    if (!mem.unboosted && Object.keys(parts).length) {
+        if (!mem.unboostSince) mem.unboostSince = Game.time;
+        const late = Game.time - mem.unboostSince > cc.unboostWait || (creep.ticksToLive != null && creep.ticksToLive < 8);
+        if (!late) {
+            const kind = typeof FIND_MY_STRUCTURES !== 'undefined' ? FIND_MY_STRUCTURES : 'myStructures';
+            const hr = Game.rooms[mem.home] || creep.room;
+            const labs = (typeof hr.find === 'function' ? hr.find(kind) || [] : []).filter((s) => s.structureType === 'lab');
+            const near = labs.filter((l) => creep.pos.isNearTo(l.pos));
+            const free = near.find((l) => !l.cooldown);
+            if (free) {
+                const r = free.unboostCreep(creep);
+                if (r === OK) {
+                    const returned = {};
+                    for (const k of Object.keys(parts)) returned[k] = parts[k] * 15;
+                    mem.unboosted = Game.time;
+                    war.recordUnboost(w, creep, returned);
+                }
+                return;
+            }
+            const idle = labs.filter((l) => !l.cooldown);
+            const goal = creep.pos.findClosestByRange(idle.length ? idle : labs);
+            if (goal) { if (!creep.pos.isNearTo(goal.pos)) goWar(creep, goal.pos, 1); return; }
+        }
+        mem.unboosted = Game.time;
+        war.logEvent('unboostSkip', { name: creep.name, role: mem.warRole, parts });
+    } else if (!mem.unboosted) {
+        mem.unboosted = Game.time;
+        war.recordUnboost(w, creep, {});
+    }
+    mem.retired = true;
+    retireMod.retireAtSpawn(creep);
+}
+
+function clearHurt(w, a, h) {
+    const line = Number(wcfg().retreatBelow) || 0.5;
+    const low = (c) => c && c.hits < c.hitsMax * line;
+    const full = (c) => !c || c.hits >= c.hitsMax;
+    if (low(a) || low(h)) { if (!w.clearHurt) { w.clearHurt = Game.time; war.logEvent('retreat', { reason: 'hurt', mode: 'clear' }); } }
+    else if (w.clearHurt && full(a) && full(h)) delete w.clearHurt;
+    return !!w.clearHurt;
+}
+
+function intoTarget(creep) {
+    const ctrlXy = wcfg().controllerPos || { x: 22, y: 20 };
+    goWar(creep, targetRoomPos(ctrlXy), 1);
+}
+
+function pairOf(w) {
+    const p = w.phase2 || {};
+    return { a: p.a ? Game.creeps[p.a] : null, h: p.h ? Game.creeps[p.h] : null };
+}
+
+function clearAttacker(creep, w, room) {
+    const ttlLow = creep.ticksToLive != null && creep.ticksToLive < war.clearCfg().homeTtl;
+    if (creep.memory.goHome || ttlLow || w.mode !== 'clear') { homeUnboost(creep, w); return; }
+    const { h } = pairOf(w);
+    if (clearHurt(w, creep, h)) { toGather(creep); return; }
+    if (!inTarget(creep)) { intoTarget(creep); return; }
+    if (stepOffEdge(creep)) return;
+    const t = war.clearTarget(creep, war.clearScan(room));
+    const hFar = h && inTarget(h) && war.dist(creep, h) > 2;
+    if (!t) return;
+    if (t.kind === 'site') {
+        if (creep.pos.x === t.obj.pos.x && creep.pos.y === t.obj.pos.y) return;
+        if (!hFar) goWar(creep, t.obj.pos, 0);
+        return;
+    }
+    let obj = t.obj;
+    if (t.kind === 'struct' && typeof room.lookForAt === 'function') {
+        const kind = typeof LOOK_STRUCTURES !== 'undefined' ? LOOK_STRUCTURES : 'structure';
+        const ramp = (room.lookForAt(kind, obj.pos.x, obj.pos.y) || []).find((s) => s.structureType === 'rampart' && !s.my);
+        if (ramp) obj = ramp;
+    }
+    if (creep.pos.isNearTo(obj.pos)) { creep.attack(obj); return; }
+    if (!hFar) goWar(creep, obj.pos, 1);
+}
+
+function clearHealer(creep, w, room) {
+    const { a } = pairOf(w);
+    const ttlLow = creep.ticksToLive != null && creep.ticksToLive < war.clearCfg().homeTtl;
+    if (creep.memory.goHome || ttlLow || !a || (a.memory && (a.memory.goHome || a.memory.retired)) || w.mode !== 'clear') { homeUnboost(creep, w); return; }
+    healTick(creep, a);
+    if (war.roomOf(a) !== war.roomOf(creep) || war.dist(creep, a) > 1) goWar(creep, a.pos, 1);
+}
+
+function clearClaimer(creep, w, room) {
+    if (!inTarget(creep)) { intoTarget(creep); return; }
+    const ctrl = room && room.controller;
+    if (!ctrl) return;
+    if (!creep.pos.isNearTo(ctrl.pos)) { goWar(creep, ctrl.pos, 1); return; }
+    if (!(Number(ctrl.upgradeBlocked) > 0) && !(Number(ctrl.safeMode) > 0)) creep.attackController(ctrl);
+}
+
+function runWatcher(creep, w, room) {
+    if (!inTarget(creep)) { intoTarget(creep); return; }
+    if (stepOffEdge(creep)) return;
+    const hostiles = room.find(FIND_HOSTILE_CREEPS) || [];
+    if (hostiles.length) {
+        const t = creep.pos.findClosestByRange(hostiles);
+        if (creep.pos.isNearTo(t.pos)) creep.attack(t); else goWar(creep, t.pos, 1);
+        return;
+    }
+    const siteKind = typeof FIND_HOSTILE_CONSTRUCTION_SITES !== 'undefined' ? FIND_HOSTILE_CONSTRUCTION_SITES : 'hostileSites';
+    const sites = room.find(siteKind) || [];
+    if (sites.length) {
+        const t = creep.pos.findClosestByRange(sites);
+        if (!(creep.pos.x === t.pos.x && creep.pos.y === t.pos.y)) goWar(creep, t.pos, 0);
+    }
+}
+
+function runPhase2(creep, w) {
+    const room = Game.rooms[war.target()];
+    const role = creep.memory.warRole;
+    if (role === 'attacker' || role === 'healer') {
+        if (w.phase === 'safemode' || w.costCapped) { homeUnboost(creep, w); return; }
+        if (role === 'attacker') clearAttacker(creep, w, room); else clearHealer(creep, w, room);
+        return;
+    }
+    if (w.phase === 'safemode') { retreatHome(creep); return; }
+    if (role === 'claimer') clearClaimer(creep, w, room);
+    else if (role === 'watcher') runWatcher(creep, w, room);
+}
+
 const BOOST_TTL_FLOOR = { attacker: 1100, healer: 1000, claimer: 400 };
 
 function boostRetry(creep) {
@@ -261,6 +397,7 @@ function run(creep) {
         else retreatHome(creep);
         return;
     }
+    if (w.mode) { if (!creep.spawning) runPhase2(creep, w); return; }
     if (creep.memory.warRole === 'healer' && w.phase === 'staging' && creep.ticksToLive != null && creep.ticksToLive < war.timing().healerEntryTtl) {
         const other = war.liveWar('healer').find((c) => c.name !== creep.name && !c.spawning && war.fullyBoosted(c));
         if (other) {
