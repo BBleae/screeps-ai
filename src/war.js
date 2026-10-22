@@ -78,6 +78,7 @@ function clearCfg() {
         structOrder: ['extension', 'terminal', 'storage', 'container', 'link'],
         pairHomeAfterSites: true,
         siteRange: 5,
+        watchPark: { x: 37, y: 30 },
     }, cfg().clear || {});
 }
 
@@ -194,7 +195,8 @@ function clearScan(room) {
     const allKind = typeof FIND_STRUCTURES !== 'undefined' ? FIND_STRUCTURES : 'structures';
     const structs = (room.find(allKind) || []).filter((s) => cc.types.indexOf(s.structureType) >= 0 && !s.my && (s.structureType === 'container' || enemyOf(s)));
     const ext = structs.filter((s) => s.structureType === 'extension').length;
-    return { creeps, sites, extSites, structs, ext };
+    const liveSites = sites.filter((s) => Number(s.progress) > 0);
+    return { creeps, sites, liveSites, extSites, structs, ext };
 }
 
 const SITE_RANK = { spawn: 0, tower: 1 };
@@ -254,7 +256,7 @@ function dismantlers() {
 }
 
 function leftOf(scan) {
-    return { creeps: scan.creeps.length, sites: scan.sites.length, extSites: scan.extSites.length, structs: scan.structs.length, ext: scan.ext };
+    return { creeps: scan.creeps.length, sites: scan.sites.length, sitesLive: scan.liveSites.length, extSites: scan.extSites.length, structs: scan.structs.length, ext: scan.ext };
 }
 
 function hardCapped() {
@@ -268,7 +270,8 @@ function reliefOn(w) {
     if (w.enemySafe) return false;
     const l = w.clear && w.clear.left;
     if (!l) return true;
-    return !(l.creeps === 0 && l.sites === 0 && l.ext === 0);
+    const live = l.sitesLive != null ? l.sitesLive : l.sites;
+    return !(l.creeps === 0 && live === 0 && l.ext === 0);
 }
 
 function phase2Pair(w) {
@@ -339,7 +342,7 @@ function clearTick(w) {
         w.mode = 'watch';
     }
     if (w.mode === 'clear') {
-        if (scan && !scan.creeps.length && !scan.sites.length && !scan.structs.length) {
+        if (scan && !scan.creeps.length && !scan.liveSites.length && !scan.structs.length) {
             w.clearDoneAt = Game.time;
             logEvent('clearDone', { tick: Game.time, spend: w.spend });
             w.mode = 'watch';
@@ -401,7 +404,7 @@ function threatOf(room) {
     const out = {};
     const cc = clearCfg();
     const siteKind = typeof FIND_HOSTILE_CONSTRUCTION_SITES !== 'undefined' ? FIND_HOSTILE_CONSTRUCTION_SITES : 'hostileSites';
-    const sites = (room.find(siteKind) || []).filter((s) => !s.my && cc.urgentSites.indexOf(s.structureType) >= 0);
+    const sites = (room.find(siteKind) || []).filter((s) => !s.my && cc.urgentSites.indexOf(s.structureType) >= 0 && Number(s.progress) > 0);
     if (sites.length) out.site = { why: 'site', type: sites[0].structureType, x: sites[0].pos.x, y: sites[0].pos.y, owner: sites[0].owner && sites[0].owner.username, sites: sites.length };
     const hostile = (room.find(FIND_HOSTILE_CREEPS) || [])[0];
     if (hostile) out.creep = { why: 'creep', name: hostile.name, owner: hostile.owner && hostile.owner.username, x: hostile.pos.x, y: hostile.pos.y, body: (hostile.body || []).map((p) => p.type) };

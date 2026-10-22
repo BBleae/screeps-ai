@@ -381,7 +381,6 @@ function clearClaimer(creep, w, room) {
 
 function runWatcher(creep, w, room) {
     if (!inTarget(creep)) { intoTarget(creep); return; }
-    if (stepOffEdge(creep)) return;
     const canHit = (creep.body || []).some((p) => p.type === 'attack');
     const hostiles = canHit ? (room.find(FIND_HOSTILE_CREEPS) || []) : [];
     if (hostiles.length) {
@@ -390,10 +389,12 @@ function runWatcher(creep, w, room) {
         return;
     }
     const scan = war.clearScan(room);
-    const site = scan && scan.sites.length ? war.pickSite(creep, scan.sites, null) : null;
+    const site = scan && scan.liveSites.length ? war.pickSite(creep, scan.liveSites, null) : null;
     if (site) { stomp(creep, site.pos); return; }
-    const ctrlXy = wcfg().controllerPos || { x: 22, y: 20 };
-    if (war.dist(creep, { pos: targetRoomPos(ctrlXy) }) > 3) goWar(creep, targetRoomPos(ctrlXy), 3);
+    const park = war.clearCfg().watchPark || wcfg().controllerPos || { x: 22, y: 20 };
+    if (creep.pos.x === park.x && creep.pos.y === park.y) return;
+    if (stepOffEdge(creep)) return;
+    stomp(creep, targetRoomPos(park));
 }
 
 function hostileCombat(room) {

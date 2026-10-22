@@ -90,7 +90,7 @@ const noHome = () => { config.war.clear = Object.assign({}, config.war.clear || 
 const yesHome = () => { if (config.war.clear) delete config.war.clear.pairHomeAfterSites; };
 
 let hc, hs, st, ramps;
-const mine = (o) => Object.assign({ my: false, owner: { username: 'ags131' } }, o);
+const mine = (o) => Object.assign({ my: false, owner: { username: 'ags131' }, progress: 1 }, o);
 function tgtRoom(blocked) {
   Game.rooms.W38S2 = {
     name: 'W38S2',
@@ -142,7 +142,7 @@ step();
 assert.strictEqual(W().mode, 'clear');
 assert.strictEqual(W().claimerUntilCreepsDead, true);
 assert.deepStrictEqual(W().phase2, { a: 'A', h: 'H' });
-assert.deepStrictEqual(W().clear.left, { creeps: 2, sites: 1, extSites: 2, structs: 44, ext: 40 });
+assert.deepStrictEqual(W().clear.left, { creeps: 2, sites: 1, sitesLive: 1, extSites: 2, structs: 44, ext: 40 });
 const order = [];
 let sim = 0;
 global.__simMove = true;
@@ -654,6 +654,50 @@ assert.ok(Dz.acts.some((x) => x[0] === 'dismantle' && x[1] === 'c2'));
 st = st.filter((x) => x.id !== 'c2');
 step();
 assert.ok(Dz.memory.retired, 'recycles');
+console.log('OK');
+
+console.log('--- 12:01 relief ignores spawn/tower sites with progress 0; re-arms on progress>0 ---');
+reset2();
+hc.length = 0;
+for (let i = st.length - 1; i >= 0; i--) if (st[i].structureType === 'extension') st.splice(i, 1);
+hs = [mine({ id: 'p0s', structureType: 'spawn', progress: 0, pos: new RoomPosition(37, 30, 'W38S2') }), mine({ id: 'p0t', structureType: 'tower', progress: 0, pos: new RoomPosition(29, 27, 'W38S2') })];
+Game.rooms.W38S2.controller.upgradeBlocked = 0;
+mk('C', 'claimer', 'W38S2', 22, 21, 100);
+step();
+const rel2 = () => war.getDemands({ name: 'W37S5' }).filter((x) => x.memory.warRole === 'claimer');
+assert.strictEqual(rel2().length, 0, 'only progress-0 spawn/tower sites -> relief stopped');
+assert.ok(W().reliefStopped);
+hs[1].progress = 5;
+step();
+assert.ok(!W().reliefStopped, 'tower site progress 5 -> re-armed');
+assert.strictEqual(rel2().length, 1);
+hs[1].progress = 0;
+hc.push(mine({ id: 'cr', name: 'cr', pos: new RoomPosition(10, 10, 'W38S2'), body: [{ type: 'carry', hits: 100 }] }));
+step();
+assert.ok(!W().reliefStopped, 'enemy creep -> re-armed');
+hc.length = 0; step();
+assert.ok(W().reliefStopped, 'gone again -> stopped');
+console.log('OK');
+
+console.log('--- 12:01 watcher parks at (37,30); reacts only to progress>0 spawn/tower sites ---');
+reset2();
+hc.length = 0; st.length = 0;
+hs = [mine({ id: 'q0', structureType: 'tower', progress: 0, pos: new RoomPosition(39, 27, 'W38S2') })];
+const Wp = mk('Wp', 'watcher', 'W38S2', 37, 30, 800);
+Wp.body = [{ type: 'move', hits: 100 }]; Wp.memory.watchKind = 'site';
+Wp.pos.getDirectionTo = () => 2;
+Memory.ags131War.mode = 'watch'; Memory.ags131War.labsReleased = 1;
+moves.length = 0; step();
+assert.ok(!moves.some((m) => m.name === 'Wp') && !Wp.acts.some((x) => x[0] === 'move'), 'parked, ignores progress-0 tower site');
+assert.strictEqual(ev('watchTrigger').length, 0, 'no trigger for progress 0');
+hs[0].progress = 3;
+step();
+assert.ok(moves.some((m) => m.name === 'Wp' && m.to.x === 39 && m.to.y === 27), 'progress>0 -> goes to stomp');
+assert.strictEqual(ev('watchTrigger').length, 1);
+hs.length = 0;
+place(Wp, 'W38S2', 39, 28);
+moves.length = 0; step();
+assert.ok(moves.some((m) => m.name === 'Wp' && m.to.x === 37 && m.to.y === 30), 'back to the parking tile');
 console.log('OK');
 
 console.log('ALL PHASE 2 TESTS PASSED');
