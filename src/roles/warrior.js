@@ -313,8 +313,9 @@ function clearAttacker(creep, w, room) {
     if (clearHurt(w, creep, h)) { toGather(creep); return; }
     if (!inTarget(creep)) { intoTarget(creep); return; }
     if (stepOffEdge(creep)) return;
-    const t = war.clearTarget(creep, war.clearScan(room));
-    const hFar = h && inTarget(h) && war.dist(creep, h) > 2;
+    const scan = war.clearScan(room);
+    const t = war.clearTarget(creep, scan);
+    const hFar = !!scan && scan.creeps.length > 0 && h && inTarget(h) && war.dist(creep, h) > 2;
     if (!t) return;
     if (t.kind === 'site') {
         if (creep.pos.x === t.obj.pos.x && creep.pos.y === t.obj.pos.y) return;

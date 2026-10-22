@@ -392,7 +392,9 @@ function phase2Demands(room, w) {
         const lockEnd = Number(w.lockEnd) || 0;
         const cover = lockEnd > Game.time && !cs.some((c) => deathTick(c) >= lockEnd + (Number(cc.lockCover) || 50));
         if (cover && w.lockCoverAt == null) { w.lockCoverAt = Game.time; logEvent('lockCover', { lockEnd, claimers: cs.map((c) => [c.name, deathTick(c)]) }); }
-        if ((cover || (next != null && Game.time >= next)) && !homeBusy && cs.length < timing().claimerMax) {
+        const coverAt = lockEnd + (Number(cc.lockCover) || 50) - 600 - cc.claimerBody.length * 3;
+        const coverDue = cover && Game.time >= coverAt;
+        if ((coverDue || (!cover && next != null && Game.time >= next)) && !homeBusy && cs.length < timing().claimerMax) {
             out.push(demandRequest('claimer', 'n', 0, { body: cc.claimerBody.slice(), phase2: true }));
         }
     }
