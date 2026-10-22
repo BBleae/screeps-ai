@@ -30,6 +30,7 @@ assert.ok(!hm.boosts && hm.boostDone === true && hm.boostSince == null && hm.boo
 const hm2 = { role: 'lootHauler', home: 'W38S7', targetRoom: 'W37S2' };
 assert.strictEqual(lh.dropStaleBoosts({ memory: hm2 }), false);
 assert.deepStrictEqual(config.industry.chainTargetsByRoom.W37S5, [], 'W37S5 makes no KH');
+assert.deepStrictEqual(config.industry.labNoMakeByRoom.W37S5, ['KH'], 'running KH reaction is stopped too');
 console.log('OK');
 
 console.log('--- W29S3 H miner on while account H < 30k ---');

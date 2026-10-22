@@ -17995,7 +17995,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const savedReactions = global.REACTIONS;
     global.REACTIONS = { H: { O: 'OH', G: 'GH' }, O: { H: 'OH' }, G: { H: 'GH' }, GH: { OH: 'GH2O' }, OH: { GH: 'GH2O' }, GH2O: { X: 'XGH2O' }, X: { GH2O: 'XGH2O' },
         U: { L: 'UL' }, L: { U: 'UL' }, Z: { K: 'ZK' }, K: { Z: 'ZK' }, UL: { ZK: 'G' }, ZK: { UL: 'G' } };
-    assert(config.industry.labSwitchBatch === 1000 && JSON.stringify(config.industry.labNoMakeByRoom) === JSON.stringify({ W33S3: ['ZK', 'UL', 'G'] }) &&
+    assert(config.industry.labSwitchBatch === 1000 && JSON.stringify(config.industry.labNoMakeByRoom) === JSON.stringify({ W33S3: ['ZK', 'UL', 'G'], W37S5: ['KH'] }) &&
         JSON.stringify(config.industry.chainTargetsByRoom.W32S4) === JSON.stringify(['G']), '配置：换步批量 1000；W33S3 不做 ZK/UL/G；W32S4 链只到 G');
     const mkLabRoom = (name, termStore, a, b) => {
         const r = makeRoom(name, { rcl: 8, energy: 300, cap: 300, owner: 'me' });

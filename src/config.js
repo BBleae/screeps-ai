@@ -430,7 +430,7 @@ module.exports = {
         chainTargetsByRoom: { W33S3: ['XGH2O', 'GH2O'], W32S4: ['G'], W37S5: [] },
         boostRoomMake: { W37S5: { keepOutput: 1500 } },
         boostGoalByRoom: { W37S5: 15000 },
-        labNoMakeByRoom: { W33S3: ['ZK', 'UL', 'G'] },
+        labNoMakeByRoom: { W33S3: ['ZK', 'UL', 'G'], W37S5: ['KH'] },
         labSwitchBatch: 1000,
         factory: { enabled: true, rooms: ['W33S8', 'W38S7'], product: 'keanium_bar', input: 'K', batch: 500, output: 100, energy: 200, minStorage: 40000, keepAccount: 15000, roomKeep: 5000, stopAbove: 20000, fill: 2000, energyFill: 1000, drainAt: 500, battery: { enabled: true, batch: 50, fill: 1000, drainEnergy: 500 } },
         labFullOutputs: ['W32S4', 'W33S3', 'W37S5'],
