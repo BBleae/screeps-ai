@@ -2,7 +2,7 @@
 const config = require('config');
 
 function settings() {
-    return Object.assign({ every: 5, minTtl: 1000, spawnTicks: 150, finalRooms: ['W35S1', 'W37S2'], guard: { rooms: ['W39S0', 'W39S1'], clear: 100, maxMult: 16, hold: 1500 } }, (config.conquest || {}).lootSplitRun || {});
+    return Object.assign({ every: 5, minTtl: 1000, spawnTicks: 150, finalRooms: ['W35S1', 'W37S2'], guard: { rooms: ['W39S0', 'W39S1'], clear: 100, maxMult: 16, hold: 1500, lend: 'W37S2' } }, (config.conquest || {}).lootSplitRun || {});
 }
 
 function quota(v, dflt) {
@@ -94,6 +94,7 @@ function retarget(c, s) {
     m.lootTiles = null;
     m.salvageLoot = true;
     delete m.relieved;
+    delete m.lentFrom;
     for (const k of ['src', 'pick', 'stk', 'skip', 'lootTier', 'gNext', '_move']) delete m[k];
     if (used(c) > 0) m.state = 'deliver';
 }
@@ -244,11 +245,33 @@ function guard(s, cfg) {
     return !!(P.on || seen);
 }
 
+function lendRoom(cfg, live, target) {
+    const r = (cfg.guard || {}).lend;
+    return r && r !== target && live.has(r) ? r : null;
+}
+
+function lend(s, cfg, live, want) {
+    const to = lendRoom(cfg, live, s.target);
+    if (!to) return null;
+    const mine = pool().filter((c) => c.memory.lentFrom === s.target && c.memory.targetRoom === to);
+    const need = Math.max(0, Number(want) || 0) - mine.length;
+    if (need <= 0) return { to, n: mine.length };
+    const minTtl = Number(cfg.minTtl) || 1000;
+    const cand = pool().filter((c) => c.memory.targetRoom !== to && c.memory.targetRoom !== s.target && !c.memory.relieved && !c.memory.finalRun && (c.ticksToLive == null || c.ticksToLive >= minTtl))
+        .sort((a, b) => (used(a) > 0) - (used(b) > 0) || (Number(b.ticksToLive) || 0) - (Number(a.ticksToLive) || 0) || (a.name < b.name ? -1 : 1));
+    const moved = [];
+    for (const c of cand.slice(0, need)) { moveTo(c, to); c.memory.lentFrom = s.target; moved.push(c.name); }
+    if (moved.length) log(s, 'lend', { to, names: moved });
+    return { to, n: mine.length + moved.length, moved };
+}
+
 function divert(s, cfg, live, on) {
     const moved = [];
+    const to = lendRoom(cfg, live, s.target);
     for (const c of on) {
         if (c.room && c.room.name === s.target) continue;
         const m = c.memory;
+        if (to) { moveTo(c, to); m.lentFrom = s.target; m.pausedFrom = s.target; moved.push(c.name); continue; }
         const back = m.splitFrom && live.has(m.splitFrom) ? m.splitFrom : nextRoom(cfg, live, s.target);
         if (!back) continue;
         if (back === m.splitFrom) sendBack(c, cfg, live);
@@ -285,7 +308,8 @@ function run(force) {
         const stay = on.filter((c) => diverted.indexOf(c.name) < 0);
         s.on = stay.length;
         s.active = stay.length;
-        return { paused: true, diverted, on: s.on };
+        const lent = lend(s, cfg, live, quota(s.haulers, 8) - stay.length);
+        return { paused: true, diverted, on: s.on, lent };
     }
     const want = quota(s.haulers, 8);
     const relief = reliefTtl(s, cfg);
@@ -308,7 +332,7 @@ function run(force) {
     if (need <= 0) return { moved: 0, on: s.on };
     const minTtl = Number(cfg.minTtl) || 1000;
     const cand = all.filter((c) => c.memory.targetRoom !== s.target && !c.memory.relieved && !c.memory.finalRun && (c.ticksToLive == null || c.ticksToLive >= minTtl))
-        .sort((a, b) => (used(a) > 0) - (used(b) > 0) || (Number(b.ticksToLive) || 0) - (Number(a.ticksToLive) || 0) || (a.name < b.name ? -1 : 1));
+        .sort((a, b) => (b.memory.lentFrom === s.target) - (a.memory.lentFrom === s.target) || (used(a) > 0) - (used(b) > 0) || (Number(b.ticksToLive) || 0) - (Number(a.ticksToLive) || 0) || (a.name < b.name ? -1 : 1));
     const moved = [];
     for (const c of cand.slice(0, need)) { retarget(c, s); moved.push(c.name); }
     if (moved.length) log(s, old.length ? 'relief' : 'moved', old.length ? { names: moved, old: s.relief } : { names: moved });
@@ -317,4 +341,4 @@ function run(force) {
     return { moved: moved.length, on: s.on, names: moved };
 }
 
-module.exports = { run, pool, retarget, sendBack, roomEmpty, settings, reliefTtl, lockOf, quota, guard, sight, runLocks, runDead, batteryLeft, liveRooms };
+module.exports = { moveTo, lend, lendRoom, run, pool, retarget, sendBack, roomEmpty, settings, reliefTtl, lockOf, quota, guard, sight, runLocks, runDead, batteryLeft, liveRooms };

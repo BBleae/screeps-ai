@@ -119,7 +119,7 @@ console.log('--- lock: conquest counts locked creeps without salvageLoot; reliev
   Game.creeps.S3.memory.finalRun = { at: 1 };
   assert.strictEqual(cnt(), 4);
   for (let i = 0; i < 4; i++) hauler('K' + i, { targetRoom: 'W35S1', w35lock: 1, salvageLoot: undefined });
-  assert.strictEqual(cnt(), 4);
+  assert.strictEqual(cnt(), 0);
   console.log('OK');
 }
 
@@ -171,7 +171,8 @@ console.log('--- W39S1 auto pause on armed non-ally, divert en route, resume aft
   assert.ok(r.paused);
   assert.ok(Memory.lootWarLoot.pause.on);
   assert.strictEqual(Memory.lootWarLoot.pause.by, 'Enemy');
-  assert.strictEqual(Game.creeps.r1.memory.targetRoom, 'W35S1');
+  assert.strictEqual(Game.creeps.r1.memory.targetRoom, 'W37S2');
+  assert.strictEqual(Game.creeps.r1.memory.lentFrom, 'W39S1');
   assert.strictEqual(Game.creeps[pulled].memory.targetRoom === 'W39S1', Game.creeps[pulled].room.name === 'W39S1');
   for (let i = 0; i < 3; i++) assert.strictEqual(Game.creeps['w' + i].memory.targetRoom, 'W39S1');
   assert.strictEqual(Game.creeps.r2.memory.state, 'deliver');

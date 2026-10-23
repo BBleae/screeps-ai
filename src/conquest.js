@@ -257,6 +257,26 @@ function demand(role, slot, body, memory, lead, priority, d) {
     return { role, slot, body, memory: Object.assign({ role, slotKey: slot }, memory, extra), lead, priority, cls: 'conquest' };
 }
 
+function haulSlots(target, homeName, want, room) {
+    const pre = 'loot:' + target + ':' + homeName + ':';
+    const held = new Set();
+    for (const c of Object.values(Game.creeps || {})) {
+        const m = c && c.memory;
+        if (!m || m.role !== 'lootHauler' || m.home !== homeName || typeof m.slotKey !== 'string' || m.slotKey.indexOf(pre) !== 0) continue;
+        if (require('utils').isRetiring(m)) continue;
+        if (!c.spawning && c.ticksToLive != null && c.ticksToLive <= 90) continue;
+        held.add(Number(m.slotKey.slice(pre.length)));
+    }
+    const out = [];
+    let free = Math.max(0, Number(room) || 0);
+    const n = Math.min(Math.max(0, Number(want) || 0), 50);
+    for (let i = 0; i < n; i++) {
+        if (held.has(i)) out.push(i);
+        else if (free > 0) { out.push(i); free--; }
+    }
+    return out;
+}
+
 function attachAvoidance(mem, d) {
     if (Array.isArray(d.avoid) && d.avoid.length) mem.avoid = d.avoid;
     if (d.avoidTowers && typeof d.avoidTowers === 'object') mem.avoidTowers = d.avoidTowers;
@@ -566,11 +586,16 @@ function hostileRampart(st) {
 
 function usedOf(store) {
     if (!store) return 0;
-    if (typeof store.getUsedCapacity === 'function') return Number(store.getUsedCapacity()) || 0;
+    if (typeof store.getUsedCapacity === 'function') {
+        const u = store.getUsedCapacity();
+        if (typeof u === 'number') return u;
+    }
     let n = 0;
     for (const k in store) if (typeof store[k] === 'number') n += store[k];
     return n;
 }
+
+const LOOT_NEVER = new Set(['nuker', 'powerSpawn']);
 
 function loadTargets(room) {
     const covered = new Set();
@@ -578,7 +603,7 @@ function loadTargets(room) {
     for (const st of structs) if (hostileRampart(st)) covered.add(st.pos.x + ',' + st.pos.y);
     const out = [];
     for (const st of structs) {
-        if (st.my || !st.store || covered.has(st.pos.x + ',' + st.pos.y) || !(usedOf(st.store) > 0)) continue;
+        if (st.my || !st.store || LOOT_NEVER.has(st.structureType) || covered.has(st.pos.x + ',' + st.pos.y) || !(usedOf(st.store) > 0)) continue;
         out.push(st);
     }
     for (const r of (room.find(FIND_RUINS) || []).concat(room.find(FIND_TOMBSTONES) || [])) if (usedOf(r.store) > 0) out.push(r);
@@ -595,7 +620,7 @@ function coverInfo(room) {
     for (const st of room.find(FIND_STRUCTURES)) {
         if (st.structureType === STRUCTURE_RAMPART && !st.my && !st.isPublic && !isAlly(st)) covered.add(st.pos.x + ',' + st.pos.y);
     }
-    const has = (o) => o.store && (typeof o.store.getUsedCapacity === 'function' ? o.store.getUsedCapacity() > 0 : Object.keys(o.store).some((k) => Number(o.store[k]) > 0));
+    const has = (o) => o.store && usedOf(o.store) > 0;
     const open = [];
     let coreOpen = false;
     let coreAny = false;
@@ -1000,6 +1025,7 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
         if ((!closest || home.name === closest) && (!hh || hh.indexOf(home.name) >= 0)) {
             const nHaul = hh ? hh.length : new Set(sponsors.concat(Array.isArray(d.haulerSponsors) ? d.haulerSponsors : [])).size || 1;
             let per = salvage ? Math.min(maxHaulers, Math.ceil(totalHaulers / nHaul)) : totalHaulers;
+            let slots = null;
             if (salvage) {
                 const locked = (m) => !!(m.lootLock || m.w35lock);
                 const all = Object.values(Game.creeps || {}).filter((c) => c.memory && c.memory.role === 'lootHauler' && (c.memory.salvageLoot || c.memory.pullLoot || locked(c.memory)) && !c.memory.relieved && !c.memory.finalRun);
@@ -1007,6 +1033,7 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
                 const homeLive = all.filter((c) => c.memory.home === home.name).length;
                 const totalCap = (() => { let n = Math.max(0, Number(settings().lootHaulerTotal) || Number(d.haulers) || 0); try { n = require('war').lootHaulerCap(n); } catch (e) {} return n; })();
                 per = Math.max(0, Math.min(per, live + maxHaulers - homeLive, live + totalCap - all.length));
+                slots = haulSlots(d.target, home.name, Math.min(maxHaulers, Math.ceil(totalHaulers / nHaul)), Math.max(0, Math.min(maxHaulers - homeLive, totalCap - all.length)));
             }
             const hbody = repeatBody(['carry', 'move'], Math.min(home.energyCapacityAvailable, Number(d.lootBudget) || cfg.lootBudget));
             const hmem = attachAvoidance({ home: home.name, targetRoom: d.target, lootTiles, staging, salvageLoot: salvage, lootOrder: d.lootOrder }, d);
@@ -1017,11 +1044,12 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
                 if (hb.boostRoom && hb.boostRoom !== home.name) hmem.boostRoom = hb.boostRoom;
                 if (Number(hb.reserve) > 0) hmem.boostReserve = Number(hb.reserve);
             }
-            for (let i = 0; i < per; i++) demands.push(demand('lootHauler', 'loot:' + d.target + ':' + home.name + ':' + i, hbody, hmem, 90, i, d));
+            if (slots) { for (const i of slots) demands.push(demand('lootHauler', 'loot:' + d.target + ':' + home.name + ':' + i, hbody, hmem, 90, i, d)); }
+            else for (let i = 0; i < per; i++) demands.push(demand('lootHauler', 'loot:' + d.target + ':' + home.name + ':' + i, hbody, hmem, 90, i, d));
         }
     }
     if (salvage && !d.startedAt && demands.length) d.startedAt = Game.time;
     return demands;
 }
 
-module.exports = { hostileRampart, usedOf, loadTargets, siegeCompounds, isBoosted, boostPlanBreached, boostLabReady, boostPlanDemands, salvageUncovered, storesLocked, pullDirective, coverInfo, pullArmedThreat, allyTarget, run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick, salvageArmedThreat, salvageKeyTiles, salvageRamparts, salvageStructures, salvageRuins, salvagePickResource, salvagePriorityScore, lootTier, salvageStoreTypes, salvageCorePriority, homeCanBoost };
+module.exports = { haulSlots, hostileRampart, usedOf, loadTargets, siegeCompounds, isBoosted, boostPlanBreached, boostLabReady, boostPlanDemands, salvageUncovered, storesLocked, pullDirective, coverInfo, pullArmedThreat, allyTarget, run, getDemands, directive, directives, settings, boostsFor, boostingEnabled, repeatBody, holdTile, laneTile, towerAvoidCallback, recordHostileTowers, knownHostileTowers, lootTilesOf, lootRampartTargets, lootContainersOf, squadBelowHalf, retreatFor, nonEnergyAmount, squadBoostReady, boostGateHold, militaryCompounds, skValidateDemands, skValidateOn, skValidateFuseTick, salvageArmedThreat, salvageKeyTiles, salvageRamparts, salvageStructures, salvageRuins, salvagePickResource, salvagePriorityScore, lootTier, salvageStoreTypes, salvageCorePriority, homeCanBoost };

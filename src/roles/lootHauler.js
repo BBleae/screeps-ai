@@ -616,6 +616,9 @@ function tierOf(obj) {
     return t;
 }
 
+const CORE_TYPES = new Set(['storage', 'terminal', 'factory']);
+const EXTRA_TYPES = new Set(['spawn', 'extension', 'tower', 'link', 'lab']);
+
 function pickTarget(creep) {
     const m = creep.memory;
     const book = badBook(creep.room.name);
@@ -630,10 +633,11 @@ function pickTarget(creep) {
         for (const o of list) top = Math.max(top, sideLoot.orderScore(o, m.lootOrder));
         for (const o of list) tiers[sideLoot.orderScore(o, m.lootOrder) === top ? 0 : 2].push(o);
     } else {
-        tiers.splice(2, 0, []);
+        tiers.splice(2, 0, [], []);
         for (const o of list) {
+            if (EXTRA_TYPES.has(o.structureType)) { tiers[4].push(o); continue; }
             const t = tierOf(o);
-            tiers[t < 3 ? t - 1 : (o.structureType === STRUCTURE_STORAGE || o.structureType === STRUCTURE_TERMINAL ? 2 : 3)].push(o);
+            tiers[t < 3 ? t - 1 : (CORE_TYPES.has(o.structureType) ? 2 : 3)].push(o);
         }
     }
     let obj = null;
@@ -680,7 +684,8 @@ function loadStep(creep, carrying) {
     if (!obj) {
         if (carrying) { m.state = 'deliver'; return; }
         if (m.sideLoot) {
-            if (sideLoot.mem(m.targetRoom).doneAt) retireMod.retireAtSpawn(creep);
+            if (m.borrow) giveBack(creep);
+            else if (sideLoot.mem(m.targetRoom).doneAt) retireMod.retireAtSpawn(creep);
             else parkInside(creep);
             return;
         }
@@ -730,8 +735,43 @@ function finalRun(creep) {
     return true;
 }
 
+function borrowCreep(name, room, ttl) {
+    const c = Game.creeps[name];
+    if (!c || !room || c.memory.borrow || c.memory.role === 'lootHauler') return false;
+    const m = c.memory;
+    const orig = JSON.parse(JSON.stringify(m));
+    const cfg = sideLoot.roomCfg(room) || {};
+    m.borrow = { room, at: Game.time, ttl: Number(ttl) || 1500, orig };
+    m.targetRoom = room;
+    m.sideLoot = true;
+    if (Array.isArray(cfg.order)) m.lootOrder = cfg.order.slice();
+    delete m.state;
+    delete m._move;
+    return true;
+}
+
+function giveBack(creep) {
+    const m = creep.memory;
+    const b = m.borrow;
+    const orig = b && b.orig && typeof b.orig === 'object' ? b.orig : {};
+    for (const k of Object.keys(m)) if (!(k in orig)) delete m[k];
+    for (const k of Object.keys(orig)) m[k] = orig[k];
+    delete m._move;
+    if (Memory.sideLoot && b && Memory.sideLoot[b.room]) sideLoot.logEvent(b.room, 'giveBack', { name: creep.name });
+    return true;
+}
+
+function borrowDone(creep) {
+    const b = creep.memory.borrow;
+    if (!b) return false;
+    if (creep.store.getUsedCapacity && creep.store.getUsedCapacity() > 0) return false;
+    if (Game.time - (Number(b.at) || 0) > (Number(b.ttl) || 1500)) return true;
+    return !!sideLoot.mem(b.room).doneAt;
+}
+
 function run(creep) {
     if (creep.spawning) return;
+    if (creep.memory.borrow && borrowDone(creep)) { giveBack(creep); return; }
     track(creep);
     const m0 = creep.memory;
     for (const k of STALE_KEYS) if (m0[k] !== undefined) delete m0[k];
@@ -774,4 +814,4 @@ function run(creep) {
     loadStep(creep, carrying);
 }
 
-module.exports = { noteUnload, noteTrip, track, dropStaleBoosts, reachable, queued, pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, loadPick, tierOf, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks, finalRun };
+module.exports = { borrowCreep, giveBack, borrowDone, noteUnload, noteTrip, track, dropStaleBoosts, reachable, queued, pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, loadPick, tierOf, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks, finalRun };

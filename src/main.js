@@ -310,7 +310,7 @@ module.exports.loop = function () {
                 if (sampleDisp) mark = dispLap('run', mark);
                 continue;
             }
-            const role = ROLES[creep.memory.role];
+            const role = ROLES[creep.memory.borrow && !creep.memory.retired ? 'lootHauler' : creep.memory.role];
             if (!role) {
                 taskBroker.markSkipped(creep, 'unknown-role');
                 continue;
