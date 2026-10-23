@@ -164,6 +164,8 @@ function runLocks(s, cfg, live, all) {
             for (const c of cand.slice(0, n - alive)) {
                 c.memory.lootLock = room;
                 c.memory.salvageLoot = true;
+                delete c.memory.lentFrom;
+                delete c.memory.pausedFrom;
                 if (c.memory.targetRoom !== room) moveTo(c, room);
                 added.push(c.name);
             }

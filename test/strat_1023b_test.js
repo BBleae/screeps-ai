@@ -93,9 +93,10 @@ console.log('--- lock: pool never picks locked creeps, top up to n, release on b
   for (let i = 0; i < 4; i++) assert.strictEqual(Game.creeps['L' + i].memory.salvageLoot, true);
   assert.ok(split.pool().every((c) => ['C', 'D'].indexOf(c.name) >= 0));
   delete Game.creeps.L0;
-  hauler('E', { targetRoom: 'W37S2' }, { ttl: 1480 });
+  hauler('E', { targetRoom: 'W37S2', lentFrom: 'W39S1', pausedFrom: 'W39S1' }, { ttl: 1480 });
   split.runLocks(Memory.lootWarLoot, split.settings(), split.liveRooms(), Object.values(Game.creeps));
   assert.strictEqual(Game.creeps.E.memory.lootLock, 'W35S1');
+  assert.ok(!Game.creeps.E.memory.lentFrom && !Game.creeps.E.memory.pausedFrom);
   assert.strictEqual(Memory.lootWarLoot.locks.W35S1.have, 6);
   lootRoom('W35S1', 0);
   split.runLocks(Memory.lootWarLoot, split.settings(), split.liveRooms(), Object.values(Game.creeps));
