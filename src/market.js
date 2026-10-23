@@ -276,7 +276,10 @@ function ownBuyCap(cfg, res) {
 function ownBuyLeft(cfg, led, res) {
     const cap = ownBuyCap(cfg, res);
     if (cap == null) return null;
-    return cap - (Number((led.buyOwn || {})[res]) || 0) - pendingSum('ownBuy', res);
+    return cap - ownSpent(led, res) - pendingSum('ownBuy', res);
+}
+function ownSpent(led, res) {
+    return (Number((led.buyOwn || {})[res]) || 0) + (Number((led.buyBy || {})[res]) || 0);
 }
 function noteOwnBuy(led, res, credits) {
     const by = led.buyOwn || (led.buyOwn = {});
@@ -1136,7 +1139,7 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
             if (credits - commit < floor || (Number(led[budget.key]) || 0) + commit > Number(budget.cap)
                 || (budget.roomCap > 0 && roomSpent + commit > budget.roomCap) || price * amount > (budget.maxCredits != null ? budget.maxCredits : cfg.maxOrderCredits)) return null;
         } else if (resource !== ENERGY && ownBuyCap(cfg, resource) != null) {
-            if (credits - commit < cfg.creditFloor || (Number((led.buyOwn || {})[resource]) || 0) + commit > ownBuyCap(cfg, resource) || price * amount > cfg.maxOrderCredits) return null;
+            if (credits - commit < cfg.creditFloor || ownSpent(led, resource) + commit > ownBuyCap(cfg, resource) || price * amount > cfg.maxOrderCredits) return null;
         } else {
             if (credits - commit < cfg.creditFloor || led.buyCredits + commit > cfg.dailyBuyCredits || price * amount > cfg.maxOrderCredits) return null;
             if (resource !== ENERGY && !buyShareOk(cfg, led, resource, commit)) return null;
@@ -1591,4 +1594,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { sellStopped, tradeOrders, learnBlocked, closeSoldDay, belowFor, dailyVolume, pixelPrice, notePixel, labUsedToday, sellCapFor, sellStopped, buyRoomOk, confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, ownBuyCap, ownBuyLeft, postOrder, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
+module.exports = { sellStopped, tradeOrders, learnBlocked, closeSoldDay, belowFor, dailyVolume, pixelPrice, notePixel, labUsedToday, sellCapFor, sellStopped, buyRoomOk, confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, ownBuyCap, ownBuyLeft, ownSpent, postOrder, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
