@@ -800,6 +800,22 @@ function unstashPull(creep, room, ctx, plan) {
     return true;
 }
 
+function unstashFirst(creep, room, ctx, plan) {
+    const cfg = hauling().unstashFirst;
+    if (!cfg || !unstashCfg(room) || !room.storage || !room.terminal) return false;
+    if (Number(room.storage.store[RESOURCE_ENERGY] || 0) < Number(cfg.minStorageEnergy || 0)) return false;
+    const fill = Number.isFinite(Number(cfg.minFill)) ? Number(cfg.minFill) : 0.8;
+    if (Number(room.energyAvailable) < Number(room.energyCapacityAvailable) * fill) return false;
+    const mem = Memory.rooms[room.name] || (Memory.rooms[room.name] = {});
+    const by = mem.unstashBy;
+    const span = Number(cfg.claimTicks) || 100;
+    if (by && by.name !== creep.name && Game.creeps[by.name] && Game.time - Number(by.at || 0) < span) return false;
+    if (!unstashPull(creep, room, ctx, plan)) return false;
+    mem.unstashBy = { name: creep.name, at: Game.time };
+    leaveBroker(creep);
+    return true;
+}
+
 function exportPull(creep, room, ctx, plan) {
     if (plan.withdraw || !room.terminal || !room.terminal.my || !room.storage || !room.storage.my) return false;
     let rule = null;
@@ -848,7 +864,8 @@ function run(creep) {
     try {
         opportunistic(creep, room, plan, free, !collecting);
         if (collecting) {
-            if (!collect(creep, room, ctx, plan, energy + plan.gained, capacity)) {
+            if (energy + plan.gained <= 0 && unstashFirst(creep, room, ctx, plan)) haulStats.note(creep, 'unstash');
+            else if (!collect(creep, room, ctx, plan, energy + plan.gained, capacity)) {
                 if (energy + plan.gained > 0) deliver(creep, room, ctx, plan, energy, capacity);
                 else if (!stashPull(creep, room, ctx, plan) && !unstashPull(creep, room, ctx, plan) && !exportPull(creep, room, ctx, plan)) { haulStats.note(creep, 'park'); park(creep, room, plan); }
             }
@@ -879,4 +896,4 @@ function srcIsPlanned(room, s) {
     ) <= 1);
 }
 
-module.exports = { unstashRule, run, srcIsPlanned, unstashPull, exportPull };
+module.exports = { unstashRule, run, srcIsPlanned, unstashPull, unstashFirst, exportPull };

@@ -81,6 +81,7 @@ module.exports = {
             W32S4: { resource: 'H', target: 20000, terminalFree: 20000 },
             W31S8: { resource: 'H', target: 10000, terminalFree: 20000 },
             W37S5: [{ resource: 'K', target: 5000, terminalFree: 20000 }, { resource: 'G', target: 8000, terminalFree: 20000 }, { resource: 'X', target: 4000, terminalFree: 20000 }] },
+        unstashFirst: { minStorageEnergy: 30000, minFill: 0.8, claimTicks: 100 },
         spillShare: 0.9,
         spillDrop: 500,
         spillWeight: 10,
