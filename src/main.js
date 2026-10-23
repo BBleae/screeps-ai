@@ -13,6 +13,7 @@ const layout = require('layout');
 const demolition = require('demolition');
 require('soak_probe');
 const tower = require('tower');
+const segMem = require('seg_mem');
 const links = require('links');
 const remote = require('remote');
 const brain = require('brain');
@@ -184,6 +185,17 @@ module.exports.loop = function () {
     const spkT0 = Game.cpu.getUsed();
     spkTick = {}; spkRoom = {};
     reuseParsedMemory();
+    let segReady = true;
+    try { segReady = segMem.begin(); } catch (e) { logErr('segMem.begin', e); }
+    if (!segReady) {
+        Memory.rooms = Memory.rooms || {};
+        for (const name in Game.rooms) {
+            const r = Game.rooms[name];
+            if (!r.controller || !r.controller.my) continue;
+            try { tower.run(r); } catch (e) { logErr('tower.run ' + name, e); }
+        }
+        return;
+    }
     try { require('cfg_overlay').apply(); } catch (e) { logErr('cfgOverlay', e); }
     try { lootShed.run(); } catch (e) { logErr('lootShed', e); }
     try { require('side_loot').run(); } catch (e) { logErr('sideLoot', e); }
@@ -192,7 +204,7 @@ module.exports.loop = function () {
     try { war.tick(); } catch (e) { logErr('war.tick', e); }
     try {
         if (typeof RawMemory !== 'undefined' && RawMemory && typeof RawMemory.setActiveSegments === 'function') {
-            RawMemory.setActiveSegments([90, 91]);
+            RawMemory.setActiveSegments(segMem.activeIds());
         }
     } catch (e) {  }
     Memory.creeps = Memory.creeps || {};
@@ -404,6 +416,7 @@ module.exports.loop = function () {
         }
         try { noteSpike(spkT0); } catch (e) {  }
         try { cpuGate.record(Game.cpu.getUsed()); } catch (e) {  }
+        try { segMem.flush(); } catch (e) { logErr('segMem.flush', e); }
     }
 };
 
@@ -430,7 +443,7 @@ function noteSpike(t0) {
 
 function flushSpikesToSegment(overflow) {
     if (typeof RawMemory === 'undefined' || !RawMemory) return;
-    if (typeof RawMemory.setActiveSegments === 'function') RawMemory.setActiveSegments([90, SPIKE_SEG]);
+    if (typeof RawMemory.setActiveSegments === 'function') RawMemory.setActiveSegments(segMem.activeIds());
     let prev = [];
     try {
         const raw = RawMemory.segments && RawMemory.segments[SPIKE_SEG];

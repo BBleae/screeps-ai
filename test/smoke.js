@@ -5,6 +5,7 @@ const { execFileSync } = require('child_process');
 const Module = require('module');
 
 const MODULE_MAP = {
+    seg_mem: 'seg_mem.js',
     config: 'config.js', facts: 'facts.js', cfg_overlay: 'cfg_overlay.js', loot_blocked: 'loot_blocked.js', utils: 'utils.js', spawn: 'spawn.js', spawn_queue: 'spawn_queue.js', layout: 'layout.js', movement: 'movement.js', actions: 'actions.js',
     wheel_layout: 'wheel_layout.js', visuals: 'visuals.js', task_broker: 'task_broker.js', demolition: 'demolition.js', soak_probe: 'soak_probe.js', aid: 'aid.js',
     tower: 'tower.js', links: 'links.js', remote: 'remote.js', industry: 'industry.js', terminal: 'terminal.js', market: 'market.js', boost: 'boost.js', version: 'version.js', haul_stats: 'haul_stats.js',

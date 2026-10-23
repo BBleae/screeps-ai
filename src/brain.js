@@ -21,7 +21,7 @@ function segmentKey(raw) {
 
 function ingestSegment() {
     if (typeof RawMemory === 'undefined' || !RawMemory) return;
-    if (typeof RawMemory.setActiveSegments === 'function') RawMemory.setActiveSegments([SEGMENT, 91]);
+    if (typeof RawMemory.setActiveSegments === 'function') RawMemory.setActiveSegments(require('seg_mem').activeIds());
     if (retired()) return;
     const raw = RawMemory.segments && RawMemory.segments[SEGMENT];
     if (RawMemory.segments && Object.prototype.hasOwnProperty.call(RawMemory.segments, SEGMENT)) delete RawMemory.segments[SEGMENT];

@@ -518,8 +518,9 @@ function generate(room, mem) {
             const result = adoptRaw(room, raw);
             if (!result.ok) throw new Error(result.errors.join('; '));
             if (mem && Memory.rooms && Memory.rooms[roomName] && mem !== Memory.rooms[roomName]) {
-                for (const key of Object.keys(mem)) delete mem[key];
-                Object.assign(mem, Memory.rooms[roomName]);
+                const fresh = Memory.rooms[roomName];
+                for (const key of Object.getOwnPropertyNames(mem)) delete mem[key];
+                for (const key of Object.getOwnPropertyNames(fresh)) Object.defineProperty(mem, key, Object.getOwnPropertyDescriptor(fresh, key));
                 Memory.rooms[roomName] = mem;
             }
             return result;
