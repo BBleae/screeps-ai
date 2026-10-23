@@ -623,6 +623,13 @@ function tierOf(obj) {
 const CORE_TYPES = new Set(['storage', 'terminal', 'factory']);
 const EXTRA_TYPES = new Set(['spawn', 'extension', 'tower', 'link', 'lab']);
 
+function dropFirstOf(creep, list) {
+    const c = (require('config').conquest || {}).dropFirst;
+    if (!c || !Array.isArray(c.rooms) || c.rooms.indexOf(creep.room.name) < 0) return [];
+    const min = Number(c.min) >= 0 ? Number(c.min) : 500;
+    return list.filter((o) => !o.store && o.resourceType === ENERGY && Number(o.amount) > min);
+}
+
 function pickTarget(creep) {
     const m = creep.memory;
     const book = badBook(creep.room.name);
@@ -646,6 +653,12 @@ function pickTarget(creep) {
     }
     let obj = null;
     let tier = 0;
+    const pri = m.sideLoot ? [] : dropFirstOf(creep, list);
+    if (pri.length) {
+        const got = closestByPath(creep, pri);
+        if (got.incomplete) for (const o of pri) { book[o.id] = Game.time; lootBlocked.note(creep.room.name, o); }
+        if (got.obj) { obj = got.obj; tier = 3; }
+    }
     for (let i = 0; i < tiers.length && !obj; i++) {
         if (!tiers[i].length) continue;
         const got = closestByPath(creep, tiers[i]);
@@ -819,4 +832,4 @@ function run(creep) {
     loadStep(creep, carrying);
 }
 
-module.exports = { borrowCreep, giveBack, borrowDone, noteUnload, noteTrip, track, dropStaleBoosts, reachable, queued, pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, loadPick, tierOf, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks, finalRun };
+module.exports = { borrowCreep, giveBack, borrowDone, noteUnload, noteTrip, track, dropStaleBoosts, reachable, queued, pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, dropFirstOf, biggest, loadPick, tierOf, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks, finalRun };
