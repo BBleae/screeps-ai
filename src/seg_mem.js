@@ -13,7 +13,7 @@ const hasOwn = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const holder = typeof global !== 'undefined' ? global : {};
 function freshRuntime() {
     return { mem: null, roomsLoaded: false, statsLoaded: false, wait: 0, gaveUp: false, written: {}, body: {}, pending: {}, queue: [], strs: {},
-        assign: {}, flushAt: 0, statsKey: null, statsPending: null };
+        assign: {}, flushAt: 0, statsKey: null, statsPending: null, rr: {} };
 }
 const rt = holder.__segMem || (holder.__segMem = freshRuntime());
 
@@ -304,6 +304,9 @@ function buildRooms() {
         if (!mem || typeof mem !== 'object') continue;
         const cold = collect(mem);
         if (!cold) continue;
+        const refs = {};
+        for (const rn in cold[RR] || {}) for (const sid in cold[RR][rn]) refs[rn + '|' + sid] = cold[RR][rn][sid];
+        rt.rr[name] = refs;
         strs[name] = JSON.stringify(name) + ':' + JSON.stringify(cold);
         total += strs[name].length;
     }
@@ -374,6 +377,18 @@ function statsWrite(st) {
     return 1;
 }
 
+function rehideRR() {
+    const rooms = Memory.rooms || {};
+    for (const name of Object.keys(rt.assign)) {
+        const id = rt.assign[name], seen = rt.rr[name], mem = rooms[name];
+        if (!seen || !mem || typeof mem !== 'object' || rt.written[id] == null || rt.pending[id] || rt.queue.indexOf(id) >= 0) continue;
+        for (const [rn, s] of sourcesOf(mem)) {
+            const d = Object.getOwnPropertyDescriptor(s, 'routeRoads');
+            if (d && d.enumerable && seen[rn + '|' + s.id] === d.value) hide(s, 'routeRoads');
+        }
+    }
+}
+
 function canWrite(id) {
     const segs = RawMemory.segments;
     if (hasOwn(segs, id)) return true;
@@ -415,6 +430,9 @@ function flush() {
             st.unplaced = b.unplaced;
             st.flushAt = Game.time;
         } catch (e) { require('utils').logErr('segMem.build', e); }
+    }
+    if (rt.roomsLoaded) {
+        try { rehideRR(); } catch (e) { require('utils').logErr('segMem.rr', e); }
     }
     if (rt.queue.length) {
         try { drain(Math.max(1, Number(cfg.maxWrites) || 5) - writes); } catch (e) { require('utils').logErr('segMem.drain', e); }

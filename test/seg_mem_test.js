@@ -176,7 +176,7 @@ function coldView(mem, segMem) {
   const old = r.sources[0];
   r.sources = [{ id: 's1', distance: 41, routeRoads: old.routeRoads }, r.sources[1]];
   tick(w, segMem, { reuse: true });
-  assert.ok(JSON.parse(w.mem).rooms.W33S8.remotes.W34S8.sources[0].routeRoads, 'rebuilt source keeps routeRoads in Memory until next verified flush');
+  assert.strictEqual(JSON.parse(w.mem).rooms.W33S8.remotes.W34S8.sources[0].routeRoads, undefined, 'rebuilt source with the same routeRoads object hidden on the same tick');
   for (let i = 0; i < 12; i++) tick(w, segMem, { reuse: true });
   assert.strictEqual(JSON.parse(w.mem).rooms.W33S8.remotes.W34S8.sources[0].routeRoads, undefined, 'rebuilt source routeRoads hidden again');
   delete Memory.rooms.W34S7.plan;
@@ -188,6 +188,25 @@ function coldView(mem, segMem) {
   assert.strictEqual(Memory.rooms.W34S7.plan.version, 'again', 'restore sees re-created field');
   assert.strictEqual(Memory.rooms.W33S8.remotes.W34S8.sources[0].distance, 41);
   assert.ok(Memory.rooms.W33S8.remotes.W34S8.sources[0].routeRoads.W34S8, 'restore routeRoads into rebuilt source by id');
+}
+
+{
+  const segMem = load();
+  const w = makeWorld(sampleMem());
+  tick(w, segMem); tick(w, segMem, { reuse: true });
+  const rebuild = (m, rr) => { const r = m.rooms.W33S8.remotes.W34S8; const o = r.sources[0]; r.sources = [{ id: 's1', distance: 40, routeRoads: rr || o.routeRoads }, { id: r.sources[1].id, distance: 30 }]; };
+  let leaked = 0;
+  for (let i = 0; i < 25; i++) { tick(w, segMem, { reuse: true, body(m) { rebuild(m); } }); if (w.mem.includes('aaaa')) leaked++; }
+  assert.strictEqual(leaked, 0, 'visible remote rebuilt every tick: routeRoads never serialized into Memory');
+  const fresh = { W34S8: 'cccc'.repeat(30), W33S8: 'dddd'.repeat(30) };
+  tick(w, segMem, { reuse: true, body(m) { rebuild(m, fresh); } });
+  assert.ok(w.mem.includes('cccc') || Object.values(w.segs).some((x) => x.includes('cccc')), 'new routeRoads object kept in Memory or segment, never only in heap');
+  for (let i = 0; i < 15; i++) tick(w, segMem, { reuse: true, body(m) { rebuild(m); } });
+  assert.ok(!w.mem.includes('cccc'), 'new routeRoads hidden after its segment write is verified');
+  assert.ok(Object.values(w.segs).some((x) => x.includes('cccc')), 'new routeRoads in a room segment');
+  const segMem2 = load();
+  tick(w, segMem2);
+  assert.strictEqual(Memory.rooms.W33S8.remotes.W34S8.sources[0].routeRoads.W34S8, fresh.W34S8, 'global reset restores the rebuilt routeRoads');
 }
 
 {
