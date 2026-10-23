@@ -188,6 +188,7 @@ module.exports.loop = function () {
     try { lootShed.run(); } catch (e) { logErr('lootShed', e); }
     try { require('side_loot').run(); } catch (e) { logErr('sideLoot', e); }
     try { require('loot_split').run(); } catch (e) { logErr('lootSplit', e); }
+    try { if (Memory.lootWarLoot && Memory.lootWarLoot.nuke) require('loot_nuke').run(); } catch (e) { logErr('lootNuke', e); }
     try { war.tick(); } catch (e) { logErr('war.tick', e); }
     try {
         if (typeof RawMemory !== 'undefined' && RawMemory && typeof RawMemory.setActiveSegments === 'function') {

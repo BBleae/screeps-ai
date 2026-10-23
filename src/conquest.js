@@ -740,12 +740,14 @@ function runStrongholdLoot(d) {
         }, 0);
         const takeable = loadTargets(room);
         d.takeLeft = takeable.length;
-        if (!ramparts.length && !takeable.length) {
+        let focusLeft = 0;
+        if (Number(d.stopHits) > 0 || d.strictFocus) { focusLeft = require('loot_nuke').focusLeft(room, d); d.focusLeft = focusLeft; }
+        if (!ramparts.length && !takeable.length && !focusLeft) {
             d.phase = 'done';
             if (!d.completed) { d.completed = true; d.completedAt = Game.time; }
             return;
         }
-        d.phase = ramparts.length || structs.length ? 'breach' : 'loot';
+        d.phase = ramparts.length || structs.length || focusLeft ? 'breach' : 'loot';
         return;
     }
     const tiles = lootTilesOf(d, room);
@@ -993,16 +995,25 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
         try { if (!require('loot_shed').haulerBucketOk()) totalHaulers = 0; } catch (e) { }
         if (Game.rooms[d.target] && storesLocked(Game.rooms[d.target])) totalHaulers = 0;
     }
-    const maxHaulers = haulExempt ? Math.min(Number(d.maxHaulersPerHome) || 6, Number(settings().cpuExemptHaulerCap) || 6) : (Number(d.maxHaulersPerHome) || 8);
+    let maxHaulers = haulExempt ? Math.min(Number(d.maxHaulersPerHome) || 6, Number(settings().cpuExemptHaulerCap) || 6) : (Number(d.maxHaulersPerHome) || 8);
     const squad = Math.max(1, totalDismantlers + totalGuards);
     const lootTiles = Array.isArray(d.lootTiles) ? d.lootTiles : null;
     const phase = d.phase || 'breach';
     const salvage = d.type === 'salvageLoot';
+    if (salvage && Memory.lootWarLoot && Memory.lootWarLoot.nuke) {
+        const nk = require('loot_nuke').active(d.target);
+        if (nk && nk.stage && nk.stage !== 'wall') maxHaulers = Math.max(maxHaulers, Number(nk.n) || 18);
+    }
     const dBucketOk = !(Number(d.dismantlerBucketMin) > 0) || Game.cpu.bucket >= Number(d.dismantlerBucketMin);
     if (!haulerOnly && !d.pauseDismantlerSpawn && dBucketOk && (!cpuHeld || d.boostPlan) && (phase === 'breach' || (salvage && phase === 'loot' && totalDismantlers > 0))) {
         const wantBoosts = (!salvage || homeCanBoost(home)) ? boostsFor('siegeDismantler', d) : [];
         const mem = attachAvoidance({ home: home.name, targetRoom: d.target, staging, squad, lootTiles, strongholdLoot: true, salvageLoot: salvage, boosts: wantBoosts }, d);
-        const dPer = Math.min(Math.ceil(totalDismantlers / nSponsors), Number(d.maxDismantlersPerHome) || 99);
+        let dPer = Math.min(Math.ceil(totalDismantlers / nSponsors), Number(d.maxDismantlersPerHome) || 99);
+        if (Array.isArray(d.dismantlerHomes) && d.dismantlerHomes.length) {
+            const hi = d.dismantlerHomes.indexOf(home.name);
+            const hk = d.dismantlerHomes.length;
+            dPer = hi < 0 ? 0 : Math.min(Math.floor(totalDismantlers / hk) + (hi < totalDismantlers % hk ? 1 : 0), Number(d.maxDismantlersPerHome) || 99);
+        }
         const body = repeatBody(['work', 'move'], Math.min(home.energyCapacityAvailable, Number(d.dismantlerBudget) || cfg.dismantlerBudget));
         if (d.boostPlan && typeof d.boostPlan === 'object') {
             const sp = sponsors.map((s) => (typeof s === 'string' ? s : s && s.name)).filter(Boolean);
