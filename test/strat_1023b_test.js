@@ -124,6 +124,32 @@ console.log('--- lock: conquest counts locked creeps without salvageLoot; reliev
   console.log('OK');
 }
 
+console.log('--- cap: homes in the same tick share the free hauler slots ---');
+{
+  reset();
+  Memory.cfg = undefined;
+  Memory.conquest[0].sponsors = ['W37S5', 'W38S7'];
+  const mkHome = (name) => ({ name, controller: { my: true, level: 8 }, energyCapacityAvailable: 12900, energyAvailable: 12900, storage: { store: { energy: 500000 } }, find: () => [] });
+  const hA = mkHome('W37S5');
+  const hB = mkHome('W38S7');
+  Game.rooms.W37S5 = hA;
+  Game.rooms.W38S7 = hB;
+  const cnt = (h) => conquest.getDemands(h).filter((x) => x.memory && x.memory.role === 'lootHauler' && x.memory.targetRoom === 'W35S1').length;
+  const total = config.conquest.lootHaulerTotal;
+  for (let i = 0; i < total - 2; i++) hauler('S' + i, { targetRoom: 'W37S2', home: 'W37S7' });
+  const a = cnt(hA);
+  const b = cnt(hB);
+  assert.strictEqual(a + b, 2, 'two free slots total, not per home');
+  assert.strictEqual(cnt(hA), a, 'same home again in the same tick keeps its share');
+  Game.time++;
+  assert.strictEqual(cnt(hB), 2, 'next tick the budget resets');
+  hauler('P0', { targetRoom: 'W35S1', slotKey: 'loot:W35S1:W38S7:0', home: 'W38S7' });
+  Game.creeps.P0.spawning = true;
+  Game.time++;
+  assert.strictEqual(cnt(hA) + cnt(hB), 2, 'spawning hauler counts and keeps its slot');
+  console.log('OK');
+}
+
 console.log('--- W35S1 empty: haulers retarget to W37S2 ---');
 {
   reset();

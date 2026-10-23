@@ -258,6 +258,18 @@ function demand(role, slot, body, memory, lead, priority, d) {
 }
 
 function haulSlots(target, homeName, want, room) {
+    return haulSlotsN(target, homeName, want, room).out;
+}
+
+const capUse = { t: -1, by: {} };
+function capUsed(key) {
+    if (capUse.t !== Game.time) { capUse.t = Game.time; capUse.by = {}; }
+    let n = 0;
+    for (const k of Object.keys(capUse.by)) if (k !== key) n += capUse.by[k];
+    return n;
+}
+
+function haulSlotsN(target, homeName, want, room) {
     const pre = 'loot:' + target + ':' + homeName + ':';
     const held = new Set();
     for (const c of Object.values(Game.creeps || {})) {
@@ -269,12 +281,13 @@ function haulSlots(target, homeName, want, room) {
     }
     const out = [];
     let free = Math.max(0, Number(room) || 0);
+    let fresh = 0;
     const n = Math.min(Math.max(0, Number(want) || 0), 50);
     for (let i = 0; i < n; i++) {
         if (held.has(i)) out.push(i);
-        else if (free > 0) { out.push(i); free--; }
+        else if (free > 0) { out.push(i); free--; fresh++; }
     }
-    return out;
+    return { out, fresh };
 }
 
 function attachAvoidance(mem, d) {
@@ -1043,8 +1056,12 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
                 const live = all.filter((c) => (c.memory.salvageLoot || locked(c.memory)) && c.memory.targetRoom === d.target && c.memory.home === home.name).length;
                 const homeLive = all.filter((c) => c.memory.home === home.name).length;
                 const totalCap = (() => { let n = Math.max(0, Number(settings().lootHaulerTotal) || Number(d.haulers) || 0); try { n = require('war').lootHaulerCap(n); } catch (e) {} return n; })();
-                per = Math.max(0, Math.min(per, live + maxHaulers - homeLive, live + totalCap - all.length));
-                slots = haulSlots(d.target, home.name, Math.min(maxHaulers, Math.ceil(totalHaulers / nHaul)), Math.max(0, Math.min(maxHaulers - homeLive, totalCap - all.length)));
+                const capKey = home.name + ':' + d.target;
+                const capFree = totalCap - all.length - capUsed(capKey);
+                per = Math.max(0, Math.min(per, live + maxHaulers - homeLive, live + capFree));
+                const hs = haulSlotsN(d.target, home.name, Math.min(maxHaulers, Math.ceil(totalHaulers / nHaul)), Math.max(0, Math.min(maxHaulers - homeLive, capFree)));
+                slots = hs.out;
+                capUse.by[capKey] = hs.fresh;
             }
             const hbody = repeatBody(['carry', 'move'], Math.min(home.energyCapacityAvailable, Number(d.lootBudget) || cfg.lootBudget));
             const hmem = attachAvoidance({ home: home.name, targetRoom: d.target, lootTiles, staging, salvageLoot: salvage, lootOrder: d.lootOrder }, d);
