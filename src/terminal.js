@@ -513,7 +513,7 @@ function planForward(rule, rec) {
     const floor = Math.max(0, Number(rule.energyFloor) || 0);
     const energy = energyOf(from.terminal.store);
     let cost = transactionCost(amount, from.name, to.name);
-    while (amount > 0 && energy - cost < floor) {
+    while (amount > 0 && energy - cost - (res === RESOURCE ? amount : 0) < floor) {
         amount = Math.floor(amount / 2);
         cost = transactionCost(amount, from.name, to.name);
         if (amount < (Number(rule.minBatch) || 1000)) return { from, to, res, amount: 0, cost, blocked: 'energy' };

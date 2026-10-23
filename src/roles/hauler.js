@@ -769,13 +769,22 @@ function unstashCfg(room) {
     const all = hauling().unstash;
     return all && room && all[room.name] ? all[room.name] : null;
 }
+function unstashRule(room) {
+    const raw = unstashCfg(room);
+    const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    for (const st of list) {
+        if (!st || !st.resource) continue;
+        const short = Number(st.target || 0) - Number(room.terminal.store[st.resource] || 0);
+        const have = Number(room.storage.store[st.resource] || 0);
+        if (short > 0 && have > 0) return { st, res: st.resource, short, have };
+    }
+    return null;
+}
 function unstashPull(creep, room, ctx, plan) {
-    const st = unstashCfg(room);
-    if (!st || plan.withdraw || !room.terminal || !room.terminal.my || !room.storage) return false;
-    const res = st.resource;
-    const short = Number(st.target || 0) - Number(room.terminal.store[res] || 0);
-    const have = Number(room.storage.store[res] || 0);
-    if (!(short > 0) || !(have > 0)) return false;
+    if (!unstashCfg(room) || plan.withdraw || !room.terminal || !room.terminal.my || !room.storage) return false;
+    const pick = unstashRule(room);
+    if (!pick) return false;
+    const { st, res, short, have } = pick;
     if (Number(room.terminal.store.getFreeCapacity(res)) <= Number(st.terminalFree || 20000)) return false;
     if (isUrgent(room, ctx)) return false;
     const free = Number(creep.store.getFreeCapacity()) || 0;
@@ -870,4 +879,4 @@ function srcIsPlanned(room, s) {
     ) <= 1);
 }
 
-module.exports = { run, srcIsPlanned, unstashPull, exportPull };
+module.exports = { unstashRule, run, srcIsPlanned, unstashPull, exportPull };

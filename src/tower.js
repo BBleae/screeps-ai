@@ -1,5 +1,5 @@
 'use strict';
-const { findCached, needsRepair, repairTargetHits, compareRepairTargets, armedHostiles, wallFloorHits } = require('utils');
+const { findCached, needsRepair, repairTargetHits, compareRepairTargets, armedHostiles, wallFloorHits, rampartTowerGoal, rampartGuard, rampartGuardActive } = require('utils');
 const config = require('config');
 const brain = require('brain');
 
@@ -154,13 +154,21 @@ const repairCache = {};
 function repairCandidates(room, armed) {
     let entry = repairCache[room.name];
     if (!entry || Game.time - entry.at >= REPAIR_SCAN_TTL || Game.time < entry.at) {
-        const found = room.find(FIND_STRUCTURES, { filter: (s) => needsRepair(room, s) })
+        const all = room.find(FIND_STRUCTURES) || [];
+        const guardOn = rampartGuardActive(room, all);
+        const topUp = (s) => {
+            if (!guardOn || s.structureType !== STRUCTURE_RAMPART) return false;
+            const g = rampartGuard(room, s);
+            return !!g && s.hits < g.to;
+        };
+        const found = all.filter((s) => needsRepair(room, s) || topUp(s))
             .sort((a, b) => compareRepairTargets(room, a, b));
         entry = repairCache[room.name] = {
             at: Game.time,
             items: found.map((s) => {
                 const wall = s.structureType === STRUCTURE_RAMPART || s.structureType === STRUCTURE_WALL;
-                return { id: s.id, wall, goal: s.structureType === STRUCTURE_RAMPART ? repairTargetHits(room, s) : s.hitsMax * config.towerRepairBelow };
+                const rampart = s.structureType === STRUCTURE_RAMPART;
+                return { id: s.id, wall, goal: rampart ? repairTargetHits(room, s) : s.hitsMax * config.towerRepairBelow, cap: rampart ? rampartTowerGoal(room, s) : 0 };
             }),
         };
     }
@@ -169,7 +177,7 @@ function repairCandidates(room, armed) {
     for (const item of entry.items) {
         const s = Game.getObjectById(item.id);
         if (!s) continue;
-        const goal = item.wall && !armed && floor > 0 ? Math.min(item.goal, floor) : item.goal;
+        const goal = item.wall && !armed && floor > 0 ? Math.min(item.goal, Math.max(floor, Number(item.cap) || 0)) : item.goal;
         if (s.hits < goal) out.push(s);
     }
     return out;
@@ -203,4 +211,4 @@ function creepInjured(room) {
 
 function resetCache() { for (const k of Object.keys(repairCache)) delete repairCache[k]; }
 
-module.exports = { run, resetCache, towersCanHold, towerDamageAt, npcFocus, healOn, safeModeDecision, coreHurt };
+module.exports = { run, repairCandidates, resetCache, towersCanHold, towerDamageAt, npcFocus, healOn, safeModeDecision, coreHurt };

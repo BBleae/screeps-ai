@@ -1542,6 +1542,8 @@ function run(shed) {
     for (const room of sellerRooms(cfg)) {
         for (const entry of sellable(room, cfg, hold)) {
             if (ownSell.has(room.name + ':' + entry.resource)) continue;
+            if (Array.isArray(cfg.neverSell) && cfg.neverSell.indexOf(entry.resource) >= 0) continue;
+            if (entry.amount < cfg.minDeal) continue;
             if (room._depositOnly && depositGoods({ [entry.resource]: 1 }).length === 0) continue;
             const avg = recentAvgPrice(entry.resource, cfg);
             const floor = sellFloorFor(entry.resource, avg, cfg);

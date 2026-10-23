@@ -51,7 +51,7 @@ console.log('--- K from W37S5 and Z from W32S4 (after its RCL8) by terminal ---'
   const rule = (f, t, r) => config.terminalNetwork.forward.find((x) => x.from === f && x.to === t && x.resource === r);
   const k = rule('W37S5', 'W38S7', 'K');
   assert.ok(k && k.keep >= 20000);
-  assert.deepStrictEqual(config.hauling.unstash.W37S5, { resource: 'K', target: 5000, terminalFree: 20000 }, 'W37S5 haulers stage K into the terminal');
+  assert.deepStrictEqual(config.hauling.unstash.W37S5[0], { resource: 'K', target: 5000, terminalFree: 20000 }, 'W37S5 haulers stage K into the terminal');
   global.Game.rooms = { W37S5: mkRoom('W37S5', 7, { K: 5000, energy: 30000 }, { K: 68438 }), W38S7: mkRoom('W38S7', 8, { K: 2900, energy: 2589 }, {}) };
   let p = term.planForward(k, {});
   assert.ok(p && p.amount === 3000 && p.from.name === 'W37S5', 'W38S7 K 2900 < 5000 -> 3000 K: ' + JSON.stringify(p && p.amount));

@@ -810,10 +810,64 @@ function factoryGate(room, cfg) {
     return { ok: true };
 }
 
+function batteryRule(room) {
+    const all = (config.industry || {}).batteryRooms;
+    return room && all && all[room.name] ? all[room.name] : null;
+}
+
+function batteryFactory(room) {
+    if (!batteryRule(room)) return null;
+    if (factoryOf(room, factorySettings())) return null;
+    const typ = typeof STRUCTURE_FACTORY !== 'undefined' ? STRUCTURE_FACTORY : 'factory';
+    return myStructures(room, typ)[0] || null;
+}
+
+function batteryPlan(room) {
+    const factory = batteryFactory(room);
+    if (!factory) return null;
+    const rule = batteryRule(room);
+    const BATTERY = typeof RESOURCE_BATTERY !== 'undefined' ? RESOURCE_BATTERY : 'battery';
+    const need = Number(rule.batch) || 50;
+    const keep = Math.max(0, Number(rule.keep != null ? rule.keep : 20000));
+    const wants = [];
+    const drains = [];
+    const inB = used(factory.store, BATTERY);
+    const spare = roomHave(room, BATTERY) - keep;
+    if (inB < need * 2 && spare > 0) {
+        const amount = Math.min((Number(rule.fill) || 1000) - inB, spare);
+        if (amount > 0 && inB + amount >= need) wants.push({ labId: factory.id, mineral: BATTERY, amount });
+    }
+    const eOut = used(factory.store, RESOURCE_ENERGY);
+    if (eOut > (Number(rule.drainEnergy) || 1000)) drains.push({ labId: factory.id, mineral: RESOURCE_ENERGY, amount: eOut });
+    return { factory: factory.id, gate: { ok: false, why: 'battery' }, wants, drains, product: null, battery: true };
+}
+
+function runBatteryFactory(room, state, factory) {
+    const BATTERY = typeof RESOURCE_BATTERY !== 'undefined' ? RESOURCE_BATTERY : 'battery';
+    const rule = batteryRule(room);
+    const need = Number(rule.batch) || 50;
+    state.factory = { present: 1, configured: true, active: false, product: 'energy', gate: 'battery' };
+    if (typeof factory.produce !== 'function') return;
+    if (factory.cooldown > 0) { state.factory.cooldown = factory.cooldown; return; }
+    if (used(factory.store, BATTERY) < need) { state.factory.batteryWait = true; return; }
+    const ret = factory.produce(RESOURCE_ENERGY);
+    state.factory.active = true;
+    state.factory.resource = 'energy';
+    state.factory.result = ret;
+    state.factory.fromBattery = true;
+    if (ret === OK) {
+        const log = Memory.factoryLog || (Memory.factoryLog = {});
+        const rec = log[room.name] || (log[room.name] = { made: 0, n: 0 });
+        rec.battery = (Number(rec.battery) || 0) + need;
+        rec.energy = (Number(rec.energy) || 0) + need * 10;
+        rec.batteryLast = Game.time;
+    }
+}
+
 function factoryPlan(room) {
     const cfg = factorySettings();
     const factory = factoryOf(room, cfg);
-    if (!factory) return null;
+    if (!factory) return batteryPlan(room);
     const gate = factoryGate(room, cfg);
     const wants = [];
     const drains = [];
@@ -902,6 +956,8 @@ function runOwnFactory(room, state, cfg) {
 function runFactory(room, mem, state, spendAllowed) {
     const fcfg = factorySettings();
     if (factoryOf(room, fcfg)) return runOwnFactory(room, state, fcfg);
+    const bf = batteryFactory(room);
+    if (bf) return runBatteryFactory(room, state, bf);
     const factories = myStructures(room, STRUCTURE_FACTORY);
     const product = normalizeProduct(mem.industry && mem.industry.product);
     state.factory = {
@@ -1017,4 +1073,4 @@ function run(room) {
     }
 }
 
-module.exports = { makeIn, factoryPlan, factoryGate, techPlan, accountHave, boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS };
+module.exports = { batteryRule, batteryFactory, batteryPlan, runBatteryFactory, makeIn, factoryPlan, factoryGate, techPlan, accountHave, boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS };

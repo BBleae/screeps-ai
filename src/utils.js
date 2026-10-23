@@ -771,15 +771,55 @@ function rampartRaiseAllowed(room) {
     return !!(mem && mem.storageRich && mem.storageRich.on) || armedHostiles(room);
 }
 
+function rampartPosFloor(room, structure) {
+    const posTable = room && config.rampartFloorByPos ? config.rampartFloorByPos[room.name] : null;
+    return posTable && structure && structure.pos ? Math.min(structure.hitsMax, Number(posTable[structure.pos.x + ',' + structure.pos.y]) || 0) : 0;
+}
+
+function rampartGuard(room, structure) {
+    const g = room && config.rampartGuard ? config.rampartGuard[room.name] : null;
+    if (!g || !structure || structure.hitsMax == null) return null;
+    const trigger = Math.min(structure.hitsMax, Number(g.trigger) || 0);
+    if (!(trigger > 0)) return null;
+    return { trigger, to: Math.min(structure.hitsMax, Math.max(trigger, Number(g.to) || 0)) };
+}
+
+function rampartGuardActive(room, structures) {
+    if (!room || !config.rampartGuard || !config.rampartGuard[room.name]) return false;
+    let low = false;
+    let open = false;
+    let min = Infinity;
+    for (const s of structures || []) {
+        if (!s || s.structureType !== STRUCTURE_RAMPART) continue;
+        const g = rampartGuard(room, s);
+        if (!g) continue;
+        if (s.hits < min) min = s.hits;
+        if (s.hits < g.trigger) low = true;
+        if (s.hits < g.to) open = true;
+    }
+    const mem = typeof Memory !== 'undefined' && Memory.rooms ? (Memory.rooms[room.name] || (Memory.rooms[room.name] = {})) : null;
+    const was = !!(mem && mem.rampartGuard && mem.rampartGuard.on);
+    const on = low || (was && open);
+    if (mem && on) mem.rampartGuard = { on, since: was ? mem.rampartGuard.since : (typeof Game !== 'undefined' ? Game.time : 0), min: min === Infinity ? null : min };
+    else if (mem && mem.rampartGuard) delete mem.rampartGuard;
+    return on;
+}
+
+function rampartTowerGoal(room, structure) {
+    const guard = rampartGuard(room, structure);
+    return Math.max(wallFloorHits(), rampartPosFloor(room, structure), guard ? guard.to : 0);
+}
+
 function needsRepair(room, structure) {
     if (!structure || structure.hits == null || structure.hitsMax == null) return false;
     if (structure.structureType === STRUCTURE_WALL) return false;
     if (!plannedStructure(room, structure)) return false;
     if (structure.structureType === STRUCTURE_RAMPART) {
+        const guard = rampartGuard(room, structure);
+        if (guard && structure.hits < guard.trigger) return true;
         if (!(structure.hits < repairTargetHits(room, structure))) return false;
         const floor = wallFloorHits();
-        const posTable = room && config.rampartFloorByPos ? config.rampartFloorByPos[room.name] : null;
-        const posFloor = posTable && structure.pos ? Math.min(structure.hitsMax, Number(posTable[structure.pos.x + ',' + structure.pos.y]) || 0) : 0;
+        const posFloor = rampartPosFloor(room, structure);
         return !(floor > 0) || structure.hits < floor || structure.hits < posFloor || rampartRaiseAllowed(room);
     }
     return structure.hits < structure.hitsMax * config.towerRepairBelow;
@@ -1401,7 +1441,7 @@ function pvpDangerRoom(name) {
     return false;
 }
 
-module.exports = { setCreepIndexRecount, tickMemoOff,
+module.exports = { rampartPosFloor, rampartGuard, rampartGuardActive, rampartTowerGoal, setCreepIndexRecount, tickMemoOff,
     allySettings,
     isAllyName,
     isAlly,

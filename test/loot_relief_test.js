@@ -165,10 +165,17 @@ console.log('--- needsRepair: pos floor lifts a rampart over the 10k tower floor
   Memory.rooms = { W37S7: { storageRich: { on: false } } };
   const room = { name: 'W37S7', controller: { level: 7, my: true }, find: () => [] };
   const rp = (x, y, hits) => ({ structureType: STRUCTURE_RAMPART, hits, hitsMax: 10000000, pos: { x, y } });
+  const guard = config.rampartGuard;
+  config.rampartGuard = {};
   assert.strictEqual(utils.needsRepair(room, rp(47, 10, 18261)), true);
   assert.strictEqual(utils.needsRepair(room, rp(47, 10, 20500)), false, 'stops at 20k');
   assert.strictEqual(utils.needsRepair(room, rp(47, 11, 18261)), false, 'other ramparts still wait for 10k');
   assert.strictEqual(utils.needsRepair(room, rp(47, 11, 9000)), true);
+  config.rampartGuard = guard;
+  const w37 = { name: 'W37S7', controller: { level: 7, my: true }, find: () => [] };
+  assert.strictEqual(utils.needsRepair(w37, rp(47, 10, 20500)), true, 'W37S7 repairs from 25k');
+  assert.strictEqual(utils.needsRepair(w37, rp(4, 23, 24999)), true, 'W37S7 any rampart under 25k');
+  assert.strictEqual(utils.needsRepair(w37, rp(4, 23, 25500)), false, 'W37S7 25.5k waits');
   console.log('OK');
 }
 console.log('ALL OK');
