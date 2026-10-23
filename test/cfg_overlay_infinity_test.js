@@ -1,0 +1,10 @@
+const path=require('path');const Module=require('module');
+global.Game={time:1};global.Memory={cfg:{market:{keepBy:{K:0}}}};
+const src=path.join(__dirname,'..','src');const orig=Module._resolveFilename;
+Module._resolveFilename=function(r,...a){try{return orig.call(this,r,...a)}catch(e){return orig.call(this,path.join(src,r),...a)}};
+const config=require(path.join(src,'config.js'));const ov=require(path.join(src,'cfg_overlay.js'));
+const ok=(c,m)=>{console.log((c?'PASS ':'FAIL ')+m);if(!c)process.exitCode=1};
+ok(config.market.keepBy.K===Infinity,'default Infinity');
+ov.apply(true);ok(config.market.keepBy.K===0,'overlay 0 applied');
+Game.time=2;Memory.cfg.market.keepBy.K=5;ov.apply(true);ok(config.market.keepBy.K===5,'re-apply after restore: '+config.market.keepBy.K+' '+JSON.stringify(Memory.cfgApplied.ignored));
+Game.time=3;delete Memory.cfg.market.keepBy.K;ov.apply(true);ok(config.market.keepBy.K===Infinity,'restored to Infinity: '+config.market.keepBy.K);

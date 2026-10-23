@@ -23,7 +23,13 @@ function kind(v) {
 }
 
 function clone(v) {
-    return v === undefined ? undefined : JSON.parse(JSON.stringify(v));
+    if (Array.isArray(v)) return v.map(clone);
+    if (plain(v)) {
+        const o = {};
+        for (const k of Object.keys(v)) if (v[k] !== undefined) o[k] = clone(v[k]);
+        return o;
+    }
+    return v;
 }
 
 function getPath(obj, parts) {
