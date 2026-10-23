@@ -11,8 +11,8 @@ function fastDismantle(creep, target) {
     if (Game.time - (m.tgtAt || 0) > 100) { delete m.tgt; return false; }
     const obj = Game.getObjectById(m.tgt);
     if (!obj) { delete m.tgt; return false; }
-    const rc = creep.dismantle(obj);
-    if (rc === OK) return true;
+    const rc = dis(creep, obj);
+    if (rc === OK || rc === HOLD) return true;
     if (rc === ERR_NOT_IN_RANGE) { approach(creep, obj); return true; }
     delete m.tgt;
     return false;
@@ -57,10 +57,11 @@ function breachFor(creep, obj) {
 }
 
 function approach(creep, obj) {
-    if (creep.memory.salvageLoot && obj.pos.roomName === creep.room.name) {
+    const sd = creep.memory.salvageLoot && obj.pos.roomName === creep.room.name ? liveDir(creep.memory.targetRoom) : null;
+    if (creep.memory.salvageLoot && obj.pos.roomName === creep.room.name && !(sd && sd.strictFocus)) {
         const b = breachFor(creep, obj);
         if (b) {
-            if (creep.dismantle(b) === ERR_NOT_IN_RANGE) movement.go(creep, b, { range: 1, reusePath: 50 });
+            if (dis(creep, b) === ERR_NOT_IN_RANGE) movement.go(creep, b, { range: 1, reusePath: 50 });
             return;
         }
     }
@@ -70,7 +71,7 @@ function approach(creep, obj) {
 function hitTarget(creep, obj) {
     creep.memory.tgt = obj.id;
     creep.memory.tgtAt = Game.time;
-    if (creep.dismantle(obj) === ERR_NOT_IN_RANGE) approach(creep, obj);
+    if (dis(creep, obj) === ERR_NOT_IN_RANGE) approach(creep, obj);
 }
 
 const mateCache = { tick: -1, by: {} };
@@ -163,6 +164,95 @@ function power(c) {
 
 function boostedWork(c) {
     return (c.body || []).some((p) => p.type === WORK && p.boost);
+}
+
+const HOLD = 1;
+const holdBook = { tick: -1, by: {} };
+function liveDir(target) {
+    for (const x of (Array.isArray(Memory.conquest) ? Memory.conquest : [])) if (x && x.target === target && !x.completed) return x;
+    return null;
+}
+
+function onFocus(dir, obj) {
+    const f = Array.isArray(dir.focusTiles) ? dir.focusTiles : [];
+    return !!obj.pos && f.some((t) => t[0] === obj.pos.x && t[1] === obj.pos.y);
+}
+
+function guarded(dir) {
+    return !!dir && (Number(dir.stopHits) > 0 || !!dir.strictFocus);
+}
+
+function dis(creep, obj) {
+    if (!obj || typeof Memory === 'undefined') return creep.dismantle(obj);
+    const dir = liveDir(creep.memory.targetRoom);
+    if (!guarded(dir) || !obj.pos || obj.pos.roomName !== dir.target) return creep.dismantle(obj);
+    const ramp = obj.structureType === STRUCTURE_RAMPART;
+    if (dir.strictFocus) {
+        if (!onFocus(dir, obj)) return ERR_INVALID_TARGET;
+        if (!ramp && !(dir.nukerGo && obj.structureType === (typeof STRUCTURE_NUKER === 'undefined' ? 'nuker' : STRUCTURE_NUKER))) return ERR_INVALID_TARGET;
+    }
+    if (ramp && Number(dir.stopHits) > 0 && !dir.finishGo && onFocus(dir, obj)) {
+        if (creep.pos.getRangeTo(obj) > 1) return ERR_NOT_IN_RANGE;
+        if (holdBook.tick !== Game.time) { holdBook.tick = Game.time; holdBook.by = {}; }
+        const dmg = power(creep) * (typeof DISMANTLE_POWER === 'undefined' ? 50 : DISMANTLE_POWER);
+        const left = obj.hits - (holdBook.by[obj.id] || 0);
+        if (left - dmg < Number(dir.stopHits)) return HOLD;
+        holdBook.by[obj.id] = (holdBook.by[obj.id] || 0) + dmg;
+    }
+    return creep.dismantle(obj);
+}
+
+function strictTargets(room, dir) {
+    const out = [];
+    const nk = require('loot_nuke');
+    for (const t of (Array.isArray(dir.focusTiles) ? dir.focusTiles : [])) {
+        const r = nk.rampartAt(room, t[0], t[1]);
+        if (r) { out.push(r); continue; }
+        if (dir.nukerGo) { const n = nk.nukerAt(room, t[0], t[1]); if (n) out.push(n); }
+    }
+    return out;
+}
+
+function strictRun(creep, dir) {
+    const m = creep.memory;
+    const room = creep.room;
+    if (conquest.retreatFor(dir.target)) {
+        const back = m.staging || m.home || dir.target;
+        if (room.name !== back) movement.go(creep, new RoomPosition(25, 25, back), { range: 20, reusePath: 15 });
+        return true;
+    }
+    const p = creep.pos;
+    const list = strictTargets(room, dir);
+    const obj = list[0] || null;
+    if (!obj) {
+        m.idleFocus = Game.time;
+        if (p.x <= 1 || p.x >= 48 || p.y <= 1 || p.y >= 48) movement.go(creep, new RoomPosition(25, 25, room.name), { range: 20, reusePath: 20 });
+        return true;
+    }
+    const d = Array.isArray(dir.dTile) ? dir.dTile : null;
+    if (d) {
+        let lead = null;
+        for (const c of squadMates(creep)) {
+            if (c.memory.role !== 'siegeDismantler' || c.memory.retired || !c.room || c.room.name !== room.name) continue;
+            const w = power(c);
+            if (!lead || w > lead.w || (w === lead.w && c.name < lead.c.name)) lead = { c, w };
+        }
+        if (lead && lead.c.name !== creep.name) {
+            const wait = Array.isArray(dir.dWait) && dir.dWait.length ? dir.dWait : null;
+            if (wait) {
+                const mates = squadMates(creep).filter((c) => c.memory.role === 'siegeDismantler').map((c) => c.name).sort();
+                const w = wait[Math.max(0, mates.indexOf(creep.name)) % wait.length];
+                if (p.x !== w[0] || p.y !== w[1]) movement.go(creep, new RoomPosition(w[0], w[1], room.name), { range: 0, reusePath: 10 });
+            } else if (p.x === d[0] && p.y === d[1]) movement.go(creep, new RoomPosition(25, 25, room.name), { range: 3, reusePath: 10 });
+            return true;
+        }
+        if (p.x !== d[0] || p.y !== d[1]) { movement.go(creep, new RoomPosition(d[0], d[1], room.name), { range: 0, reusePath: 10 }); return true; }
+        dis(creep, obj);
+        return true;
+    }
+    if (p.getRangeTo(obj) > 1) { movement.go(creep, obj, { range: 1, reusePath: 20 }); return true; }
+    dis(creep, obj);
+    return true;
 }
 
 function claimedStands(target) {
@@ -335,7 +425,7 @@ function sideRun(creep, posts) {
         if (!obj) return false;
         m.side = obj.id;
     }
-    if (creep.dismantle(obj) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 20 });
+    if (dis(creep, obj) === ERR_NOT_IN_RANGE) movement.go(creep, obj, { range: 1, reusePath: 20 });
     return true;
 }
 
@@ -433,17 +523,17 @@ function postRun(creep) {
         if (upgrade && m.post === held) upgrade = false;
     }
     if (creep.pos.x === m.post.s[0] && creep.pos.y === m.post.s[1]) {
-        creep.dismantle(obj);
+        dis(creep, obj);
         return true;
     }
     const sp = new RoomPosition(m.post.s[0], m.post.s[1], target);
     const block = creep.room.lookForAt(LOOK_STRUCTURES, sp.x, sp.y).find(blocks);
     if (block) {
-        if (creep.pos.getRangeTo(sp) <= 1) creep.dismantle(block);
+        if (creep.pos.getRangeTo(sp) <= 1) dis(creep, block);
         else movement.go(creep, sp, { range: 1, reusePath: 20 });
         return true;
     }
-    if (obj && creep.pos.getRangeTo(obj) <= 1) creep.dismantle(obj);
+    if (obj && creep.pos.getRangeTo(obj) <= 1) dis(creep, obj);
     const key = creep.pos.x + ',' + creep.pos.y;
     if (m.stIdle && m.stIdle.k === key) m.stIdle.n++; else m.stIdle = { k: key, n: 0 };
     if (m.stIdle.n >= 3 && clearToward(creep, sp)) return true;
@@ -453,6 +543,8 @@ function postRun(creep) {
 
 function clearToward(creep, sp) {
     const room = creep.room;
+    const cd = liveDir(creep.memory.targetRoom);
+    if (cd && cd.strictFocus) return false;
     const res = PathFinder.search(creep.pos, { pos: sp, range: 0 }, {
         maxRooms: 1,
         maxOps: 4000,
@@ -469,7 +561,7 @@ function clearToward(creep, sp) {
     if (res.incomplete || !res.path.length) return false;
     const step = res.path[0];
     const st = room.lookForAt(LOOK_STRUCTURES, step.x, step.y).find(blocks);
-    if (st && clearable(room, st)) { creep.dismantle(st); return true; }
+    if (st && clearable(room, st)) { dis(creep, st); return true; }
     if (!st) { creep.move(creep.pos.getDirectionTo(step)); return true; }
     return false;
 }
@@ -530,6 +622,8 @@ function endCheck(target) {
 function handoff(creep) {
     const m = creep.memory;
     if (m.retired || !m.targetRoom || creep.spawning) return false;
+    const hd = typeof Memory !== 'undefined' ? liveDir(m.targetRoom) : null;
+    if (hd && hd.strictFocus) return false;
     const h = endCheck(m.targetRoom);
     if (!h) return false;
     const next = h.to;
@@ -558,6 +652,10 @@ function run(creep) {
     if (bucketHold(creep)) return;
     if (lootHoldRun(creep)) return;
     if (require('roles_lootHauler').gateHold(creep)) return;
+    if (creep.memory.targetRoom && creep.room.name === creep.memory.targetRoom && !creep.memory.retired) {
+        const sdir = liveDir(creep.memory.targetRoom);
+        if (sdir && sdir.strictFocus && strictRun(creep, sdir)) return;
+    }
     if (postRun(creep)) return;
     const target = creep.memory.targetRoom;
     if (!target) return;
@@ -688,7 +786,7 @@ function run(creep) {
     if (!targets.length) { creep.memory.retired = true; retire.retireAtSpawn(creep); return; }
     delete creep.memory.idle;
     const tgt = targets.reduce((low, t) => (t.hits < low.hits ? t : low), targets[0]);
-    if (creep.dismantle(tgt) === ERR_NOT_IN_RANGE) movement.go(creep, tgt, { range: 1, reusePath: 5 });
+    if (dis(creep, tgt) === ERR_NOT_IN_RANGE) movement.go(creep, tgt, { range: 1, reusePath: 5 });
 }
 
-module.exports = { run, squadMates, power, openCheck, innerPosts, standAround, sideRun, unboostedTimeout, bucketHold, releaseSlot, strongerWaiting, handoff, freeBoostSlot, clearToward };
+module.exports = { dis, strictRun, strictTargets, HOLD, run, squadMates, power, openCheck, innerPosts, standAround, sideRun, unboostedTimeout, bucketHold, releaseSlot, strongerWaiting, handoff, freeBoostSlot, clearToward };

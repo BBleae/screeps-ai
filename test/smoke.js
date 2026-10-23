@@ -20,7 +20,7 @@ const MODULE_MAP = {
     wall_breach: 'wall_breach.js', cpu_remote: 'cpu_remote.js', cpu_gate: 'cpu_gate.js',
     loot_shed: 'loot_shed.js', last_trip: 'last_trip.js', wallfix: 'wallfix.js', roles_wallBreaker: 'roles/wallBreaker.js',
     war: 'war.js', roles_warrior: 'roles/warrior.js', roles_escort: 'roles/escort.js',
-    conquest: 'conquest.js', roles_siegeDismantler: 'roles/siegeDismantler.js', roles_siegeGuard: 'roles/siegeGuard.js', roles_downgrader: 'roles/downgrader.js', roles_lootHauler: 'roles/lootHauler.js', side_loot: 'side_loot.js', loot_split: 'loot_split.js',
+    conquest: 'conquest.js', roles_siegeDismantler: 'roles/siegeDismantler.js', roles_siegeGuard: 'roles/siegeGuard.js', roles_downgrader: 'roles/downgrader.js', roles_lootHauler: 'roles/lootHauler.js', side_loot: 'side_loot.js', loot_split: 'loot_split.js', loot_nuke: 'loot_nuke.js',
 };
 const origResolve = Module._resolveFilename;
 const origLoad = Module._load;

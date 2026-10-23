@@ -341,4 +341,4 @@ function run(force) {
     return { moved: moved.length, on: s.on, names: moved };
 }
 
-module.exports = { moveTo, lend, lendRoom, run, pool, retarget, sendBack, roomEmpty, settings, reliefTtl, lockOf, quota, guard, sight, runLocks, runDead, batteryLeft, liveRooms };
+module.exports = { releaseLock, moveTo, lend, lendRoom, run, pool, retarget, sendBack, roomEmpty, settings, reliefTtl, lockOf, quota, guard, sight, runLocks, runDead, batteryLeft, liveRooms };

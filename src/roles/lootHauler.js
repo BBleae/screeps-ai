@@ -321,7 +321,11 @@ function deliver(creep) {
     const amount = Number(creep.store[res] || 0);
     const ret = creep.transfer(dest, res);
     if (ret === ERR_NOT_IN_RANGE) mv(creep, dest, { range: 1, reusePath: 15 });
-    else if (ret === OK) noteUnload(creep, res, Math.min(amount, typeof dest.store.getFreeCapacity === 'function' ? Number(dest.store.getFreeCapacity(res)) || amount : amount));
+    else if (ret === OK) {
+        const got = Math.min(amount, typeof dest.store.getFreeCapacity === 'function' ? Number(dest.store.getFreeCapacity(res)) || amount : amount);
+        noteUnload(creep, res, got);
+        if (Memory.lootWarLoot && Memory.lootWarLoot.nuke) require('loot_nuke').noteUnload(creep, res, got);
+    }
     return true;
 }
 
@@ -810,6 +814,7 @@ function run(creep) {
         return;
     }
     if (retreat) { creep.memory.state = 'deliver'; return; }
+    if (Memory.lootWarLoot && Memory.lootWarLoot.nuke && require('loot_nuke').haulerRun(creep, carrying)) return;
     if (creep.room.name !== target) { if (!routePickup(creep)) goRoom(creep, target); return; }
     loadStep(creep, carrying);
 }
