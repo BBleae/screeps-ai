@@ -265,7 +265,8 @@ function lootStats() {
 function noteUnload(creep, res, amount) {
     const m = creep.memory;
     const st = lootStats();
-    const key = m.targetRoom || '?';
+    const key = m.cf || m.targetRoom || '?';
+    m.lastFrom = key;
     const rec = st.by[key] || (st.by[key] = { amt: 0, bAmt: 0, nonE: 0, trips: 0, tN: 0, tripT: 0, bTrips: 0, bTN: 0, bTripT: 0, to: {}, res: {} });
     rec.amt += amount;
     if (res !== ENERGY) rec.nonE += amount;
@@ -284,7 +285,8 @@ function noteUnload(creep, res, amount) {
 function noteTrip(creep) {
     const m = creep.memory;
     const st = lootStats();
-    const rec = st.by[m.targetRoom || '?'];
+    const rec = st.by[m.lastFrom || m.targetRoom || '?'];
+    delete m.lastFrom;
     if (rec) {
         const b = boostedCarry(creep);
         rec.trips++;
@@ -442,7 +444,8 @@ function track(creep) {
     const m = creep.memory;
     m.dk = [creep.room.name, creep.pos.x, creep.pos.y, creep.ticksToLive, Game.time];
     const used = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() : 0;
-    if (!used) { delete m.ds; return; }
+    if (!used) { delete m.ds; delete m.cf; return; }
+    if (!m.cf && m.targetRoom) m.cf = m.targetRoom;
     const ds = {};
     for (const k in creep.store) if (Number(creep.store[k]) > 0) ds[k] = creep.store[k];
     m.ds = ds;
@@ -771,4 +774,4 @@ function run(creep) {
     loadStep(creep, carrying);
 }
 
-module.exports = { dropStaleBoosts, reachable, queued, pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, loadPick, tierOf, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks, finalRun };
+module.exports = { noteUnload, noteTrip, track, dropStaleBoosts, reachable, queued, pathSteps, pathCalc, boostHere, run, freeStand, stuckTick, closestByPath, loadStep, pickTarget, biggest, loadPick, tierOf, gateArmed, gateHold, noteDeath, dropList, dropRoom, ttlCheck, routePickup, needTicks, finalRun };
