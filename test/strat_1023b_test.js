@@ -105,7 +105,7 @@ console.log('--- lock: pool never picks locked creeps, top up to n, release on b
   console.log('OK');
 }
 
-console.log('--- lock: conquest counts locked creeps without salvageLoot; relieved/finalRun take no slot ---');
+console.log('--- cap: every live lootHauler counts (relieved, finalRun, spawning, locked, any flags) ---');
 {
   reset();
   Memory.cfg = undefined;
@@ -113,14 +113,24 @@ console.log('--- lock: conquest counts locked creeps without salvageLoot; reliev
   Game.rooms.W37S5 = home;
   const cnt = () => conquest.getDemands(home).filter((x) => x.memory && x.memory.role === 'lootHauler' && x.memory.targetRoom === 'W35S1').length;
   const total = config.conquest.lootHaulerTotal;
-  for (let i = 0; i < total; i++) hauler('S' + i, { targetRoom: 'W37S2', home: 'W37S7' });
-  const base = cnt();
-  assert.strictEqual(base, 0);
-  for (let i = 0; i < 3; i++) Game.creeps['S' + i].memory.relieved = 100;
-  Game.creeps.S3.memory.finalRun = { at: 1 };
+  for (let i = 0; i < total - 6; i++) hauler('S' + i, { targetRoom: 'W37S2', home: 'W37S7' });
+  for (let i = 0; i < 3; i++) hauler('R' + i, { targetRoom: 'W37S2', home: 'W38S7', relieved: 100 });
+  hauler('F0', { targetRoom: 'W37S2', home: 'W38S7', finalRun: { at: 1 } });
+  hauler('W0', { targetRoom: 'W39S1', home: 'W38S7', salvageLoot: undefined });
+  hauler('N0', { targetRoom: 'W37S2', home: 'W37S7' });
+  Game.creeps.N0.spawning = true;
+  assert.strictEqual(Object.keys(Game.creeps).length, total);
+  assert.strictEqual(cnt(), 0, 'relieved/finalRun/W39S1/spawning all count toward the cap');
+  for (const n of ['R0', 'R1', 'F0', 'W0']) delete Game.creeps[n];
+  Game.time++;
   assert.strictEqual(cnt(), 4);
   for (let i = 0; i < 4; i++) hauler('K' + i, { targetRoom: 'W35S1', w35lock: 1, salvageLoot: undefined });
+  Game.time++;
   assert.strictEqual(cnt(), 0);
+  hauler('X0', { targetRoom: 'W37S2', home: 'W37S7' });
+  Game.time++;
+  assert.strictEqual(cnt(), 0, 'over the cap: no new slots, nothing killed');
+  assert.ok(Game.creeps.X0 && Game.creeps.S0);
   console.log('OK');
 }
 

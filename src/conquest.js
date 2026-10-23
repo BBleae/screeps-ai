@@ -1052,7 +1052,7 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
             let slots = null;
             if (salvage) {
                 const locked = (m) => !!(m.lootLock || m.w35lock);
-                const all = Object.values(Game.creeps || {}).filter((c) => c.memory && c.memory.role === 'lootHauler' && (c.memory.salvageLoot || c.memory.pullLoot || locked(c.memory)) && !c.memory.relieved && !c.memory.finalRun);
+                const all = Object.values(Game.creeps || {}).filter((c) => c.memory && c.memory.role === 'lootHauler');
                 const live = all.filter((c) => (c.memory.salvageLoot || locked(c.memory)) && c.memory.targetRoom === d.target && c.memory.home === home.name).length;
                 const homeLive = all.filter((c) => c.memory.home === home.name).length;
                 const totalCap = (() => { let n = Math.max(0, Number(settings().lootHaulerTotal) || Number(d.haulers) || 0); try { n = require('war').lootHaulerCap(n); } catch (e) {} return n; })();
