@@ -10859,7 +10859,7 @@ console.log('== 10-17 11:04 原料买入：只给 W32S4 补 X/O 到 3000，lab �
     Game.rooms = { W32S4: mkRoom(reserve + 50000) }; Game.market = mkMineralMarket(9000000); createdM = [];
     mk.runOwnOrders(cfg, Game.market);
     assert(createdM.length === 1 && ['X', 'O'].indexOf(createdM[0].resourceType) >= 0 && createdM[0].roomName === 'W32S4', 'lab 在跑：给 W32S4 挂 X 或 O 买单');
-    assert(Memory.market.ledger.buyCredits > 0, '原料买入走普通 15 万日额度 buyCredits');
+    assert((createdM[0] && createdM[0].resourceType === 'X' ? (Memory.market.ledger.buyOwn || {}).X : Memory.market.ledger.buyCredits) > 0, '10-23 X 走独立额度 buyOwn.X，其余原料走普通日额度 buyCredits');
     indC.labRooms = savedLabRooms; indC.labStorageReserve = savedReserveCfg;
     Game.cpu.bucket = savedBucket; Memory.stats = savedStats; Game.rooms = savedRooms; Memory.market = savedMem; Game.market = savedGM;
 }
@@ -10870,7 +10870,7 @@ console.log('== 10-16 19:00 市场降档：日额度 15 万、只给 W32S4 买 Z
     const mc = require('../src/config').market; require.cache[cfgPath] = savedCfg;
     assert(mc.dailyBuyCredits === 500000, '10-19 lab 恢复：每日买入上限调回 50 万（得 ' + mc.dailyBuyCredits + '）');
     assert(JSON.stringify(mc.buy.resources.slice().sort()) === '["O","U","X","Z"]' && JSON.stringify(mc.buy.rooms) === '["W32S4","W33S3"]' && mc.buy.target === 3000, '10-19 调回：W32S4、W33S3 买 Z/O/X/U 补到 3000（得 ' + JSON.stringify(mc.buy) + '）');
-    assert(mc.buyShare.cap.Z === 0.4 && mc.buyShare.reserve.O === 0.2 && mc.buyShare.reserve.X === 0.2 && !mc.pauseNotes, 'Z 封顶 40%、O/X 各预留 20%，pauseNotes 清掉');
+    assert(mc.buyShare.cap.Z === 0.4 && mc.buyShare.reserve.O === 0.2 && mc.buyShare.reserve.X == null && mc.buyBudgetBy.X === 1600000 && !mc.pauseNotes, 'Z 封顶 40%、O 预留 20%，10-23 X 独立日额度 160 万，pauseNotes 清掉');
     assert(mc.buyEnergy.spawnStuckEmergency === true && mc.buyEnergy.emergencyOutsideDaily === true, '救急买能量保留、且不占日额度');
 }
 
@@ -16802,10 +16802,10 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
     Game.market.credits = 2300000;
     const b = mk.tryBuy(cfg, Game.market, () => 0);
     assert(b && b.resource === 'X' && deals[0] && deals[0][0] === 's2' && deals[0][1] === 1000, '买 X（Z 已停买）、取价带内最便宜、单笔按 50k credits 截到 1000（得 ' + JSON.stringify(deals) + '）');
-    assert(Memory.market.ledger.buyCredits === 0 && mk.pendingDeals().length === 1 && mk.pendingSum('buyCredits') === 50000, '10-20 deal 返回 OK 先挂 pending，不入账，但占日买额度');
+    assert(Memory.market.ledger.buyCredits === 0 && mk.pendingDeals().length === 1 && mk.pendingSum('ownBuy', 'X') === 50000 && mk.pendingSum('buyCredits') === 0, '10-20 deal 返回 OK 先挂 pending，不入账，10-23 X 占独立额度');
     const pendingCopy = JSON.parse(JSON.stringify(mk.pendingDeals()));
     fakeConfirm(mk);
-    assert(Memory.market.ledger.buyCredits === 50000, '账本记买入 credits（得 ' + Memory.market.ledger.buyCredits + '）');
+    assert(Memory.market.ledger.buyOwn.X === 50000 && Memory.market.ledger.buyCredits === 0, '账本记 X 买入 credits 到 buyOwn.X（得 ' + JSON.stringify(Memory.market.ledger.buyOwn) + '）');
     Memory.market.pendingDeals = pendingCopy;
     const ledBefore = Memory.market.ledger.buyCredits;
     mk.confirmDeals({ incomingTransactions: [], outgoingTransactions: [] });
@@ -16847,10 +16847,11 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
         mk.syncOrders(ocfg, Game.market);
         const zk = Memory.market.orders['buy:W32S4:X'];
         assert(zk && zk.id === 'oid1' && Memory.market.ledger.bought.X === 100, '认领挂单 id、按成交量记账（得 ' + JSON.stringify(Memory.market.ledger.bought) + '）');
-        const before = Memory.market.ledger.buyCredits;
+        const before = Memory.market.ledger.buyOwn.X;
+        const beforeShared = Memory.market.ledger.buyCredits;
         if (zk) zk.expires = world.time;
         mk.syncOrders(ocfg, Game.market);
-        assert(cancelled.indexOf('oid1') >= 0 && !Memory.market.orders['buy:W32S4:X'] && Memory.market.ledger.buyCredits === before - 400 * 50, '到期撤单、退回未成交的预占额度');
+        assert(cancelled.indexOf('oid1') >= 0 && !Memory.market.orders['buy:W32S4:X'] && Memory.market.ledger.buyOwn.X === before - 400 * 50 && Memory.market.ledger.buyCredits === beforeShared, '到期撤单、退回未成交的预占额度（X 退回独立额度）');
         Game.market.credits = 1990000;
         Memory.market.orders = {};
         const n = created.length;
@@ -16865,12 +16866,12 @@ console.log('== 市场（2026-10-13，移植 overmind-absorb 2133dc2/6112d42）�
             createOrder: (o) => { created.push(o); return OK; }, cancelOrder: () => OK };
         Game.rooms = { W32S4: mkRoom('W32S4', { energy: 3000, Z: 3000, O: 3000 }, { energy: 30000 }) };
         mk.runOwnOrders(ocfg, Game.market);
-        assert(created[0] && created[0].resourceType === 'X' && created[0].type === 'buy' && created[0].totalAmount === 113 && created[0].price * created[0].totalAmount <= 50000,
-            'X 自挂买单按单笔 5 万截到 113 个照挂（得 ' + JSON.stringify(created[0]) + '）');
+        assert(created[0] && created[0].resourceType === 'X' && created[0].type === 'buy' && created[0].price === 400 && created[0].totalAmount === 125 && created[0].price * created[0].totalAmount <= 50000,
+            '10-23 X 均价 441 ⇒ 封顶 400 挂、单笔 5 万截到 125 个（得 ' + JSON.stringify(created[0]) + '）');
         Memory.market = {}; created.length = 0;
         Game.market.getHistory = (r) => [{ avgPrice: r === 'X' ? 600 : 50, volume: 1 }];
         mk.runOwnOrders(ocfg, Game.market);
-        assert(!created.find((o) => o.resourceType === 'X'), 'X 均价 600 ⇒ 5 万只够 83 < minBuyAmount 100，不挂');
+        assert(created.find((o) => o.resourceType === 'X') && created.filter((o) => o.resourceType === 'X').every((o) => o.price <= 400), '10-23 X 均价 600 ⇒ 仍按 400 封顶挂单，不超 400');
     }
     {
         const mm = ROLES.mineralMiner;

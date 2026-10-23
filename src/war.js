@@ -1186,9 +1186,9 @@ function lootSplit(w, room, structsCleared) {
     if (noClaimer()) openLootRoute(w);
     const m = typeof Memory !== 'undefined' ? Memory : null;
     if (m) {
-        m.lootWarLoot = { target: sp.room || target(), haulers: Number(sp.haulers) || 8, keepOthers: Number(sp.keepOthers) || 6, unload: sp.unload || home(), since: Game.time };
+        m.lootWarLoot = { target: sp.room || target(), haulers: require('loot_split').quota(sp.haulers, 8), keepOthers: Number(sp.keepOthers) || 6, unload: sp.unload || home(), since: Game.time };
     }
-    logEvent('lootSplit', { tick: Game.time, target: sp.room || target(), haulers: Number(sp.haulers) || 8, keepOthers: Number(sp.keepOthers) || 6, unload: sp.unload || home() });
+    logEvent('lootSplit', { tick: Game.time, target: sp.room || target(), haulers: require('loot_split').quota(sp.haulers, 8), keepOthers: Number(sp.keepOthers) || 6, unload: sp.unload || home() });
 }
 
 function openLootRoute(w) {

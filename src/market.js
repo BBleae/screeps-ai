@@ -98,7 +98,8 @@ function pendingSum(kind, res) {
     let sum = 0;
     for (const p of pendingDeals()) {
         if (res != null && p.res !== res) continue;
-        if (kind === 'buyCredits' && (p.kind === 'mineral' || (p.kind === 'energy' && !p.outside))) sum += p.amount * p.price;
+        if (kind === 'buyCredits' && ((p.kind === 'mineral' && !p.own) || (p.kind === 'energy' && !p.outside))) sum += p.amount * p.price;
+        else if (kind === 'ownBuy' && p.kind === 'mineral' && p.own) sum += p.amount * p.price;
         else if (kind === 'emergency' && p.kind === 'energy' && p.emergency) sum += p.amount;
         else if (kind === 'sold' && p.kind === 'sell') sum += p.amount;
         else if (kind === 'military' && p.kind === 'military') sum += p.amount * p.price;
@@ -138,8 +139,11 @@ function applyDeal(led, p, amount) {
         led.deals++;
     } else if (p.kind === 'mineral') {
         led.bought[p.res] = (led.bought[p.res] || 0) + amount;
-        led.buyCredits = Math.round(led.buyCredits + credits);
-        noteBuyBy(led, p.res, credits);
+        if (p.own) noteOwnBuy(led, p.res, credits);
+        else {
+            led.buyCredits = Math.round(led.buyCredits + credits);
+            noteBuyBy(led, p.res, credits);
+        }
         led.deals++;
     } else if (p.kind === 'military') {
         const spentBy = led.militaryBy || (led.militaryBy = {});
@@ -264,6 +268,19 @@ function buyShareOk(cfg, led, res, commit) {
     let held = 0;
     for (const r in (sh.reserve || {})) if (r !== res) held += Math.max(0, total * sh.reserve[r] - (by[r] || 0));
     return led.buyCredits + commit + held <= total;
+}
+function ownBuyCap(cfg, res) {
+    const v = Number(cfg && cfg.buyBudgetBy && cfg.buyBudgetBy[res]);
+    return v > 0 ? v : null;
+}
+function ownBuyLeft(cfg, led, res) {
+    const cap = ownBuyCap(cfg, res);
+    if (cap == null) return null;
+    return cap - (Number((led.buyOwn || {})[res]) || 0) - pendingSum('ownBuy', res);
+}
+function noteOwnBuy(led, res, credits) {
+    const by = led.buyOwn || (led.buyOwn = {});
+    by[res] = Math.max(0, Math.round((Number(by[res]) || 0) + credits));
 }
 function noteBuyBy(led, res, credits) {
     const by = led.buyBy || (led.buyBy = {});
@@ -755,12 +772,15 @@ function tryBuy(cfg, market, countScan) {
     if (!b || !Array.isArray(b.resources) || !b.resources.length || cfg.priceBand == null) return null;
     if (!(Number(market.credits) >= cfg.creditFloor)) return null;
     const led = ledger();
-    const left = cfg.dailyBuyCredits - led.buyCredits - pendingSum('buyCredits');
-    if (!(left > 0)) return null;
+    const shared = cfg.dailyBuyCredits - led.buyCredits - pendingSum('buyCredits');
+    if (!(shared > 0) && !b.resources.some((r) => (ownBuyLeft(cfg, led, r) || 0) > 0)) return null;
     const rooms = (b.rooms || []).map((n) => Game.rooms[n]).filter((r) => r && r.terminal && r.terminal.my !== false && !(r.terminal.cooldown > 0) && !terminalNet.usedThisTick(r.name));
     for (const room of rooms) {
         for (const res of b.resources) {
             if (buyStopped(cfg, res) || !buyRoomOk(b, room.name, res)) continue;
+            const ownLeft = ownBuyLeft(cfg, led, res);
+            const left = ownLeft != null ? ownLeft : shared;
+            if (!(left > 0)) continue;
             const have = Number(room.terminal.store[res] || 0) + Number((room.storage && room.storage.store[res]) || 0);
             const want = Number(b.target || 3000) - have;
             if (want < cfg.minDeal) continue;
@@ -779,14 +799,14 @@ function tryBuy(cfg, market, countScan) {
             const costOf = (n) => (typeof market.calcTransactionCost === 'function' ? market.calcTransactionCost(n, room.name, best.roomName) : Math.ceil(n * 0.1));
             while (amount >= cfg.minDeal && costOf(amount) > energy) amount = Math.floor(amount / 2);
             if (amount < cfg.minDeal) continue;
-            if (!buyShareOk(cfg, led, res, amount * best.price)) continue;
+            if (ownLeft == null && !buyShareOk(cfg, led, res, amount * best.price)) continue;
             const ret = market.deal(best.id, amount, room.name);
             terminalNet.markUsed(room.name);
             const rec = { at: Game.time, room: room.name, resource: res, amount, price: best.price, ceil: Math.round(ceil * 1000) / 1000, buy: true, result: ret };
             const mem = Memory.market;
             mem.lastBuy = rec;
             if (ret === (typeof OK !== 'undefined' ? OK : 0)) {
-                addPending({ kind: 'mineral', id: best.id, room: room.name, res, amount, price: best.price });
+                addPending(Object.assign({ kind: 'mineral', id: best.id, room: room.name, res, amount, price: best.price }, ownLeft != null ? { own: true } : {}));
             }
             return rec;
         }
@@ -1046,6 +1066,8 @@ function syncOrders(cfg, market) {
                     led.energyBuyCredits = Math.max(0, Math.round((Number(led.energyBuyCredits) || 0) - left * o.price));
                     const by = led.energyBuyByRoom || (led.energyBuyByRoom = {});
                     if (by[o.room] != null) by[o.room] = Math.max(0, Math.round((Number(by[o.room]) || 0) - left * o.price));
+                } else if (o.own) {
+                    if (o.day === led.day) noteOwnBuy(led, o.resource, -left * o.price);
                 } else {
                     led.buyCredits = Math.max(0, Math.round(led.buyCredits - left * o.price));
                     if (o.day === led.day) noteBuyBy(led, o.resource, -left * o.price);
@@ -1113,6 +1135,8 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
             const roomSpent = budget.roomKey ? (Number((led[budget.roomKey] || {})[room]) || 0) : 0;
             if (credits - commit < floor || (Number(led[budget.key]) || 0) + commit > Number(budget.cap)
                 || (budget.roomCap > 0 && roomSpent + commit > budget.roomCap) || price * amount > (budget.maxCredits != null ? budget.maxCredits : cfg.maxOrderCredits)) return null;
+        } else if (resource !== ENERGY && ownBuyCap(cfg, resource) != null) {
+            if (credits - commit < cfg.creditFloor || (Number((led.buyOwn || {})[resource]) || 0) + commit > ownBuyCap(cfg, resource) || price * amount > cfg.maxOrderCredits) return null;
         } else {
             if (credits - commit < cfg.creditFloor || led.buyCredits + commit > cfg.dailyBuyCredits || price * amount > cfg.maxOrderCredits) return null;
             if (resource !== ENERGY && !buyShareOk(cfg, led, resource, commit)) return null;
@@ -1130,6 +1154,7 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
             led[budget.key] = Math.round((Number(led[budget.key]) || 0) + fee + price * amount);
             if (budget.roomKey) { const by = led[budget.roomKey] || (led[budget.roomKey] = {}); by[room] = Math.round((Number(by[room]) || 0) + fee + price * amount); }
         }
+        else if (resource !== ENERGY && ownBuyCap(cfg, resource) != null) noteOwnBuy(led, resource, fee + price * amount);
         else { led.buyCredits = Math.round(led.buyCredits + fee + price * amount); noteBuyBy(led, resource, fee + price * amount); }
     }
     else led.sellFees = Math.round((led.sellFees || 0) + fee);
@@ -1137,6 +1162,7 @@ function postOrder(cfg, market, type, resource, room, price, amount, budget) {
     led.fees = Math.round((led.fees || 0) + fee);
     led.orders = (led.orders || 0) + 1;
     book[key] = { type, resource, room, price, amount, posted: Game.time, expires: Game.time + own.expireTicks, id: null, left: amount, day: led.day };
+    if (type === 'buy' && !budget && resource !== ENERGY && ownBuyCap(cfg, resource) != null) book[key].own = true;
     return rec;
 }
 
@@ -1565,4 +1591,4 @@ function run(shed) {
     return null;
 }
 
-module.exports = { sellStopped, tradeOrders, learnBlocked, closeSoldDay, belowFor, dailyVolume, pixelPrice, notePixel, labUsedToday, sellCapFor, sellStopped, buyRoomOk, confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };
+module.exports = { sellStopped, tradeOrders, learnBlocked, closeSoldDay, belowFor, dailyVolume, pixelPrice, notePixel, labUsedToday, sellCapFor, sellStopped, buyRoomOk, confirmDeals, pendingDeals, pendingSum, accountStock, buyStopped, buyCap, cancelStaleOrphans, run, guardTick, scanEnergyTx, scanSalesTx, closeSalesDay, salesAvg, energyBudget, storageFull, energyActual, energyStopCheck, trackOrphanEnergy, runDailyEnergy, roomEnergyOpen, runFollow, planFollow, sellOnce, recordDepth, dailyBook, dealCap, storageFalling, trackStorage, settings, salesTrack, soldCredits, roomKeepFor, ownBuyCap, ownBuyLeft, postOrder, energyPriceNow, sellFloorFor, minEffectiveFor, sellable, pickBuyOrder, recentAvgPrice, sellerRooms, tryBuy, tryBuyEnergy, ledger, keepFor, runOwnOrders, syncOrders, buyMilitaryBoosts, sellListAllowed, trackOrphanSell };

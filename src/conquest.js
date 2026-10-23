@@ -1001,8 +1001,9 @@ function strongholdLootDemands(d, home, sponsors, haulerOnly) {
             const nHaul = hh ? hh.length : new Set(sponsors.concat(Array.isArray(d.haulerSponsors) ? d.haulerSponsors : [])).size || 1;
             let per = salvage ? Math.min(maxHaulers, Math.ceil(totalHaulers / nHaul)) : totalHaulers;
             if (salvage) {
-                const all = Object.values(Game.creeps || {}).filter((c) => c.memory && c.memory.role === 'lootHauler' && (c.memory.salvageLoot || c.memory.pullLoot));
-                const live = all.filter((c) => c.memory.salvageLoot && c.memory.targetRoom === d.target && c.memory.home === home.name).length;
+                const locked = (m) => !!(m.lootLock || m.w35lock);
+                const all = Object.values(Game.creeps || {}).filter((c) => c.memory && c.memory.role === 'lootHauler' && (c.memory.salvageLoot || c.memory.pullLoot || locked(c.memory)) && !c.memory.relieved && !c.memory.finalRun);
+                const live = all.filter((c) => (c.memory.salvageLoot || locked(c.memory)) && c.memory.targetRoom === d.target && c.memory.home === home.name).length;
                 const homeLive = all.filter((c) => c.memory.home === home.name).length;
                 const totalCap = (() => { let n = Math.max(0, Number(settings().lootHaulerTotal) || Number(d.haulers) || 0); try { n = require('war').lootHaulerCap(n); } catch (e) {} return n; })();
                 per = Math.max(0, Math.min(per, live + maxHaulers - homeLive, live + totalCap - all.length));

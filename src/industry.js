@@ -290,7 +290,26 @@ function heldProducts(room, mem) {
         else if (mem.productHold && amount < num(holds[product].off, 0)) delete mem.productHold[product];
         if (mem.productHold && mem.productHold[product]) out.add(product);
     }
+    for (const product of Object.keys(industryConfig().productRate || {})) if (rateHeld(product)) out.add(product);
     return out;
+}
+
+function rateWindow(product, open) {
+    const r = (industryConfig().productRate || {})[product];
+    if (!r || !(num(r.amount, 0) >= 0) || !(num(r.ticks, 0) > 0) || typeof Memory === 'undefined') return null;
+    const all = Memory.labRate && typeof Memory.labRate === 'object' ? Memory.labRate : (open ? (Memory.labRate = {}) : null);
+    if (!all) return null;
+    let w = all[product];
+    if (!w || typeof w !== 'object' || !(Game.time - num(w.start, 0) < num(r.ticks, 0))) {
+        if (!open) return null;
+        w = all[product] = { start: Game.time, made: 0 };
+    }
+    return { w, cap: num(r.amount, 0) };
+}
+
+function rateHeld(product) {
+    const x = rateWindow(product, false);
+    return !!x && num(x.w.made, 0) >= x.cap;
 }
 
 function pickPair(stock, minBatch, held) {
@@ -752,6 +771,7 @@ function noteLabUse(roomName, a, b, product) {
     const mine = made[roomName] || (made[roomName] = {});
     if (product) mine[product] = (mine[product] || 0) + amount;
     if (product) { const total = use.total || (use.total = {}); total[product] = (total[product] || 0) + amount; }
+    if (product) { const x = rateWindow(product, true); if (x) x.w.made = num(x.w.made, 0) + amount; }
     const first = use.first || (use.first = {});
     const key = roomName + ':' + product;
     if (product && first[key] == null) first[key] = Game.time;
@@ -1073,4 +1093,4 @@ function run(room) {
     }
 }
 
-module.exports = { batteryRule, batteryFactory, batteryPlan, runBatteryFactory, makeIn, factoryPlan, factoryGate, techPlan, accountHave, boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS };
+module.exports = { batteryRule, batteryFactory, batteryPlan, runBatteryFactory, makeIn, factoryPlan, factoryGate, techPlan, accountHave, boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS, heldProducts, rateHeld };

@@ -455,6 +455,7 @@ module.exports = {
         labBoostStockByRoom: { W37S5: 2000, W37S7: 2000 },
         labEnergyTarget: 2000,
         productHold: { OH: { on: 5000, off: 2000 } },
+        productRate: { XGH2O: { amount: 300, ticks: 1500 } },
         labIdleFallback: 500,
     },
     rcl8Auto: {
@@ -584,7 +585,7 @@ module.exports = {
             ZH2O: 50000,
             silicon: 0, mist: 0, keanium_bar: 0,
         },
-        keepByRoom: { W32S4: { H: 5000, U: 3000, L: 3000 }, W33S3: { H: 5000, U: 3000, L: 3000 }, W37S5: { H: 100000000, K: 100000000 } },
+        keepByRoom: { W32S4: { H: 5000, U: 3000, L: 3000, OH: 10000 }, W33S3: { H: 5000, U: 3000, L: 3000, OH: 10000 }, W37S5: { H: 100000000, K: 100000000 } },
         keepAccount: { U: 30000, L: 30000, ZH2O: 100000 },
         dailySellUnits: { ZH2O: 1500, H: 20000, keanium_bar: 5000 },
         dailySellUnitsUntil: { H: { units: 10000, made: { KH: 15000 } } },
@@ -609,8 +610,9 @@ module.exports = {
         },
         maxOrderCredits: 50000,
         dailyBuyCredits: 500000,
-        buyShare: { cap: { Z: 0.4 }, reserve: { O: 0.2, X: 0.2 } },
-        buy: { resources: ['Z', 'O', 'X', 'U'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'], onlyRooms: { X: ['W32S4', 'W33S3'], U: ['W32S4'], Z: ['W32S4'], O: ['W32S4', 'W33S3'] }, stopAbove: { U: 5000 }, maxPrice: { Z: 60, U: 60 } },
+        buyShare: { cap: { Z: 0.4 }, reserve: { O: 0.2 } },
+        buyBudgetBy: { X: 1600000 },
+        buy: { resources: ['Z', 'O', 'X', 'U'], target: 3000, orderAmount: 500, rooms: ['W32S4', 'W33S3'], onlyRooms: { X: ['W32S4', 'W33S3'], U: ['W32S4'], Z: ['W32S4'], O: ['W32S4', 'W33S3'] }, stopAbove: { U: 5000 }, maxPrice: { Z: 60, U: 60, X: 400 } },
         buyEnergy: {
             enabled: false,
             maxEffective: 15,
