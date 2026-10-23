@@ -333,4 +333,26 @@ console.log('--- strict: stale handoff/posts never retire boosted dismantlers --
   console.log('OK');
 }
 
+console.log('--- relock: locked empty hauler in an active nuke room is not retired by ttlCheck; lock clears retire marks ---');
+{
+  reset();
+  const r = world('W37S2');
+  Memory.lootWarLoot.nuke = { room: 'W37S2', stage: 'strike', gFirst: 4, n: 4 };
+  const h = lhauler(r, 'hR', 30, 30, { retireSpawn: 'sp1', retireCheckAt: 4990, retired: true });
+  h.ticksToLive = 60;
+  const free = lhauler(r, 'hF', 31, 30, { lootLock: undefined });
+  free.ticksToLive = 60;
+  assert.strictEqual(hauler.ttlCheck(free, false), 'retire', 'unlocked short-TTL empty hauler still retires');
+  assert.strictEqual(hauler.ttlCheck(h, false), null, 'locked empty hauler in the nuke room keeps waiting');
+  h.ticksToLive = 40;
+  assert.strictEqual(hauler.ttlCheck(h, false), 'retire', 'too short even to stay: retire');
+  h.ticksToLive = 60;
+  Memory.lootWarLoot.locks = { W37S2: { n: 4, until: 'nuke', at: 1 } };
+  split.runLocks(Memory.lootWarLoot, {}, new Set(['W37S2']), Object.values(Game.creeps));
+  assert.ok(!h.memory.retireSpawn && !h.memory.retired && !h.memory.retireCheckAt, 'runLocks clears retire marks of locked haulers');
+  Memory.lootWarLoot.nuke.stage = 'done';
+  assert.strictEqual(hauler.ttlCheck(h, false), 'retire', 'after the nuke op ends the normal TTL rule applies');
+  console.log('OK');
+}
+
 console.log('ALL OK');

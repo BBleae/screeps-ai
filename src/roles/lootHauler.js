@@ -167,6 +167,10 @@ function nearestStorage(creep) {
     return best;
 }
 
+function nukeLocked(m, target) {
+    try { return require('loot_split').lockOf(m) === target && !!require('loot_nuke').active(target); } catch (e) { return false; }
+}
+
 function ttlCheck(creep, carrying) {
     const ttl = creep.ticksToLive;
     const m = creep.memory;
@@ -182,7 +186,7 @@ function ttlCheck(creep, carrying) {
     if (!carrying && m.state !== 'deliver') {
         const target = m.targetRoom;
         const out = here === target ? 0 : emptySteps(here, target);
-        if (ttl < out + needTicks(creep, target, drop)) return 'retire';
+        if (ttl < out + needTicks(creep, target, drop) && !(nukeLocked(m, target) && ttl > out + 50)) return 'retire';
     }
     return null;
 }

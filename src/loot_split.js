@@ -150,6 +150,7 @@ function runLocks(s, cfg, live, all) {
         if (!live.has(room) || left === 0) { releaseLock(s, room, !live.has(room) ? 'done' : 'battery', all); out[room] = { released: true }; continue; }
         for (const c of mine) {
             const m = c.memory;
+            if (!m.dying) for (const k of ['retired', 'retireSpawn', 'retireCheckAt']) delete m[k];
             if (!m.salvageLoot) m.salvageLoot = true;
             if (m.targetRoom !== room && !m.finalRun) moveTo(c, room);
         }
@@ -164,6 +165,7 @@ function runLocks(s, cfg, live, all) {
             for (const c of cand.slice(0, n - alive)) {
                 c.memory.lootLock = room;
                 c.memory.salvageLoot = true;
+                for (const k of ['retired', 'retireSpawn', 'retireCheckAt']) delete c.memory[k];
                 delete c.memory.lentFrom;
                 delete c.memory.pausedFrom;
                 if (c.memory.targetRoom !== room) moveTo(c, room);
