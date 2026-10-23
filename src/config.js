@@ -119,6 +119,7 @@ module.exports = {
         autoClaimCpuSamples: 5,
     },
     conquest: {
+        dropFirst: { rooms: ['W35S1', 'W37S2'], min: 500 },
         lootHaulerTotal: 14,
         haulerBoost: {},
         lootDropFixed: { W37S2: 'W37S5', W35S1: 'W37S5', W37S3: 'W37S5', W39S1: 'W37S5' },
