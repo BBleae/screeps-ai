@@ -63,13 +63,15 @@ function run(creep) {
         delete creep.memory.labIdleSince;
         const lab = creep.memory.labId ? Game.getObjectById(creep.memory.labId) : null;
         const toLab = !!(lab && lab.room && lab.room.name === room.name);
-        const dest = toLab ? lab : deliverTarget(room);
+        const st = creep.memory.toStorage && room.storage && room.storage.my !== false && room.storage.store && room.storage.store.getFreeCapacity() > 0 ? room.storage : null;
+        const dest = st || (toLab ? lab : deliverTarget(room));
         if (!dest) { idle(creep); return; }
         const amount = Number(creep.store[held] || 0);
         const ret = creep.transfer(dest, held);
         if (ret === ERR_NOT_IN_RANGE) { movement.go(creep, dest, { range: 1, reusePath: 20 }); return; }
         if (ret === OK && toLab) note(creep, 'loaded', Math.min(amount, Number(dest.store.getFreeCapacity(held)) || amount));
         delete creep.memory.labId;
+        delete creep.memory.toStorage;
         return;
     }
 
@@ -83,7 +85,10 @@ function run(creep) {
             delete creep.memory.labId;
             const ret = drain.partial ? creep.withdraw(lab, drain.mineral, Math.max(1, Math.min(drain.amount, creep.store.getFreeCapacity()))) : creep.withdraw(lab, drain.mineral);
             if (ret === ERR_NOT_IN_RANGE) movement.go(creep, lab, { range: 1, reusePath: 20 });
-            else if (ret === OK) note(creep, 'drained', Math.min(drain.amount, creep.store.getFreeCapacity()));
+            else if (ret === OK) {
+                note(creep, 'drained', Math.min(drain.amount, creep.store.getFreeCapacity()));
+                if (drain.toStorage) creep.memory.toStorage = true;
+            }
             return;
         }
     }

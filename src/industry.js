@@ -960,7 +960,46 @@ function factoryPlan(room) {
     return { factory: factory.id, gate, wants, drains, product: gate.ok ? cfg.product : null };
 }
 
+function spillSettings() {
+    return Object.assign({ enabled: true, above: 250000, until: 200000, resources: ['battery', 'energy'], storageFree: 50000 }, (config.industry || {}).terminalSpill || {});
+}
+
+function terminalSpill(room) {
+    const cfg = spillSettings();
+    const t = room && room.terminal;
+    const s = room && room.storage;
+    if (!cfg.enabled || !t || t.my === false || !t.store || typeof t.store.getUsedCapacity !== 'function') return null;
+    if (!s || s.my === false || !s.store || typeof s.store.getFreeCapacity !== 'function') return null;
+    const rooms = Memory.rooms || (Memory.rooms = {});
+    const mem = rooms[room.name] || (rooms[room.name] = {});
+    const usedT = Number(t.store.getUsedCapacity()) || 0;
+    const on = usedT > cfg.above || (!!mem.terminalSpill && usedT > cfg.until);
+    if (!on) { if (mem.terminalSpill) delete mem.terminalSpill; return null; }
+    if (!mem.terminalSpill) mem.terminalSpill = { at: Game.time, used: usedT };
+    if ((Number(s.store.getFreeCapacity()) || 0) < cfg.storageFree) return null;
+    let res = null;
+    let n = 0;
+    for (const r of cfg.resources || []) {
+        const v = Number(t.store[r]) || 0;
+        if (v > n) { n = v; res = r; }
+    }
+    if (!res) return null;
+    return { labId: t.id, mineral: res, amount: Math.min(n, usedT - cfg.until), partial: true, toStorage: true, spill: true };
+}
+
+function withSpill(plan, room) {
+    let sp = null;
+    try { sp = terminalSpill(room); } catch (e) { sp = null; }
+    if (!sp) return plan;
+    if (!plan) return { wants: [], drains: [sp], product: null };
+    return Object.assign({}, plan, { drains: (plan.drains || []).concat([sp]) });
+}
+
 function techPlan(room) {
+    return withSpill(techPlanBase(room), room);
+}
+
+function techPlanBase(room) {
     const fp = factoryPlan(room);
     const labRooms = (config.industry || {}).labRooms;
     const labsHere = !fp || !Array.isArray(labRooms) || labRooms.indexOf(room.name) >= 0 || boostOnlyRoom(room);
@@ -1134,4 +1173,4 @@ function run(room) {
     }
 }
 
-module.exports = { batteryRule, batteryFactory, batteryPlan, runBatteryFactory, makeIn, factoryPlan, factoryGate, techPlan, accountHave, boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS, heldProducts, rateHeld, stockGoals };
+module.exports = { terminalSpill, spillSettings, batteryRule, batteryFactory, batteryPlan, runBatteryFactory, makeIn, factoryPlan, factoryGate, techPlan, accountHave, boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS, heldProducts, rateHeld, stockGoals };
