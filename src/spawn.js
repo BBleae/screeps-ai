@@ -1082,6 +1082,7 @@ function labTechTarget(room, mem) {
     let fp = null;
     try { fp = industry.factoryPlan ? industry.factoryPlan(room) : null; } catch (error) { fp = null; }
     if (fp && (fp.wants.length || fp.drains.length)) return count;
+    try { if (industry.terminalSpill && industry.terminalSpill(room)) return count; } catch (e) { }
     let militaryActive = false;
     try { militaryActive = require('conquest').militaryCompounds().length > 0; } catch (e) { militaryActive = false; }
     if (!militaryActive && !(industry.labsAllowed ? industry.labsAllowed(room) : industry.canSpend(room)) && !(industry.boostOnlyRoom && industry.boostOnlyRoom(room))) return 0;
