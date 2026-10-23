@@ -252,8 +252,8 @@ let S;
   dcalls.length = 0;
   for (let i = 0; i < 6 && Game.objs[nk.id]; i++) {
     for (const x of [a, b, c]) sd.run(x);
-    if (ramp.hits <= 0 && Game.objs[ramp.id]) remove(r, ramp);
-    if (nk.hits <= 0 && Game.objs[nk.id]) { remove(r, nk); const ru = { id: 'ruin1', pos: new RoomPosition(31, 20, 'W37S2'), store: mkStore({ energy: 300000, G: 5000 }) }; r.ruins.push(ru); Game.objs.ruin1 = ru; }
+    if (ramp.hits <= 0 && Game.objs[ramp.id]) { remove(r, ramp); const rr = { id: 'ruinR', pos: new RoomPosition(ramp.pos.x, ramp.pos.y, 'W37S2'), structure: { structureType: STRUCTURE_RAMPART }, store: mkStore({}) }; r.ruins.push(rr); Game.objs.ruinR = rr; }
+    if (nk.hits <= 0 && Game.objs[nk.id]) { remove(r, nk); const ru = { id: 'ruin1', pos: new RoomPosition(31, 20, 'W37S2'), structure: { structureType: STRUCTURE_NUKER }, store: mkStore({ energy: 300000, G: 5000 }) }; r.ruins.push(ru); Game.objs.ruin1 = ru; }
     tick();
   }
   assert.ok(!Game.objs[nk.id], 'nuker down');

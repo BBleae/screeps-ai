@@ -245,7 +245,8 @@ function run() {
     if (n.stage === 'strike') {
         ensureLock(n);
         if (p.nuker) return { stage: n.stage };
-        const ruin = (room.lookForAt(LOOK_RUINS, p.t[0], p.t[1]) || [])[0] || null;
+        const ruin = (room.lookForAt(LOOK_RUINS, p.t[0], p.t[1]) || []).find((r) => r && r.structure && r.structure.structureType === STRUCTURE_NUKER) || null;
+        if (!ruin && Game.time - (n.goneAt || (n.goneAt = Game.time)) < 3) return { stage: n.stage };
         n.ruin = ruin ? ruin.id : null;
         n.stage = 'loot';
         n.downAt = Game.time;
