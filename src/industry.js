@@ -281,10 +281,26 @@ function wantedTarget(stock, cfg) {
     return null;
 }
 
+function stockGoals(room) {
+    const all = industryConfig().labStockGoal;
+    return room && all && all[room.name] && typeof all[room.name] === 'object' ? all[room.name] : {};
+}
+
+function goalReady(g, recipe, stock, need) {
+    const keep = (g && g.keep) || {};
+    return !!recipe && recipe.every((r) => num(stock[r], 0) >= num(keep[r], 0) + need);
+}
+
 function heldProducts(room, mem) {
     const holds = industryConfig().productHold || {};
+    const goals = stockGoals(room);
     const out = new Set();
+    for (const product of Object.keys(goals)) {
+        const st = mineralStock(room);
+        if (num(st[product], 0) >= num(goals[product].to, 0)) out.add(product);
+    }
     for (const product of Object.keys(holds)) {
+        if (goals[product]) continue;
         const amount = room.terminal ? num(room.terminal.store[product], 0) : 0;
         if (amount >= num(holds[product].on, Infinity)) (mem.productHold || (mem.productHold = {}))[product] = Game.time;
         else if (mem.productHold && amount < num(holds[product].off, 0)) delete mem.productHold[product];
@@ -461,7 +477,7 @@ function fallbackReaction(room, mem, roles, labsById, cfg, held) {
     const reactAmount = typeof LAB_REACTION_AMOUNT !== 'undefined' ? LAB_REACTION_AMOUNT : 5;
     const sticky = mem.labFallback;
     if (sticky && !held.has(sticky.product) && num(stock[sticky.a], 0) >= reactAmount && num(stock[sticky.b], 0) >= reactAmount &&
-        REACTIONS[sticky.a] && REACTIONS[sticky.a][sticky.b] === sticky.product) {
+        REACTIONS[sticky.a] && REACTIONS[sticky.a][sticky.b] === sticky.product && !(stockGoals(room)[sticky.product] && !goalReady(stockGoals(room)[sticky.product], [sticky.a, sticky.b], stock, reactAmount))) {
         return orient(roles, labsById, { a: sticky.a, b: sticky.b, product: sticky.product, target: null, continued: true, stock, fallback: true });
     }
     const types = Object.keys(stock).filter((t) => num(stock[t], 0) >= cfg.minBatch).sort();
@@ -470,6 +486,7 @@ function fallbackReaction(room, mem, roles, labsById, cfg, held) {
         for (let j = i + 1; j < types.length; j++) {
             const product = REACTIONS[types[i]] && REACTIONS[types[i]][types[j]];
             if (!product || held.has(product)) continue;
+            if (stockGoals(room)[product] && !goalReady(stockGoals(room)[product], [types[i], types[j]], stock, cfg.minBatch)) continue;
             const chain = inChain(product, cfg.chainTargets || cfg.boostTargets) ? 0 : 1;
             if (chain && (cfg.noMake || []).length) continue;
             const have = num(stock[product], 0);
@@ -488,7 +505,20 @@ function orient(roles, labsById, pick) {
     return pick;
 }
 
-function pickReaction(room, mem, roles, labsById, cfg, held, forced) {
+function chainStep(stock, roles, labsById, cfg, held) {
+    const ts = Object.assign({}, stock);
+    const boost = roles.boost && labsById[roles.boost];
+    if (boost) addStock(ts, boost.store);
+    const goal = Math.max(1, num(cfg.boostGoal, 3000));
+    for (const t of (Array.isArray(cfg.chainTargets) ? cfg.chainTargets : [])) {
+        if (num(ts[t], 0) >= goal) continue;
+        const s2 = nextReactionFor(t, stock, cfg.minBatch, 0, held);
+        if (s2) return s2;
+    }
+    return null;
+}
+
+function pickReaction(room, mem, roles, labsById, cfg, held, forced, skipGoal) {
     const inputs = roles.inputs.map((id) => labsById[id]);
     const ta = labMineral(inputs[0]);
     const tb = labMineral(inputs[1]);
@@ -505,6 +535,8 @@ function pickReaction(room, mem, roles, labsById, cfg, held, forced) {
             const cont = { a: ta, b: tb, product, target: saved && saved.product === product ? saved.target || null : null, continued: true, stock };
             const tail = num(stock[ta], 0) < cfg.minBatch || num(stock[tb], 0) < cfg.minBatch;
             if (forced) return cont;
+            const gl = stockGoals(room)[product];
+            if (gl && (!goalReady(gl, [ta, tb], stock, reactAmount) || ((cs) => cs && cs.product !== product)(chainStep(stock, roles, labsById, cfg, held)))) return pickReaction(room, mem, roles, labsById, cfg, new Set(held).add(product), forced, product);
             const boostLab = roles.boost && labsById[roles.boost];
             const ts = Object.assign({}, stock);
             if (boostLab) addStock(ts, boostLab.store);
@@ -531,6 +563,15 @@ function pickReaction(room, mem, roles, labsById, cfg, held, forced) {
         }
     }
     let stepTarget = step ? target : null;
+    if (!step && !forced) {
+        const goals = stockGoals(room);
+        const rev = reverseReactions();
+        for (const p of Object.keys(goals)) {
+            if (p === skipGoal || held.has(p) || num(stock[p], 0) >= num(goals[p].to, 0) || !goalReady(goals[p], rev[p], stock, cfg.minBatch)) continue;
+            step = { a: rev[p][0], b: rev[p][1], product: p };
+            break;
+        }
+    }
     if (!step && cfg.opportunistic !== false) step = pickPair(stock, cfg.minBatch, held);
     if (!step) return null;
     let a = step.a;
@@ -1093,4 +1134,4 @@ function run(room) {
     }
 }
 
-module.exports = { batteryRule, batteryFactory, batteryPlan, runBatteryFactory, makeIn, factoryPlan, factoryGate, techPlan, accountHave, boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS, heldProducts, rateHeld };
+module.exports = { batteryRule, batteryFactory, batteryPlan, runBatteryFactory, makeIn, factoryPlan, factoryGate, techPlan, accountHave, boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS, heldProducts, rateHeld, stockGoals };

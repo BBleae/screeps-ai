@@ -17162,7 +17162,7 @@ console.log('== 10-19 13:14 第二批：hold 不收新生 upgrader、送到一�
     const ind = require('../src/industry');
     const savedReactions = global.REACTIONS;
     global.REACTIONS = { H: { O: 'OH', G: 'GH' }, O: { H: 'OH' }, G: { H: 'GH' }, GH: { OH: 'GH2O' }, OH: { GH: 'GH2O' }, GH2O: { X: 'XGH2O' }, X: { GH2O: 'XGH2O' } };
-    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic }; savedInd.chain = config.industry.chainTargetsByRoom; savedInd.full = config.industry.labFullOutputs; delete config.industry.chainTargetsByRoom; delete config.industry.labFullOutputs; savedInd.noMake = config.industry.labNoMakeByRoom; savedInd.sw = config.industry.labSwitchBatch; delete config.industry.labNoMakeByRoom; delete config.industry.labSwitchBatch;
+    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic }; savedInd.chain = config.industry.chainTargetsByRoom; savedInd.full = config.industry.labFullOutputs; delete config.industry.chainTargetsByRoom; delete config.industry.labFullOutputs; savedInd.noMake = config.industry.labNoMakeByRoom; savedInd.sw = config.industry.labSwitchBatch; delete config.industry.labNoMakeByRoom; delete config.industry.labSwitchBatch; savedInd.goal = config.industry.labStockGoal; delete config.industry.labStockGoal;
     config.industry.boostTargets = ['XGH2O'];
     config.industry.labOpportunistic = false;
     const lr = makeRoom('W32S4', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
@@ -17182,7 +17182,7 @@ console.log('== 10-19 13:14 第二批：hold 不收新生 upgrader、送到一�
     const p3 = ind.labPlan(lr);
     assert(!Memory.rooms.W32S4.productHold.OH && p3.product === 'OH', 'OH 1500 < 2000：放开，回到 OH（得 ' + p3.product + '）');
     config.industry.boostTargets = savedInd.boostTargets;
-    config.industry.labOpportunistic = savedInd.labOpportunistic; config.industry.chainTargetsByRoom = savedInd.chain; config.industry.labFullOutputs = savedInd.full; config.industry.labNoMakeByRoom = savedInd.noMake; config.industry.labSwitchBatch = savedInd.sw;
+    config.industry.labOpportunistic = savedInd.labOpportunistic; config.industry.chainTargetsByRoom = savedInd.chain; config.industry.labFullOutputs = savedInd.full; config.industry.labNoMakeByRoom = savedInd.noMake; config.industry.labSwitchBatch = savedInd.sw; config.industry.labStockGoal = savedInd.goal;
     global.REACTIONS = savedReactions;
 }
 {
@@ -17292,7 +17292,7 @@ console.log('== 10-19 13:44 第三批：修路每房各一条、只拦第一波�
     const savedReactions = global.REACTIONS;
     global.REACTIONS = { H: { O: 'OH', G: 'GH' }, O: { H: 'OH' }, G: { H: 'GH' }, GH: { OH: 'GH2O' }, OH: { GH: 'GH2O' }, GH2O: { X: 'XGH2O' }, X: { GH2O: 'XGH2O' },
         U: { L: 'UL' }, L: { U: 'UL' }, Z: { K: 'ZK' }, K: { Z: 'ZK' }, UL: { ZK: 'G' }, ZK: { UL: 'G' } };
-    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic }; savedInd.chain = config.industry.chainTargetsByRoom; savedInd.full = config.industry.labFullOutputs; delete config.industry.chainTargetsByRoom; delete config.industry.labFullOutputs; savedInd.noMake = config.industry.labNoMakeByRoom; savedInd.sw = config.industry.labSwitchBatch; delete config.industry.labNoMakeByRoom; delete config.industry.labSwitchBatch;
+    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic }; savedInd.chain = config.industry.chainTargetsByRoom; savedInd.full = config.industry.labFullOutputs; delete config.industry.chainTargetsByRoom; delete config.industry.labFullOutputs; savedInd.noMake = config.industry.labNoMakeByRoom; savedInd.sw = config.industry.labSwitchBatch; savedInd.goal = config.industry.labStockGoal; delete config.industry.labStockGoal; delete config.industry.labNoMakeByRoom; delete config.industry.labSwitchBatch;
     config.industry.boostTargets = ['XGH2O'];
     config.industry.labOpportunistic = false;
     const lr = makeRoom('W33S3', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
@@ -17325,7 +17325,7 @@ console.log('== 10-19 13:44 第三批：修路每房各一条、只拦第一波�
     assert(ind.labPlan(lr).product === 'G', '有 ZK 和 UL：做 G');
     assert(config.industry.labIdleFallback === 500 && config.industry.productHold.OH.off === 2000, '配置：空转 500 tick 保底；OH 回切线 2000 不动');
     config.industry.boostTargets = savedInd.boostTargets;
-    config.industry.labOpportunistic = savedInd.labOpportunistic; config.industry.chainTargetsByRoom = savedInd.chain; config.industry.labFullOutputs = savedInd.full; config.industry.labNoMakeByRoom = savedInd.noMake; config.industry.labSwitchBatch = savedInd.sw;
+    config.industry.labOpportunistic = savedInd.labOpportunistic; config.industry.chainTargetsByRoom = savedInd.chain; config.industry.labFullOutputs = savedInd.full; config.industry.labNoMakeByRoom = savedInd.noMake; config.industry.labSwitchBatch = savedInd.sw; config.industry.labStockGoal = savedInd.goal;
     global.REACTIONS = savedReactions;
 }
 
@@ -17487,7 +17487,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const savedReactions = global.REACTIONS;
     global.REACTIONS = { H: { O: 'OH', G: 'GH' }, O: { H: 'OH' }, G: { H: 'GH' }, GH: { OH: 'GH2O' }, OH: { GH: 'GH2O' }, GH2O: { X: 'XGH2O' }, X: { GH2O: 'XGH2O' },
         U: { L: 'UL' }, L: { U: 'UL' }, Z: { K: 'ZK' }, K: { Z: 'ZK' }, UL: { ZK: 'G' }, ZK: { UL: 'G' } };
-    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic }; savedInd.chain = config.industry.chainTargetsByRoom; savedInd.full = config.industry.labFullOutputs; delete config.industry.chainTargetsByRoom; delete config.industry.labFullOutputs; savedInd.noMake = config.industry.labNoMakeByRoom; savedInd.sw = config.industry.labSwitchBatch; delete config.industry.labNoMakeByRoom; delete config.industry.labSwitchBatch;
+    const savedInd = { boostTargets: config.industry.boostTargets, labOpportunistic: config.industry.labOpportunistic }; savedInd.chain = config.industry.chainTargetsByRoom; savedInd.full = config.industry.labFullOutputs; delete config.industry.chainTargetsByRoom; delete config.industry.labFullOutputs; savedInd.noMake = config.industry.labNoMakeByRoom; savedInd.sw = config.industry.labSwitchBatch; savedInd.goal = config.industry.labStockGoal; delete config.industry.labStockGoal; delete config.industry.labNoMakeByRoom; delete config.industry.labSwitchBatch;
     config.industry.boostTargets = ['XGH2O'];
     config.industry.labOpportunistic = false;
     const wr = makeRoom('W32S4', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
@@ -17504,7 +17504,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const p2 = ind.labPlan(wr);
     assert(p2.product === 'XGH2O', '10-20 GH2O 够一批：照常续做 XGH2O（得 ' + p2.product + '）');
     global.REACTIONS = savedReactions;
-    config.industry.boostTargets = savedInd.boostTargets; config.industry.labOpportunistic = savedInd.labOpportunistic; config.industry.chainTargetsByRoom = savedInd.chain; config.industry.labFullOutputs = savedInd.full; config.industry.labNoMakeByRoom = savedInd.noMake; config.industry.labSwitchBatch = savedInd.sw;
+    config.industry.boostTargets = savedInd.boostTargets; config.industry.labOpportunistic = savedInd.labOpportunistic; config.industry.chainTargetsByRoom = savedInd.chain; config.industry.labFullOutputs = savedInd.full; config.industry.labNoMakeByRoom = savedInd.noMake; config.industry.labSwitchBatch = savedInd.sw; config.industry.labStockGoal = savedInd.goal;
 }
 
 {
@@ -17546,7 +17546,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const savedReactions = global.REACTIONS;
     global.REACTIONS = { H: { O: 'OH', G: 'GH' }, O: { H: 'OH' }, G: { H: 'GH' }, GH: { OH: 'GH2O' }, OH: { GH: 'GH2O' }, GH2O: { X: 'XGH2O' }, X: { GH2O: 'XGH2O' },
         U: { L: 'UL' }, L: { U: 'UL' }, Z: { K: 'ZK' }, K: { Z: 'ZK' }, UL: { ZK: 'G' }, ZK: { UL: 'G' } };
-    const savedOpp = config.industry.labOpportunistic;
+    const savedOpp = config.industry.labOpportunistic; const savedGoal = config.industry.labStockGoal; delete config.industry.labStockGoal;
     config.industry.labOpportunistic = false;
     assert(JSON.stringify(config.industry.labFullOutputs) === JSON.stringify(['W32S4', 'W33S3', 'W37S5']) && JSON.stringify(config.industry.chainTargetsByRoom) === JSON.stringify({ W33S3: ['XGH2O', 'GH2O'], W32S4: ['G'], W37S5: [] }) &&
         JSON.stringify(config.industry.boostTargets) === JSON.stringify(['XGH2O']), '配置：两个 lab 房全输出；10-21 起 W33S3 主线目标 XGH2O（不够 X 时退回 GH2O），W32S4 只做到 G');
@@ -17598,7 +17598,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     Game.cpu.bucket = 8000;
     assert(ind.labsAllowed(r3) === false, 'bucket 8000 且平均 CPU 超 145：lab 照旧停');
     Memory.stats = savedStats; Game.cpu.bucket = savedBucket;
-    config.industry.labOpportunistic = savedOpp;
+    config.industry.labOpportunistic = savedOpp; config.industry.labStockGoal = savedGoal;
     global.REACTIONS = savedReactions;
 }
 

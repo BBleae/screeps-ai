@@ -456,6 +456,7 @@ module.exports = {
         labEnergyTarget: 2000,
         productHold: { OH: { on: 5000, off: 2000 } },
         productRate: { XGH2O: { amount: 300, ticks: 1500 } },
+        labStockGoal: { W32S4: { OH: { to: 10000, keep: { O: 3000, H: 5000 } } }, W33S3: { OH: { to: 10000, keep: { O: 3000, H: 5000 } } } },
         labIdleFallback: 500,
     },
     rcl8Auto: {
