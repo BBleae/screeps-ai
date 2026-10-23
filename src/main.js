@@ -426,6 +426,7 @@ const SPK_PROBE = 16, SPK_ARM = 100, SPK_MIN_BUCKET = 5000;
 const spkBoot = Game.time;
 const SPIKE_SEG = 91;
 const SPIKE_KEEP_MEM = 8;
+const SPIKE_BIG_LINE = 190, SPIKE_BIG_KEEP = 20, SPIKE_BIG_TOP = 5;
 
 function noteSpike(t0) {
     const used = Game.cpu.getUsed();
@@ -433,6 +434,7 @@ function noteSpike(t0) {
     const r1 = (o, min) => { const out = {}; for (const k in o) if (o[k] >= min) out[k] = Math.round(o[k] * 10) / 10; return out; };
     const row = { t: Game.time, cpu: Math.round(used * 10) / 10, t0: Math.round(t0 * 10) / 10, age: Game.time - spkBoot,
         b: Game.cpu.bucket, n: Object.keys(Game.creeps).length, m: r1(spkTick, 1), r: r1(spkRoom, 3), arm: spkArm, roles: spkRoleDigest() };
+    if (used > SPIKE_BIG_LINE) { try { noteBigSpike(row); } catch (e) {  } }
     const arr = Memory.cpuSpikes || (Memory.cpuSpikes = []);
     arr.push(row);
     if (arr.length > SPIKE_KEEP_MEM) {
@@ -441,19 +443,35 @@ function noteSpike(t0) {
     }
 }
 
-function flushSpikesToSegment(overflow) {
-    if (typeof RawMemory === 'undefined' || !RawMemory) return;
-    if (typeof RawMemory.setActiveSegments === 'function') RawMemory.setActiveSegments(segMem.activeIds());
-    let prev = [];
+function readSpikeSeg() {
     try {
         const raw = RawMemory.segments && RawMemory.segments[SPIKE_SEG];
         if (typeof raw === 'string' && raw.length) {
             const parsed = JSON.parse(raw);
-            if (parsed && Array.isArray(parsed.spikes)) prev = parsed.spikes;
+            if (parsed && typeof parsed === 'object') return parsed;
         }
-    } catch (e) { prev = []; }
+    } catch (e) {  }
+    return {};
+}
+
+function noteBigSpike(row) {
+    if (typeof RawMemory === 'undefined' || !RawMemory || !RawMemory.segments || typeof RawMemory.segments[SPIKE_SEG] !== 'string') return;
+    const seg = readSpikeSeg();
+    const top = Object.keys(row.m || {}).sort((a, b) => row.m[b] - row.m[a]).slice(0, SPIKE_BIG_TOP).map(k => [k, row.m[k]]);
+    const big = (Array.isArray(seg.big) ? seg.big : []).concat([{ t: row.t, cpu: row.cpu, b: row.b, n: row.n, top }]).slice(-SPIKE_BIG_KEEP);
+    RawMemory.segments[SPIKE_SEG] = JSON.stringify({ spikes: Array.isArray(seg.spikes) ? seg.spikes : [], at: seg.at || Game.time, big });
+    const diag = Memory.cpuDiag || (Memory.cpuDiag = {});
+    diag.bigSpikeAt = row.t;
+    diag.bigSpikeN = big.length;
+}
+
+function flushSpikesToSegment(overflow) {
+    if (typeof RawMemory === 'undefined' || !RawMemory) return;
+    if (typeof RawMemory.setActiveSegments === 'function') RawMemory.setActiveSegments(segMem.activeIds());
+    const seg = readSpikeSeg();
+    const prev = Array.isArray(seg.spikes) ? seg.spikes : [];
     const spikes = prev.concat(overflow || []).slice(-40);
-    RawMemory.segments[SPIKE_SEG] = JSON.stringify({ spikes, at: Game.time });
+    RawMemory.segments[SPIKE_SEG] = JSON.stringify({ spikes, at: Game.time, big: Array.isArray(seg.big) ? seg.big : [] });
     const diag = Memory.cpuDiag || (Memory.cpuDiag = {});
     diag.spikesSeg = SPIKE_SEG;
     diag.spikesAt = Game.time;
