@@ -100,7 +100,7 @@ console.log('--- energy forward: 10-24 to every RCL7 room; amount + cost fits te
   global.Game.rooms = { W32S4: mkRoom('W32S4', 8, { energy: 30000 }, { energy: 70000 }), W31S4: mkRoom('W31S4', 7, { energy: 5000 }, { energy: 60000 }) };
   global.Game.time++;
   const f = term.forwardRules(term.settings()).filter((x) => x.resource === 'energy');
-  assert.deepStrictEqual(f.map((x) => x.from + '>' + x.to), ['W32S4>W31S4', 'W33S3>W31S4']);
+  assert.deepStrictEqual(f.map((x) => x.from + '>' + x.to), ['W32S4>W31S4', 'W33S3>W31S4', 'W38S7>W31S4', 'W33S8>W31S4']);
   let p = term.planForward(f[0], {});
   assert.ok(p && p.amount === 10000 && p.amount + p.cost <= 30000 - 5000, JSON.stringify(p && { a: p.amount, c: p.cost }));
   global.Game.rooms.W32S4.terminal.store.energy = 12000;

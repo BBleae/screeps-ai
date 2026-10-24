@@ -48,6 +48,21 @@ console.log('--- receivers: all RCL7 rooms by remaining progress, no W38S7/W33S3
   assert.ok(fw.length && fw.every((f) => ['W31S4', 'W31S6'].indexOf(f.to) >= 0) && fw[0].to === 'W31S6', 'energy forwards ' + JSON.stringify(fw.map((f) => f.from + '>' + f.to)));
 }
 
+console.log('--- W38S7/W33S8 forward storage energy above 150k to RCL7 rooms ---');
+{
+  Game.market = { calcTransactionCost: (a) => Math.ceil(a * 0.1) };
+  const src = R('W38S7', 8, 0, 160000, 30000);
+  setRooms([src, R('W33S8', 8, 0, 100000, 30000), R('W31S6', 7, 1240000, 40000, 5000)]);
+  Game.time++;
+  const fr = term.forwardRules(term.settings()).filter((f) => f.resource === 'energy' && (f.from === 'W38S7' || f.from === 'W33S8'));
+  assert.deepStrictEqual(fr.map((f) => f.from + '>' + f.to), ['W38S7>W31S6', 'W33S8>W31S6']);
+  const p = term.planForward(fr[0], {});
+  assert.ok(p && p.amount === 10000, JSON.stringify(p && p.amount));
+  assert.ok(!term.planForward(fr[1], {}), 'W33S8 under 150k keeps it');
+  src.storage.store.energy = 120000;
+  assert.ok(!term.planForward(fr[0], {}), 'W38S7 back under 150k');
+}
+
 console.log('--- XGH2O boost only RCL7 rooms in order W31S4, W31S6, W37S5, W29S3 ---');
 {
   setRooms([R('W33S7', 8), R('W31S4', 8), R('W31S6', 7, 1), R('W37S5', 7, 1), R('W29S3', 6)]);
