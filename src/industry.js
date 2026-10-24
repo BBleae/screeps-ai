@@ -974,7 +974,7 @@ function spillSettings() {
     return Object.assign({ enabled: true, above: 250000, until: 200000, resources: ['battery', 'energy'], storageFree: 50000 }, (config.industry || {}).terminalSpill || {});
 }
 
-function terminalSpill(room) {
+function bulkSpill(room) {
     const cfg = spillSettings();
     const t = room && room.terminal;
     const s = room && room.storage;
@@ -995,6 +995,27 @@ function terminalSpill(room) {
     }
     if (!res) return null;
     return { labId: t.id, mineral: res, amount: Math.min(n, usedT - cfg.until), partial: true, toStorage: true, spill: true };
+}
+
+function energySpill(room) {
+    const cfg = spillSettings();
+    const lim = Object.assign({ level: 7, above: 50000, until: 30000 }, cfg.energy || {});
+    const c = room && room.controller;
+    const t = room && room.terminal;
+    const s = room && room.storage;
+    if (!cfg.enabled || lim.enabled === false || !c || !c.my || c.level !== lim.level) return null;
+    if (!t || t.my === false || !t.store || !s || s.my === false || !s.store || typeof s.store.getFreeCapacity !== 'function') return null;
+    const rooms = Memory.rooms || (Memory.rooms = {});
+    const mem = rooms[room.name] || (rooms[room.name] = {});
+    const have = Number(t.store[RESOURCE_ENERGY]) || 0;
+    if (!(have > lim.above || (mem.energySpill && have > lim.until))) { if (mem.energySpill) delete mem.energySpill; return null; }
+    if (!mem.energySpill) mem.energySpill = { at: Game.time, used: have };
+    if ((Number(s.store.getFreeCapacity()) || 0) < cfg.storageFree) return null;
+    return { labId: t.id, mineral: RESOURCE_ENERGY, amount: have - lim.until, partial: true, toStorage: true, spill: true };
+}
+
+function terminalSpill(room) {
+    return bulkSpill(room) || energySpill(room);
 }
 
 function withSpill(plan, room) {

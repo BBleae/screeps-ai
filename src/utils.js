@@ -400,8 +400,7 @@ function upgradeSurplusWork(room, mem) {
     const listed = Array.isArray(cfg.rooms) && cfg.rooms.indexOf(room.name) >= 0;
     const auto = !listed && cfg.rcl7 && room.controller && room.controller.my && room.controller.level === 7 && bankingWorkCap(room) != null ? cfg.rcl7 : null;
     if (!listed && !auto) return 0;
-    const store = room.storage && room.storage.my !== false && room.storage.store;
-    const energy = store ? Number(store[typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy'] || 0) : 0;
+    const energy = effectiveEnergy(room);
     const m = mem || (Memory.rooms[room.name] || (Memory.rooms[room.name] = {}));
     const prev = m.upgradeSurplus;
     const now = typeof Game !== 'undefined' ? Game.time : 0;
@@ -1121,12 +1120,26 @@ function lootHeldRoom(name) {
     return lootActive(map[name]);
 }
 
+function terminalKeepEnergy(room) {
+    const ind = config.industry || {};
+    const fee = ((config.terminalNetwork || {}).terminalFeeReserve || {})[room && room.name];
+    return Math.max(Number(ind.terminalTarget) || 0, Number(fee) || 0);
+}
+
+function effectiveEnergy(room) {
+    const key = typeof RESOURCE_ENERGY === 'undefined' ? 'energy' : RESOURCE_ENERGY;
+    const st = room && room.storage && room.storage.my !== false && room.storage.store;
+    const tm = room && room.terminal && room.terminal.my !== false && room.terminal.store;
+    const stored = st ? Number(st[key]) || 0 : 0;
+    const held = tm ? Number(tm[key]) || 0 : 0;
+    return stored + Math.max(0, held - terminalKeepEnergy(room));
+}
+
 function lootExcessWork(room) {
     const cfg = (((config.upgrading || {}).hold) || {})[room && room.name];
     if (!cfg || !(Number(cfg.lootFloor) > 0) || !lootActive(cfg.untilLootDone)) return null;
     if (!room.controller || !room.controller.my) return null;
-    const key = typeof RESOURCE_ENERGY === 'undefined' ? 'energy' : RESOURCE_ENERGY;
-    const energy = Number((room.storage && room.storage.my !== false && room.storage.store && room.storage.store[key]) || 0);
+    const energy = effectiveEnergy(room);
     return Math.max(0, Math.floor((energy - Number(cfg.lootFloor)) / Math.max(1, Number(cfg.lootDrainTicks) || 1500)));
 }
 
@@ -1134,8 +1147,7 @@ function upgradeHold(room, mem) {
     const cfg = (((config.upgrading || {}).hold) || {})[room && room.name];
     if (!cfg || !room.controller || !room.controller.my) return null;
     const m = mem || (Memory.rooms[room.name] || (Memory.rooms[room.name] = {}));
-    const key = typeof RESOURCE_ENERGY === 'undefined' ? 'energy' : RESOURCE_ENERGY;
-    const energy = Number((room.storage && room.storage.my !== false && room.storage.store && room.storage.store[key]) || 0);
+    const energy = effectiveEnergy(room);
     const prev = m.upgradeHold;
     const resumeAt = Number(cfg.resumeAt) || 10000;
     const holdBelow = Math.min(resumeAt, Number(cfg.holdBelow) || resumeAt);
@@ -1455,7 +1467,7 @@ function pvpDangerRoom(name) {
     return false;
 }
 
-module.exports = { rampartPosFloor, rampartGuard, rampartGuardActive, rampartTowerGoal, setCreepIndexRecount, tickMemoOff,
+module.exports = { effectiveEnergy, terminalKeepEnergy, rampartPosFloor, rampartGuard, rampartGuardActive, rampartTowerGoal, setCreepIndexRecount, tickMemoOff,
     allySettings,
     isAllyName,
     isAlly,

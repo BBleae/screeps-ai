@@ -616,7 +616,9 @@ function planLootExport(cfg) {
         const tStore = from.terminal.store;
         const items = Object.keys(tStore).filter((k) => exportKind(k) && Number(tStore[k]) >= minBatch).sort((a, b) => Number(tStore[b]) - Number(tStore[a]));
         const tEnergy = energyOf(tStore);
-        const total = roomEnergy(from);
+        const stored = energyOf(from.storage && from.storage.my !== false && from.storage.store);
+        const tKeep = utils.terminalKeepEnergy(from);
+        const left = (spent) => stored + Math.max(0, tEnergy - spent - tKeep);
         for (const res of items) {
             const kind = exportKind(res);
             for (const toName of exportDests(kind, rule, name)) {
@@ -627,7 +629,7 @@ function planLootExport(cfg) {
                 if (tFree - recvTerminalFree < minBatch || sFree < recvStorageFree) continue;
                 let amount = Math.min(Number(tStore[res]), batch, tFree - recvTerminalFree);
                 let cost = transactionCost(amount, name, toName);
-                while (amount >= minBatch && (cost > tEnergy || total - cost < keep)) {
+                while (amount >= minBatch && (cost > tEnergy || left(cost) < keep)) {
                     amount = Math.floor(amount / 2);
                     cost = transactionCost(amount, name, toName);
                 }
@@ -644,7 +646,7 @@ function planLootExport(cfg) {
             if (tFree - recvTerminalFree < minBatch || sFree < recvStorageFree) continue;
             let amount = Math.min(eBatch, tFree - recvTerminalFree);
             let cost = transactionCost(amount, name, toName);
-            while (amount >= minBatch && (amount + cost > tEnergy || total - amount - cost < keep)) {
+            while (amount >= minBatch && (amount + cost > tEnergy || left(amount + cost) < keep)) {
                 amount = Math.floor(amount / 2);
                 cost = transactionCost(amount, name, toName);
             }
