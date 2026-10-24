@@ -64,7 +64,7 @@ function nextRoom(cfg, live, skip) {
     return null;
 }
 
-const MOVE_KEYS = ['splitFrom', 'splitTiles', 'splitAt', 'src', 'pick', 'stk', 'skip', 'lootTier', 'gNext', '_move'];
+const MOVE_KEYS = ['splitFrom', 'splitTiles', 'splitAt', 'src', 'pick', 'stk', 'skip', 'lootTier', 'gNext', '_move', 'stkN', 'noTgt', 'idle'];
 
 function moveTo(c, room) {
     const m = c.memory;
@@ -95,7 +95,7 @@ function retarget(c, s) {
     m.salvageLoot = true;
     delete m.relieved;
     delete m.lentFrom;
-    for (const k of ['src', 'pick', 'stk', 'skip', 'lootTier', 'gNext', '_move']) delete m[k];
+    for (const k of ['src', 'pick', 'stk', 'skip', 'lootTier', 'gNext', '_move', 'stkN', 'noTgt', 'idle']) delete m[k];
     if (used(c) > 0) m.state = 'deliver';
 }
 
@@ -159,7 +159,8 @@ function runLocks(s, cfg, live, all) {
         const minTtl = Number(cfg.minTtl) || 1000;
         const added = [];
         if (alive < n) {
-            const cand = pool().filter((c) => !c.memory.finalRun && !c.memory.relieved && (c.ticksToLive == null || c.ticksToLive >= minTtl))
+            const keep = s.target && !s.doneAt && s.target !== room ? s.target : null;
+            const cand = pool().filter((c) => !c.memory.finalRun && !c.memory.relieved && (c.ticksToLive == null || c.ticksToLive >= minTtl) && !(keep && c.memory.targetRoom === keep))
                 .sort((a, b) => (b.memory.targetRoom === room) - (a.memory.targetRoom === room) || (a.memory.targetRoom === s.target) - (b.memory.targetRoom === s.target) ||
                     (used(a) > 0) - (used(b) > 0) || (Number(b.ticksToLive) || 0) - (Number(a.ticksToLive) || 0) || (a.name < b.name ? -1 : 1));
             for (const c of cand.slice(0, n - alive)) {

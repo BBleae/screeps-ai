@@ -317,7 +317,7 @@ function deliver(creep) {
         return true;
     }
     const carrying = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
-    if (!carrying) { noteTrip(creep); delete m.src; delete m.lootTier; return false; }
+    if (!carrying) { noteTrip(creep); delete m.src; delete m.lootTier; delete m.stkN; delete m.noTgt; return false; }
     const res = biggest(creep.store) || ENERGY;
     const term = room.terminal;
     const used = creep.store.getUsedCapacity ? creep.store.getUsedCapacity() : 0;
@@ -338,7 +338,31 @@ function parkInside(creep) {
     const p = creep.pos;
     if (p.x > 2 && p.x < 47 && p.y > 2 && p.y < 47) return;
     const anchor = creep.room.find(FIND_MY_CREEPS).find((c) => c.memory && c.memory.role === 'siegeDismantler');
-    mv(creep, anchor ? anchor.pos : new RoomPosition(25, 25, creep.room.name), { range: anchor ? 3 : 5, reusePath: 20 });
+    mv(creep, anchor ? anchor.pos : new RoomPosition(25, 25, creep.room.name), { range: anchor ? 3 : 5, reusePath: 20, maxRooms: 1 });
+}
+
+const IDLE_AFTER = 20;
+const IDLE_HOME = 60;
+const STUCK_HOME = 3;
+
+function idleHome(creep) {
+    const m = creep.memory;
+    m.idle = { room: m.targetRoom };
+    for (const k of ['src', 'lootTier', 'stk', 'skip', 'stkN', 'noTgt']) delete m[k];
+}
+
+function idleHold(creep) {
+    const m = creep.memory;
+    const i = m.idle;
+    if (!i) return false;
+    const carrying = creep.store && creep.store.getUsedCapacity ? creep.store.getUsedCapacity() > 0 : false;
+    if (i.room !== m.targetRoom || carrying || !m.home) { delete m.idle; return false; }
+    if (creep.room.name !== m.home) { mv(creep, new RoomPosition(25, 25, m.home), { range: 15, reusePath: 20 }); return true; }
+    if (!i.until) i.until = Game.time + IDLE_HOME;
+    if (Game.time >= i.until) { delete m.idle; return false; }
+    const p = creep.pos;
+    if (p.x <= 2 || p.x >= 47 || p.y <= 2 || p.y >= 47) mv(creep, new RoomPosition(25, 25, m.home), { range: 15, reusePath: 20, maxRooms: 1 });
+    return true;
 }
 
 function toPull(creep) {
@@ -624,6 +648,15 @@ function tierOf(obj) {
     return t;
 }
 
+function hasMineral(obj) {
+    if (!obj || !obj.store) return false;
+    for (const k in obj.store) {
+        if (k !== ENERGY && Number(obj.store[k]) > 0) return true;
+    }
+    return false;
+}
+
+const TIER_LABEL = [1, 2, 3, 3, 4, 5];
 const CORE_TYPES = new Set(['storage', 'terminal', 'factory']);
 const EXTRA_TYPES = new Set(['spawn', 'extension', 'tower', 'link', 'lab']);
 
@@ -648,11 +681,13 @@ function pickTarget(creep) {
         for (const o of list) top = Math.max(top, sideLoot.orderScore(o, m.lootOrder));
         for (const o of list) tiers[sideLoot.orderScore(o, m.lootOrder) === top ? 0 : 2].push(o);
     } else {
-        tiers.splice(2, 0, [], []);
+        tiers.splice(2, 0, [], [], []);
         for (const o of list) {
-            if (EXTRA_TYPES.has(o.structureType)) { tiers[4].push(o); continue; }
+            if (EXTRA_TYPES.has(o.structureType)) { tiers[5].push(o); continue; }
             const t = tierOf(o);
-            tiers[t < 3 ? t - 1 : (CORE_TYPES.has(o.structureType) ? 2 : 3)].push(o);
+            if (t < 3) tiers[t - 1].push(o);
+            else if (CORE_TYPES.has(o.structureType)) tiers[hasMineral(o) ? 2 : 3].push(o);
+            else tiers[4].push(o);
         }
     }
     let obj = null;
@@ -667,7 +702,7 @@ function pickTarget(creep) {
         if (!tiers[i].length) continue;
         const got = closestByPath(creep, tiers[i]);
         if (got.incomplete) for (const o of tiers[i]) { book[o.id] = Game.time; lootBlocked.note(creep.room.name, o); }
-        if (got.obj) { obj = got.obj; tier = i + 1; }
+        if (got.obj) { obj = got.obj; tier = TIER_LABEL[i]; }
     }
     try { lootBlocked.analyze(creep.room, creep.pos); } catch (e) { }
     delete m.stk;
@@ -711,9 +746,13 @@ function loadStep(creep, carrying) {
             return;
         }
         if (toPull(creep)) return;
+        if (!Array.isArray(m.noTgt) || Game.time - m.noTgt[1] > 3) m.noTgt = [Game.time, Game.time];
+        m.noTgt[1] = Game.time;
+        if (Game.time - m.noTgt[0] >= IDLE_AFTER && m.home) { idleHome(creep); goRoom(creep, m.home); return; }
         parkInside(creep);
         return;
     }
+    delete m.noTgt;
     const range = creep.pos.getRangeTo(obj);
     if (range > 1) {
         const k = stuckTick(creep, obj);
@@ -721,12 +760,15 @@ function loadStep(creep, carrying) {
             if (reachable(creep, obj)) m.skip = [obj.id, Game.time];
             else { badBook(creep.room.name)[obj.id] = Game.time; lootBlocked.note(creep.room.name, obj); }
             delete m.src; delete m.stk;
+            m.stkN = (Number(m.stkN) || 0) + 1;
+            if (m.stkN >= STUCK_HOME && !carrying && m.home) { idleHome(creep); goRoom(creep, m.home); }
             return;
         }
-        mv(creep, obj, { range: 1, reusePath: 5 });
+        mv(creep, obj, { range: 1, reusePath: 5, maxRooms: 1 });
         return;
     }
     delete m.stk;
+    delete m.stkN;
     const ret = obj.store ? creep.withdraw(obj, loadPick(obj.store, m.sideLoot ? m.lootOrder : null)) : creep.pickup(obj);
     if (ret !== OK && ret !== ERR_NOT_IN_RANGE) { badBook(creep.room.name)[obj.id] = Game.time; delete m.src; delete m.stk; }
 }
@@ -752,7 +794,7 @@ function finalRun(creep) {
     else m.lootTiles = null;
     m.finalRun = { at: Game.time, from: m.targetRoom, to: best.room, ttl };
     m.targetRoom = best.room;
-    for (const k of ['splitFrom', 'splitTiles', 'splitAt', 'src', 'pick', 'stk', 'skip', 'lootTier', 'gNext', '_move', 'drop']) delete m[k];
+    for (const k of ['splitFrom', 'splitTiles', 'splitAt', 'src', 'pick', 'stk', 'skip', 'lootTier', 'gNext', '_move', 'drop', 'stkN', 'noTgt', 'idle']) delete m[k];
     return true;
 }
 
@@ -832,6 +874,7 @@ function run(creep) {
     }
     if (retreat) { creep.memory.state = 'deliver'; return; }
     if (Memory.lootWarLoot && Memory.lootWarLoot.nuke && require('loot_nuke').haulerRun(creep, carrying)) return;
+    if (creep.memory.idle && idleHold(creep)) return;
     if (creep.room.name !== target) { if (!routePickup(creep)) goRoom(creep, target); return; }
     loadStep(creep, carrying);
 }
