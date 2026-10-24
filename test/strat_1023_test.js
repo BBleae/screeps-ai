@@ -94,12 +94,13 @@ console.log('--- battery -> energy in W32S4/W33S3 factories, keep 20k battery --
   assert.ok(ind.factoryPlan(mkRoom('W31S4', 7, {}, {}, [fac])) === null, 'rooms without batteryRooms: no plan');
 }
 
-console.log('--- energy forward: W31S4/W31S6 first, then W31S8; amount + cost fits terminal ---');
+console.log('--- energy forward: 10-24 to every RCL7 room; amount + cost fits terminal ---');
 {
-  const f = config.terminalNetwork.forward.filter((x) => x.resource === 'energy');
-  assert.deepStrictEqual(f.map((x) => x.from + '>' + x.to), ['W32S4>W31S4', 'W33S3>W31S6', 'W32S4>W31S6', 'W33S3>W31S4', 'W32S4>W31S8', 'W33S3>W31S8']);
   global.Game.market = { calcTransactionCost: (a) => Math.ceil(a * 0.1) };
-  global.Game.rooms = { W32S4: mkRoom('W32S4', 7, { energy: 30000 }, { energy: 70000 }), W31S4: mkRoom('W31S4', 7, { energy: 5000 }, { energy: 60000 }) };
+  global.Game.rooms = { W32S4: mkRoom('W32S4', 8, { energy: 30000 }, { energy: 70000 }), W31S4: mkRoom('W31S4', 7, { energy: 5000 }, { energy: 60000 }) };
+  global.Game.time++;
+  const f = term.forwardRules(term.settings()).filter((x) => x.resource === 'energy');
+  assert.deepStrictEqual(f.map((x) => x.from + '>' + x.to), ['W32S4>W31S4', 'W33S3>W31S4']);
   let p = term.planForward(f[0], {});
   assert.ok(p && p.amount === 10000 && p.amount + p.cost <= 30000 - 5000, JSON.stringify(p && { a: p.amount, c: p.cost }));
   global.Game.rooms.W32S4.terminal.store.energy = 12000;

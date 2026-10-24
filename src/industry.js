@@ -871,6 +871,15 @@ function factoryGate(room, cfg) {
     return { ok: true };
 }
 
+function batteryHold(room) {
+    const h = industryConfig().batteryHold;
+    if (!h || !room.storage) return false;
+    const m = roomMem(room);
+    const e = storageEnergy(room);
+    if (e > h.on) { if (!m.batteryHold) m.batteryHold = Game.time; } else if (e < h.off && m.batteryHold) delete m.batteryHold;
+    return !!m.batteryHold;
+}
+
 function batteryRule(room) {
     const all = (config.industry || {}).batteryRooms;
     return room && all && all[room.name] ? all[room.name] : null;
@@ -894,7 +903,7 @@ function batteryPlan(room) {
     const drains = [];
     const inB = used(factory.store, BATTERY);
     const spare = roomHave(room, BATTERY) - keep;
-    if (inB < need * 2 && spare > 0) {
+    if (inB < need * 2 && spare > 0 && !batteryHold(room)) {
         const amount = Math.min((Number(rule.fill) || 1000) - inB, spare);
         if (amount > 0 && inB + amount >= need) wants.push({ labId: factory.id, mineral: BATTERY, amount });
     }
@@ -910,6 +919,7 @@ function runBatteryFactory(room, state, factory) {
     state.factory = { present: 1, configured: true, active: false, product: 'energy', gate: 'battery' };
     if (typeof factory.produce !== 'function') return;
     if (factory.cooldown > 0) { state.factory.cooldown = factory.cooldown; return; }
+    if (batteryHold(room)) { state.factory.batteryHold = true; return; }
     if (used(factory.store, BATTERY) < need) { state.factory.batteryWait = true; return; }
     const ret = factory.produce(RESOURCE_ENERGY);
     state.factory.active = true;
@@ -949,7 +959,7 @@ function factoryPlan(room) {
         const BATTERY = typeof RESOURCE_BATTERY !== 'undefined' ? RESOURCE_BATTERY : 'battery';
         const need = Number((cfg.battery || {}).batch) || 50;
         const inB = used(factory.store, BATTERY);
-        if (inB < need) {
+        if (inB < need && !batteryHold(room)) {
             const avail = roomHave(room, BATTERY);
             const amount = Math.min(Number((cfg.battery || {}).fill) || 1000, avail, need * 4 - inB);
             if (amount > 0) wants.push({ labId: factory.id, mineral: BATTERY, amount });
@@ -1038,6 +1048,7 @@ function runOwnFactory(room, state, cfg) {
     }
     const bat = cfg.battery || {};
     if (bat.enabled === false) return;
+    if (batteryHold(room)) { state.factory.batteryHold = true; return; }
     const BATTERY = typeof RESOURCE_BATTERY !== 'undefined' ? RESOURCE_BATTERY : 'battery';
     const need = Number(bat.batch) || 50;
     if (used(factory.store, BATTERY) < need) {
@@ -1173,4 +1184,4 @@ function run(room) {
     }
 }
 
-module.exports = { terminalSpill, spillSettings, batteryRule, batteryFactory, batteryPlan, runBatteryFactory, makeIn, factoryPlan, factoryGate, techPlan, accountHave, boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS, heldProducts, rateHeld, stockGoals };
+module.exports = { batteryHold, terminalSpill, spillSettings, batteryRule, batteryFactory, batteryPlan, runBatteryFactory, makeIn, factoryPlan, factoryGate, techPlan, accountHave, boostOnlyRoom, labUsedToday, noteLabUse, boostWaiting, run, deriveReaction, canSpend, labsAllowed, labPlan, labRoles, mineralStock, pickPair, nextReactionFor, wantedTarget, reverseReactions, labTriple, BASE_MINERALS, heldProducts, rateHeld, stockGoals };

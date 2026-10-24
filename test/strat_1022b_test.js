@@ -78,7 +78,7 @@ console.log('--- K from W37S5 and Z from W32S4 (after its RCL8) by terminal ---'
 
 console.log('--- W37S5 out of W33S7 sender list, starvingUntil 50k ---');
 {
-  assert.ok(config.terminalNetwork.senders.W33S7.to.indexOf('W37S5') < 0);
+  assert.ok((config.terminalNetwork.senders.W33S7.to || []).indexOf('W37S5') < 0);
   assert.strictEqual(config.terminalNetwork.starvingUntil.W37S5, 50000);
   console.log('OK');
 }

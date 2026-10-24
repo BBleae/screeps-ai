@@ -25,13 +25,20 @@ function record(used) {
     else { ring.sum += v - ring.buf[ring.i]; ring.buf[ring.i] = v; ring.i = (ring.i + 1) % size; }
     if (typeof Game !== 'undefined' && Game.time % 10 === 0) {
         const a = rollingAvg();
-        Memory.cpuRoll = { avg: a.avg, n: a.n, at: Game.time };
+        const prev = Memory.cpuRoll;
+        const hi = a.avg != null && a.avg > 150 ? (Number(prev && prev.hi) || 0) + 1 : 0;
+        Memory.cpuRoll = { avg: a.avg, n: a.n, at: Game.time, hi };
     }
 }
 
 function rollingAvg() {
     const n = ring.buf.length;
     return { avg: n ? Math.round(ring.sum / n * 10) / 10 : null, n, full: n >= windowSize() };
+}
+
+function cpuCalm() {
+    const r = typeof Memory !== 'undefined' && Memory.cpuRoll;
+    return !(r && Number(r.hi) >= 2);
 }
 
 function avgOk(max) {
@@ -87,4 +94,4 @@ function pixelReady() {
     return { ok, mean: a.avg, n: a.n, line: Number(cfg.maxAvgCpu), bucket, since, wait: spaced ? 0 : gap - since };
 }
 
-module.exports = { settings, record, rollingAvg, avgOk, reset, track, notePixel, refilling, newWorkHeld, pixelReady };
+module.exports = { cpuCalm, settings, record, rollingAvg, avgOk, reset, track, notePixel, refilling, newWorkHeld, pixelReady };

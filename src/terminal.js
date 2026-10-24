@@ -32,9 +32,27 @@ function settings() {
     }, config.terminalNetwork || {});
 }
 
+const rcl7Memo = { time: -1, rooms: null, list: [] };
+function rcl7Rooms() {
+    if (rcl7Memo.time === Game.time && rcl7Memo.rooms === Game.rooms) return rcl7Memo.list;
+    const left = {};
+    for (const n in Game.rooms) {
+        const c = Game.rooms[n].controller;
+        if (c && c.my && c.level === 7) left[n] = (Number(c.progressTotal) || 0) - (Number(c.progress) || 0);
+    }
+    rcl7Memo.list = Object.keys(left).sort((a, b) => left[a] - left[b]);
+    rcl7Memo.time = Game.time;
+    rcl7Memo.rooms = Game.rooms;
+    return rcl7Memo.list;
+}
+
+function receiverNames(c) {
+    if (c.priorityReceivers === 'rcl7') return rcl7Rooms();
+    return Array.isArray(c.priorityReceivers) ? c.priorityReceivers : [];
+}
+
 function priorityList(cfg) {
-    const c = cfg || config.terminalNetwork || {};
-    return (Array.isArray(c.priorityReceivers) ? c.priorityReceivers : []).filter((n) => !utils.lootHeldRoom(n) && !utils.rcl8Room(n));
+    return receiverNames(cfg || config.terminalNetwork || {}).filter((n) => !utils.lootHeldRoom(n) && !utils.rcl8Room(n));
 }
 
 function noEnergyIn(room) {
@@ -189,8 +207,8 @@ function planSenders(rooms, cfg) {
         const lineOf = (to) => (byRoomBelow[to.name] != null ? Number(byRoomBelow[to.name]) : below);
         const lastList = Array.isArray(rule.receiverLast) ? rule.receiverLast : [];
         const lastOf = (to) => (lastList.indexOf(to.name) >= 0 ? 1 : 0);
-        const targets = (rule.to || []).map((n) => byName[n]).filter((to) => to && to.name !== name && !noEnergyIn(to) && !(to.controller && to.controller.level >= 8) && freeOf(to.terminal.store) > 0 && level(to) < lineOf(to))
-            .sort((a, b) => (lastOf(a) - lastOf(b)) || (burnRoom(cfg, b) - burnRoom(cfg, a)) || (roomEnergy(a) - roomEnergy(b)));
+        const targets = (rule.toRcl7 ? priorityList(cfg) : rule.to || []).map((n) => byName[n]).filter((to) => to && to.name !== name && !noEnergyIn(to) && !(to.controller && to.controller.level >= 8) && freeOf(to.terminal.store) > 0 && level(to) < lineOf(to))
+            .sort((a, b) => (lastOf(a) - lastOf(b)) || (burnRoom(cfg, b) - burnRoom(cfg, a)) || (rule.toRcl7 ? 0 : roomEnergy(a) - roomEnergy(b)));
         for (const to of targets) {
             let amount = Math.min(spare, Number(rule.maxSend) || cfg.maxSend, freeOf(to.terminal.store), budget, left);
             let cost = transactionCost(amount, from.name, to.name);
@@ -214,7 +232,7 @@ function burnRoom(cfg, room) {
 function planStarving(rooms, cfg, rich) {
     const order = priorityList(cfg);
     const below = Number(cfg.starvingBelow) || 0;
-    if (!order.length || below <= 0) return null;
+    if (below <= 0) return null;
     const byName = {};
     for (const room of rooms) byName[room.name] = room;
     const feeReserve = Math.max(0, Number(cfg.feeReserve) || 0);
@@ -522,9 +540,19 @@ function planForward(rule, rec) {
     return { from, to, res, amount, cost };
 }
 
+function forwardRules(cfg) {
+    const out = [];
+    for (const rule of cfg.forward || []) {
+        if (!rule.toList) { out.push(rule); continue; }
+        const names = rule.toList === 'rcl7' ? priorityList(cfg) : utils.upgraderBoostRooms().filter((n) => !lootExportRule(Game.rooms[n]));
+        for (const to of names) if (to !== rule.from) out.push(Object.assign({}, rule, { to }));
+    }
+    return out;
+}
+
 function runForward(cfg) {
     const mem = Memory.terminalNetwork || (Memory.terminalNetwork = {});
-    for (const rule of cfg.forward || []) {
+    for (const rule of forwardRules(cfg)) {
         const log = mem.forward || (mem.forward = {});
         const key = rule.from + '>' + rule.to + ':' + rule.resource;
         const rec = log[key] || (log[key] = { sent: 0, cost: 0, n: 0 });
@@ -637,7 +665,7 @@ function energyDests(cfg, rule, fromName) {
     const starving = Object.keys(Game.rooms).filter((n) => ok(n) && roomEnergy(Game.rooms[n]) < until(n))
         .sort((a, b) => roomEnergy(Game.rooms[a]) - roomEnergy(Game.rooms[b]));
     const cap = Number(rule.energyUntil) || 150000;
-    const prio = (Array.isArray(cfg.priorityReceivers) ? cfg.priorityReceivers : []).filter((n) => ok(n) && starving.indexOf(n) < 0 && roomEnergy(Game.rooms[n]) < cap);
+    const prio = receiverNames(cfg).filter((n) => ok(n) && starving.indexOf(n) < 0 && roomEnergy(Game.rooms[n]) < cap);
     return starving.concat(prio);
 }
 
@@ -728,4 +756,4 @@ function runMineral(rooms, cfg) {
     return record;
 }
 
-module.exports = { lootExportRule, exportKind, planLootExport, runLootExport, priorityList, noEnergyIn, receiveOnly, keepAfterSend, sendHeadroom, energySendOk, planFeed, burnRoom, planStarving, planSenders, storageSpare, planForward, runForward, run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };
+module.exports = { rcl7Rooms, forwardRules, lootExportRule, exportKind, planLootExport, runLootExport, priorityList, noEnergyIn, receiveOnly, keepAfterSend, sendHeadroom, energySendOk, planFeed, burnRoom, planStarving, planSenders, storageSpare, planForward, runForward, run, planTransfer, planHoardFlush, planMineralTransfer, mineralHolds, terminalRooms, roomEnergy, settings, cpuAllows, markUsed, usedThisTick };

@@ -372,7 +372,7 @@ function terminalDrainKeepBase(room, storageRich) {
 
 function upgraderBoostRoom(room) {
     const cfg = config.industry || {};
-    return !!(cfg.boostUpgraders && room && cfg.upgraderBoostByRoom && Array.isArray(cfg.upgraderBoostByRoom[room.name]));
+    return !!(cfg.boostUpgraders && room && utils.upgraderBoostRooms().indexOf(room.name) >= 0);
 }
 
 function labEnergyWant(room, lab, storageRich, roomMemory) {

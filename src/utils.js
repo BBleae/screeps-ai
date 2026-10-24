@@ -396,17 +396,20 @@ function upgradeSurplusWork(room, mem) {
     const lx = lootExcessWork(room);
     if (lx != null) return lx;
     const cfg = (config.energy || {}).upgradeSurplus;
-    if (!cfg || !room || !Array.isArray(cfg.rooms) || cfg.rooms.indexOf(room.name) < 0) return 0;
+    if (!cfg || !room) return 0;
+    const listed = Array.isArray(cfg.rooms) && cfg.rooms.indexOf(room.name) >= 0;
+    const auto = !listed && cfg.rcl7 && room.controller && room.controller.my && room.controller.level === 7 && bankingWorkCap(room) != null ? cfg.rcl7 : null;
+    if (!listed && !auto) return 0;
     const store = room.storage && room.storage.my !== false && room.storage.store;
     const energy = store ? Number(store[typeof RESOURCE_ENERGY !== 'undefined' ? RESOURCE_ENERGY : 'energy'] || 0) : 0;
     const m = mem || (Memory.rooms[room.name] || (Memory.rooms[room.name] = {}));
     const prev = m.upgradeSurplus;
     const now = typeof Game !== 'undefined' ? Game.time : 0;
     if (prev && prev.t === now) return prev.work;
-    const own = room.controller && room.controller.level < 8 && cfg.tiersByRoom && Array.isArray(cfg.tiersByRoom[room.name]) ? cfg.tiersByRoom[room.name] : null;
+    const own = auto ? auto.tiers : room.controller && room.controller.level < 8 && cfg.tiersByRoom && Array.isArray(cfg.tiersByRoom[room.name]) ? cfg.tiersByRoom[room.name] : null;
     const rawTiers = own || (Array.isArray(cfg.tiers) ? cfg.tiers : []);
     const tiers = rawTiers.map(([at, w]) => [at, w === 'link' ? linkSupplyWork(room, m, cfg) : Number(w) || 0]).sort((a, b) => a[0] - b[0]);
-    const ownExit = own && cfg.exitBelowByRoom && Number(cfg.exitBelowByRoom[room.name]);
+    const ownExit = auto ? Number(auto.exitBelow) : own && cfg.exitBelowByRoom && Number(cfg.exitBelowByRoom[room.name]);
     const exitBelow = Math.max((ownExit > 0 ? ownExit : Number(cfg.exitBelow)) || 0, 0);
     const reserve = Math.max(Number(cfg.reserve) || 0, 0);
     const band = tiers.length ? Math.max(0, tiers[0][0] - exitBelow) : 0;
@@ -418,6 +421,7 @@ function upgradeSurplusWork(room, mem) {
         for (const [at, w] of tiers) if (w === was && energy >= at - band) work = Math.max(work, w);
     }
     if (energy < Math.max(exitBelow, reserve - band)) work = 0;
+    if (auto && work > was && !require('cpu_gate').cpuCalm()) work = was;
     if (!prev || prev.work !== work) m.upgradeSurplus = { work, t: now, at: now, energy };
     else { prev.t = now; }
     return work;
@@ -437,6 +441,11 @@ function surplusBodyPlan(room, tier) {
 }
 
 function upgraderWorkCap(room, mem) {
+    const cap = workCapOf(room, mem);
+    return room.controller && room.controller.level >= 8 ? Math.min(cap, 15) : cap;
+}
+
+function workCapOf(room, mem) {
     const surplus = upgradeSurplusWork(room, mem);
     if (surplus > 0) return surplus;
     const bank = bankingWorkCap(room);
@@ -643,6 +652,11 @@ function pruneLowSites(room) {
 function siteTier(type, wave) {
     if (type === STRUCTURE_ROAD) return wave ? 'wave' : 'road';
     return siteSettings().lowTypes.indexOf(type) >= 0 ? 'low' : 'core';
+}
+
+function upgraderBoostRooms() {
+    const list = (config.industry || {}).upgraderBoostOrder;
+    return (Array.isArray(list) ? list : []).filter((n) => { const r = Game.rooms[n]; return !!(r && r.controller && r.controller.my && r.controller.level < 8); });
 }
 
 function rcl8Room(roomName) {
@@ -1473,6 +1487,7 @@ module.exports = { rampartPosFloor, rampartGuard, rampartGuardActive, rampartTow
     lowRoomAllowed,
     lootExcessWork,
     rcl8Room,
+    upgraderBoostRooms,
     rcl8Ready,
     applyRcl8Auto,
     blockedTradeRoom,

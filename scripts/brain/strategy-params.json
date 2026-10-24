@@ -8,18 +8,11 @@
   },
   "energy": {
     "starvingBelow": 10000,
-    "priorityReceivers": [
-      "W33S3",
-      "W31S8",
-      "W31S4",
-      "W34S7",
-      "W35S7",
-      "W31S5"
-    ],
+    "priorityReceivers": "rcl7",
     "noNewConsumersUntilBalanced": false,
     "policy": "第 2 阶段：storageRich 的房可以加 lab 和升级消耗",
     "labEnergyGate": 20000,
-    "priorityReceiversNote": "2026-10-22 战略猫：去掉 W37S5、W38S7；RCL8 房（含 W32S4 到 8 级后）一律不进 priorityReceivers"
+    "priorityReceiversNote": "2026-10-24 战略猫：去掉 W38S7、W33S3、W31S8；改为全部 RCL7 房（动态），按离 RCL8 剩余进度升序；RCL8 房一律不进"
   },
   "remotes": {
     "maxPerRoomDefault": 3,

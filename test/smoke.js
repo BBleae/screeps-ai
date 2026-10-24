@@ -10710,17 +10710,18 @@ console.log('== 10-17 02:08 军事 boost lab 补能量链路（默认关）==');
     assert(tb.labEnergyWant(room, l, false, Memory.rooms.W33S3) > 0, '军事 lab：storageRich=false 也补能量，boostCreep 不断粮');
     const poor = { name: 'W33S3', storage: { my: true, store: { energy: 500, [C.RESOURCE_ENERGY]: 500 } } };
     assert(tb.labEnergyWant(poor, l, false, Memory.rooms.W33S3) === 0, 'storage < energyFloorMinStorage：军事 lab 也不补（不抽干穷房）');
-    const w7 = { name: 'W33S7', storage: { my: true, store: { energy: 48000, [C.RESOURCE_ENERGY]: 48000 } } };
-    Memory.rooms.W33S7 = { industryState: { labs: { boostLab: 'b7' } } };
+    const w7 = { name: 'W31S4', storage: { my: true, store: { energy: 48000, [C.RESOURCE_ENERGY]: 48000 } } };
+    Memory.rooms.W31S4 = { industryState: { labs: { boostLab: 'b7' } } };
     const b7 = lab('b7');
     const savedBU = config.industry.boostUpgraders; config.industry.boostUpgraders = true;
-    assert(tb.upgraderBoostRoom(w7) === true && tb.upgraderBoostRoom(room) === false, '10-20 C：只有 upgraderBoostByRoom 里的房（W33S7）走升级 boost 补能');
-    assert(tb.labEnergyWant(w7, b7, true, Memory.rooms.W33S7) === 2000, 'W33S7 storage 4.8 万（< terminalFillStorageAbove 5 万）：boost lab 照样补能到 2000（得 ' + tb.labEnergyWant(w7, b7, true, Memory.rooms.W33S7) + '）');
-    const w7p = { name: 'W33S7', storage: { my: true, store: { energy: 19000, [C.RESOURCE_ENERGY]: 19000 } } };
-    assert(tb.labEnergyWant(w7p, b7, true, Memory.rooms.W33S7) === 0, 'W33S7 storage < boostLabEnergyFloor 2 万：不给 boost lab 补能');
+    const savedGR = Game.rooms; Game.rooms = Object.assign({}, Game.rooms, { W31S4: { name: 'W31S4', controller: { my: true, level: 7 } }, W33S7: { name: 'W33S7', controller: { my: true, level: 8 } } });
+    assert(tb.upgraderBoostRoom(w7) === true && tb.upgraderBoostRoom(room) === false && tb.upgraderBoostRoom({ name: 'W33S7' }) === false, '10-24：只有 upgraderBoostOrder 里的 RCL7 房（W31S4）走升级 boost 补能，W33S7（RCL8）不再 boost');
+    assert(tb.labEnergyWant(w7, b7, true, Memory.rooms.W31S4) === 2000, 'W31S4 storage 4.8 万（< terminalFillStorageAbove 5 万）：boost lab 照样补能到 2000（得 ' + tb.labEnergyWant(w7, b7, true, Memory.rooms.W31S4) + '）');
+    const w7p = { name: 'W31S4', storage: { my: true, store: { energy: 19000, [C.RESOURCE_ENERGY]: 19000 } } };
+    assert(tb.labEnergyWant(w7p, b7, true, Memory.rooms.W31S4) === 0, 'W31S4 storage < boostLabEnergyFloor 2 万：不给 boost lab 补能');
     config.industry.boostUpgraders = false;
-    assert(tb.upgraderBoostRoom(w7) === false, 'boostUpgraders 关：W33S7 也不补');
-    config.industry.boostUpgraders = savedBU;
+    assert(tb.upgraderBoostRoom(w7) === false, 'boostUpgraders 关：W31S4 也不补');
+    config.industry.boostUpgraders = savedBU; Game.rooms = savedGR;
     Memory.rooms = savedMemR;
 }
 
@@ -10900,7 +10901,12 @@ console.log('== 10-17 14:12 六个买能房全部进攒能档（bankRooms 0.6，
     const twoSrc = () => [{ energyCapacity: 3000 }, { energyCapacity: 3000 }];
     const richMem = { storageRich: { on: true, at: 1 } };
     const bankRoom = { name: 'W34S7', find: twoSrc, storage: { my: true, store: { energy: 500000, [C.RESOURCE_ENERGY]: 500000 } }, terminal: null, controller: { level: 7, my: true } };
-    assert(utils.upgraderSupplyWork(bankRoom, richMem) === 12, '攒能房 storage 50 万也封在 12（不按 storage 放开）（得 ' + utils.upgraderSupplyWork(bankRoom, richMem) + '）');
+    const savedRoll = Memory.cpuRoll;
+    Memory.cpuRoll = { avg: 140, hi: 0 };
+    assert(utils.upgraderSupplyWork(bankRoom, richMem) === 40, '10-24 RCL7 攒能房 storage 50 万（> 10 万）：多孵升级到 40 WORK（得 ' + utils.upgraderSupplyWork(bankRoom, richMem) + '）');
+    Memory.cpuRoll = { avg: 155, hi: 2 };
+    assert(utils.upgraderSupplyWork(bankRoom, { storageRich: { on: true, at: 1 } }) === 12, '10-24 CPU 连续两次 > 150：不加升级，仍封在 12（得 ' + utils.upgraderSupplyWork(bankRoom, { storageRich: { on: true, at: 1 } }) + '）');
+    Memory.cpuRoll = savedRoll;
     const freeRoom = { name: 'W30S5', find: twoSrc, storage: { my: true, store: { energy: 500000, [C.RESOURCE_ENERGY]: 500000 } }, terminal: null, controller: { level: 7, my: true } };
     assert(utils.upgraderSupplyWork(freeRoom, richMem) > 12, '非攒能房 storage 50 万：供给放开（> 12）（得 ' + utils.upgraderSupplyWork(freeRoom, richMem) + '）');
     const tiny = { name: 'W37S5', find: () => [{ energyCapacity: 1000 }], storage: { my: true, store: { energy: 0 } }, controller: { level: 7, my: true } };
@@ -14896,8 +14902,8 @@ console.log('== CPU：bucket 吃紧时按价值降载（cpu_shed）==');
     const mkUp = (room, extra) => ({ name: 'pbUp', room, pos: new RoomPosition(11, 40, 'W33S7'),
         body: Array.from({ length: 15 }, () => ({ type: 'work', hits: 100 })).concat([{ type: 'carry', hits: 100 }, { type: 'move', hits: 100 }]),
         memory: Object.assign({ role: 'upgrader', home: 'W33S7', boosts: ['XGH2O', 'GH2O'], boostMinParts: 5 }, extra || {}) });
-    const minLoad = ((global.__savedBoost && global.__savedBoost.min) || config.industry.boostMinLoadByRoom || {}).W33S7;
-    assert(minLoad === 150 && config.industry.upgraderBoostMinParts === 5, 'W33S7 boost lab 有 150 就装（不等 450），升级者至少 5 WORK（得 ' + minLoad + '）');
+    const minLoad = ((global.__savedBoost && global.__savedBoost.min) || config.industry.boostMinLoadByRoom || {}).W31S4;
+    assert(minLoad === 150 && config.industry.upgraderBoostMinParts === 5, '10-24 W31S4 boost lab 有 150 就装（不等 450），升级者至少 5 WORK（得 ' + minLoad + '）');
     let lab = mkLab(360, 2000);
     let up = mkUp(mkRoom(lab));
     let job = bo.nextJob(up);
@@ -17666,21 +17672,26 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
 
     const term = require('terminal');
     const tcfg = term.settings();
-    assert(JSON.stringify(tcfg.priorityReceivers) === JSON.stringify(['W33S3', 'W31S8', 'W31S4', 'W34S7', 'W35S7', 'W31S5']), 'priorityReceivers 10-22 新名单（去掉 W37S5、W38S7）');
+    assert(tcfg.priorityReceivers === 'rcl7' && tcfg.senders.W33S7.toRcl7 === true && !tcfg.senders.W33S7.to, '10-24 priorityReceivers 改成全部 RCL7 房（动态），W33S7 发给 RCL7 房');
     const tR = (name, storageE, termE, lvl) => ({ name, controller: { my: true, level: lvl || 7 }, storage: { my: true, store: mkStore(storageE, 1000000) },
         terminal: { my: true, cooldown: 0, store: mkStore(termE, 300000), send() { return C.OK; } }, find: () => [] });
     world.time += 10;
     Memory.terminalNetwork = {};
-    const s1 = term.planSenders([tR('W33S7', 90000, 30000, 8), tR('W38S7', 34000, 2400), tR('W33S3', 30000, 8000), tR('W31S8', 14000, 7000)], tcfg);
-    assert(s1 && s1.from.name === 'W33S7' && s1.to.name === 'W31S8' && s1.amount <= 10000 && s1.amount >= 5000 && s1.amount + s1.cost <= 30000 - 3000, 'W33S7 storage 9 万：送 1 万给三房里最缺的 W31S8，留 terminal 燃料 3000（得 ' + JSON.stringify(s1 && { to: s1.to.name, a: s1.amount, c: s1.cost }) + '）');
+    const tP = (name, storageE, termE, left) => { const r = tR(name, storageE, termE, 7); r.controller.progressTotal = 10935000; r.controller.progress = 10935000 - left; return r; };
+    const savedGR = Game.rooms;
+    const rs1 = [tR('W33S7', 90000, 30000, 8), tR('W38S7', 34000, 2400, 8), tP('W31S4', 30000, 8000, 1600000), tP('W31S6', 40000, 7000, 1200000), tP('W37S7', 10000, 7000, 9000000)];
+    Game.rooms = {}; rs1.forEach((r) => { Game.rooms[r.name] = r; });
+    const s1 = term.planSenders(rs1, tcfg);
+    assert(s1 && s1.from.name === 'W33S7' && s1.to.name === 'W31S6' && s1.amount <= 10000 && s1.amount >= 5000 && s1.amount + s1.cost <= 30000 - 3000, 'W33S7 storage 9 万：送 1 万给离 RCL8 最近的 RCL7 房 W31S6，留 terminal 燃料 3000（得 ' + JSON.stringify(s1 && { to: s1.to.name, a: s1.amount, c: s1.cost }) + '）');
     world.time += 10;
-    const s1b = term.planSenders([tR('W33S7', 90000, 30000, 8), tR('W38S7', 4000, 1000), tR('W33S3', 90000, 8000)], tcfg);
-    assert(s1b && s1b.to.name === 'W33S3', '10-22 11:18 W38S7 排最后：W33S3 还缺就先送 W33S3（得 ' + JSON.stringify(s1b && s1b.to.name) + '）');
+    rs1[3] = tP('W31S6', 120000, 7000, 1200000); Game.rooms = {}; rs1.forEach((r) => { Game.rooms[r.name] = r; });
+    const s1b = term.planSenders(rs1, tcfg);
+    assert(s1b && s1b.to.name === 'W31S4', 'W31S6 已到 receiverBelow 10 万：轮到下一个离 RCL8 最近的 W31S4（得 ' + JSON.stringify(s1b && s1b.to.name) + '）');
     world.time += 10;
-    assert(term.planSenders([tR('W33S7', 90000, 30000, 8), tR('W38S7', 60000, 1000)], tcfg) === null, 'W38S7 storage 6 万（terminal 只 1000）：不收');
-    world.time += 10;
-    const s1c = term.planSenders([tR('W33S7', 90000, 30000, 8), tR('W38S7', 40000, 30000)], tcfg);
-    assert(s1c && s1c.to.name === 'W38S7', 'W38S7 storage 4 万 < 5 万：才收（只看 storage）');
+    const rs2 = [tR('W33S7', 90000, 30000, 8), tR('W38S7', 4000, 1000, 8), tR('W33S3', 9000, 1000, 8), tR('W31S8', 9000, 1000, 8)];
+    Game.rooms = {}; rs2.forEach((r) => { Game.rooms[r.name] = r; });
+    assert(term.planSenders(rs2, tcfg) === null, '10-24 W38S7/W33S3/W31S8 都是 RCL8：不再收 W33S7 的能量');
+    Game.rooms = savedGR;
     assert(config.industry.terminalFillByRoom.W38S7.storageAbove === 5000 && config.rampartFloorByPos.W33S3['47,12'] === 20000, 'W38S7 terminal 从自家 storage 补；W33S3 (47,12) rampart 2 万');
     world.time += 10;
     assert(term.planSenders([tR('W33S7', 54000, 30000, 8), tR('W31S8', 14000, 7000)], tcfg) === null, 'storage 5.4 万：多出不到 5000，不送（storage 留 5 万）');
@@ -17703,19 +17714,19 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const mk = require('../src/market');
     assert(mk.sellOnce === undefined || true, 'market 加载');
     const ownRooms = Object.keys(config.remote.assign);
-    assert(tcfg.forward.filter((f) => f.resource === 'GH2O' || f.resource === 'XGH2O').every((f) => ownRooms.includes(f.from) && ownRooms.includes(f.to) && f.to === 'W33S7'), 'GH2O/XGH2O 只在自己房之间送（W32S4/W33S3 → W33S7）');
+    assert(tcfg.forward.filter((f) => f.resource === 'GH2O' || f.resource === 'XGH2O').every((f) => ownRooms.includes(f.from) && f.toList === 'boost' && f.resource === 'XGH2O') && term.forwardRules(tcfg).filter((f) => f.resource === 'XGH2O').every((f) => config.industry.upgraderBoostOrder.includes(f.to)), '10-24 XGH2O 只在自己房之间送（W32S4/W33S3 → upgraderBoostOrder 里的 RCL7 房），GH2O 不再转运');
     const ind = require('../src/industry');
     const savedR = global.REACTIONS;
     global.REACTIONS = { H: { O: 'OH' }, O: { H: 'OH' } };
-    const br = makeRoom('W33S7', { rcl: 8, energy: 12900, cap: 12900, owner: 'me' });
+    const br = makeRoom('W31S4', { rcl: 7, energy: 12900, cap: 12900, owner: 'me' });
     makeStructure(br, C.STRUCTURE_STORAGE, 24, 22, { id: 'bsStore', capacity: 1000000, energy: 90000 });
     const bterm = makeStructure(br, C.STRUCTURE_TERMINAL, 25, 22, { id: 'bsTerm', capacity: 300000, energy: 30000, extraStore: { H: 3000, O: 3000, XGH2O: 300 } });
     for (const [x, id] of [[35, 'bl1'], [36, 'bl2'], [37, 'bl3'], [10, 'bl9']]) makeStructure(br, C.STRUCTURE_LAB, x, x === 10 ? 40 : 21, { id, capacity: 3000, energy: 2000 });
-    Memory.rooms.W33S7 = {};
+    Memory.rooms.W31S4 = {};
     world.time++;
     const bp1 = ind.labPlan(br);
     const bw1 = bp1.wants.find((w) => w.boost);
-    assert(bp1.product === null && bw1 && bw1.mineral === 'XGH2O' && bw1.amount === 300 && bp1.wants.length === 1, 'W33S7 只做 boost 不做反应；10-20 XGH2O 300 ≥ 150（够 5 WORK）：装进 boost lab（得 ' + JSON.stringify(bp1.wants) + '）');
+    assert(bp1.product === null && bw1 && bw1.mineral === 'XGH2O' && bw1.amount === 300 && bp1.wants.length === 1, 'W31S4 只做 boost 不做反应；10-20 XGH2O 300 ≥ 150（够 5 WORK）：装进 boost lab（得 ' + JSON.stringify(bp1.wants) + '）');
     world.time++;
     bterm.store.XGH2O = 149;
     const bp0 = ind.labPlan(br);
@@ -17724,13 +17735,14 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     bterm.store.GH2O = 600;
     const bp2 = ind.labPlan(br);
     const bw = bp2.wants.find((w) => w.boost);
-    assert(bp2.product === null && bw && bw.mineral === 'GH2O' && bw.amount === 600 && bp2.wants.length === 1, 'XGH2O 149 不够、GH2O 600 ≥ 150：装 GH2O（得 ' + JSON.stringify(bp2.wants) + '）');
-    assert(require('../src/spawn').labTechTarget(br, Memory.rooms.W33S7) === 1, 'W33S7 不在 labRooms 也给 boost lab 孵 labTech');
+    assert(bp2.product === null && !bw && !bp2.wants.length, '10-24 只用 XGH2O：XGH2O 149 不够、有 GH2O 600 也不装（得 ' + JSON.stringify(bp2.wants) + '）');
+    world.time++; bterm.store.XGH2O = 300;
+    assert(require('../src/spawn').labTechTarget(br, Memory.rooms.W31S4) === 1, 'W31S4 不在 labRooms 也给 boost lab 孵 labTech');
     global.REACTIONS = savedR;
-    const upC = makeCreep(br, 'bUp', Array(15).fill('work').concat(['carry', 'move']), { home: 'W33S7', role: 'upgrader' });
+    const upC = makeCreep(br, 'bUp', Array(15).fill('work').concat(['carry', 'move']), { home: 'W31S4', role: 'upgrader' });
     world.creeps[upC.name] = upC;
     try { ROLES.upgrader.run(upC); } catch (e) {}
-    assert(JSON.stringify(upC.memory.boosts) === JSON.stringify(['XGH2O', 'GH2O']) && upC.memory.boostMinParts === 5, 'W33S7 upgrader 要 XGH2O 优先、GH2O 其次，至少 5 WORK 就上');
+    assert(JSON.stringify(upC.memory.boosts) === JSON.stringify(['XGH2O']) && upC.memory.boostMinParts === 5, '10-24 W31S4（RCL7，boost 名单第一）upgrader 只要 XGH2O，至少 5 WORK 就上');
     const boostMod = require('../src/boost');
     assert(boostMod.pending(upC) === false, 'boost lab 空着：不等待，不卡升级/孵化');
 
@@ -18061,6 +18073,8 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
 {
     console.log('== 10-20 15:29 B W33S7 boost lab：XGH2O 优先，剩的不够一次 boost 就清走换 GH2O；GH2O 也转运 ==');
     resetWorld(121000);
+    const savedBC = config.industry.boostCompoundsByRoom, savedML = config.industry.boostMinLoadByRoom;
+    config.industry.boostCompoundsByRoom = Object.assign({}, savedBC, { W33S7: ['XGH2O', 'GH2O'] }); config.industry.boostMinLoadByRoom = Object.assign({}, savedML, { W33S7: 150 });
     Memory.rooms = {};
     const ind = require('../src/industry');
     const r = makeRoom('W33S7', { rcl: 8, energy: 300, cap: 300, owner: 'me' });
@@ -18090,9 +18104,10 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     waiting.memory.boostDone = true;
     p = ind.labPlan(r);
     assert(p.drains.some((d) => d.labId === 'bsBoost' && d.mineral === 'GH2O') && Memory.rooms.W33S7.boostSwitch.to === 'XGH2O', '没人等：清掉 GH2O，换回 XGH2O（XGH2O 优先）');
+    config.industry.boostCompoundsByRoom = savedBC; config.industry.boostMinLoadByRoom = savedML;
     const fw = config.terminalNetwork.forward;
-    assert(fw.some((f) => f.from === 'W33S3' && f.to === 'W33S7' && f.resource === 'GH2O') && fw.some((f) => f.from === 'W32S4' && f.to === 'W33S7' && f.resource === 'GH2O' && f.minBatch === 150),
-        'GH2O 跟 XGH2O 一样转运到 W33S7（W33S3 和 W32S4 两路）');
+    assert(!fw.some((f) => f.to === 'W33S7') && fw.some((f) => f.from === 'W33S3' && f.toList === 'boost' && f.resource === 'XGH2O' && f.minBatch === 150) && JSON.stringify(config.industry.boostCompoundsByRoom.W33S7) === '[]',
+        '10-24：W33S7 到 RCL8 不再 boost（boost lab 清空），XGH2O 改按 upgraderBoostOrder 转运');
 }
 
 {
@@ -18135,7 +18150,7 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
     const utils = require('../src/utils');
     const tm = require('terminal');
     const tcfg = tm.settings();
-    assert(tcfg.priorityReceivers.indexOf('W37S5') < 0 && tcfg.priorityReceivers.indexOf('W38S7') < 0 && config.terminalNetwork.senders.W33S7.to.indexOf('W37S5') < 0 && JSON.stringify(tcfg.burnRooms) === JSON.stringify(['W37S5']),
+    assert(tcfg.priorityReceivers.indexOf('W37S5') < 0 && tcfg.priorityReceivers.indexOf('W38S7') < 0 && (config.terminalNetwork.senders.W33S7.to || []).indexOf('W37S5') < 0 && JSON.stringify(tcfg.burnRooms) === JSON.stringify(['W37S5']),
         '10-22 W37S5/W38S7 移出 priorityReceivers，W37S5 也移出 W33S7 发送名单');
     const plan = { links: { store: { x: 20, y: 31 }, ctrl: { x: 21, y: 21 } } };
     const ur = (e, lvl) => ({ name: 'W37S5', controller: { my: true, level: lvl || 7 }, storage: { my: true, store: { energy: e } } });
@@ -18158,8 +18173,11 @@ console.log('== 10-19 14:04 工地上限：路留 30、非路每房 5 全局 60�
         '10-22 W37S5 不在 priorityReceivers：富房 W33S8 不再送去烧（得 ' + JSON.stringify(pl && { f: pl.from.name, t: pl.to.name, a: pl.amount }) + '）');
     pl = tm.planStarving([W('W37S5', 52000, 30000), W('W33S8', 60000, 30000)], tcfg, rich);
     assert(!pl, '富房自己不到 sendAbove 10 万：不送去烧');
-    pl = tm.planStarving([W('W37S5', 52000, 30000), W('W33S8', 120000, 30000), W('W31S8', 3000, 2000)], tcfg, rich);
-    assert(pl && pl.to.name === 'W31S8', '真饿（<1 万）的 W31S8 先于烧能量房');
+    const starveRs = [W('W37S5', 52000, 30000), W('W33S8', 120000, 30000, 8), W('W31S4', 3000, 2000)];
+    const savedGRs = Game.rooms; Game.rooms = {}; starveRs.forEach((r) => { Game.rooms[r.name] = r; });
+    pl = tm.planStarving(starveRs, tcfg, rich);
+    Game.rooms = savedGRs;
+    assert(pl && pl.to.name === 'W31S4', '10-24 真饿（<1 万）的 RCL7 房 W31S4 先于烧能量房');
     pl = tm.planStarving([W('W37S5', 52000, 30000, 8), W('W33S8', 120000, 30000)], tcfg, rich);
     assert(!pl || pl.to.name !== 'W37S5', 'W37S5 到 RCL8：不再收');
     assert(tm.burnRoom(tcfg, W('W37S5', 1, 1, 8)) === 0 && tm.burnRoom(tcfg, W('W37S5', 1, 1, 7)) === 1, 'burnRoom 在 RCL8 自动为 0');
